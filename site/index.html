@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>postflop: a heads-up NLHE GTO solver that measures its own convergence</title>
+<meta name="description" content="Open-source postflop GTO solver: Rust Discounted CFR engine with a best-response exploitability calculator, CLI, WebAssembly build, and a browser workbench. Every reported number is measured, never asserted.">
+<meta property="og:title" content="postflop">
+<meta property="og:description" content="A heads-up NLHE postflop GTO solver in Rust. Exploitability measured, never asserted.">
+<meta property="og:image" content="https://postflop.vercel.app/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://postflop.vercel.app/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="postflop">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="postflop">
+<meta name="twitter:description" content="A heads-up NLHE postflop GTO solver in Rust. Exploitability measured, never asserted.">
+<meta name="twitter:image" content="https://postflop.vercel.app/og.png">
+<link rel="canonical" href="https://postflop.vercel.app/">
+<meta name="theme-color" content="#070a11">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "postflop",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Windows, macOS, Linux, Web",
+  "description": "Open-source heads-up no-limit hold'em postflop GTO solver: Rust Discounted CFR engine with a best-response exploitability calculator, CLI, WebAssembly build, and a browser workbench.",
+  "url": "https://postflop.vercel.app/",
+  "license": "https://github.com/ucsandman/postflop/blob/master/LICENSE",
+  "codeRepository": "https://github.com/ucsandman/postflop",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23e0aa4e' d='M16 3C13 9 6 13 6 19c0 3.3 2.5 5.5 5.5 5.5 1.7 0 3.2-.7 4.5-2.1V27h-4v2h8v-2h-2v-4.6c1.3 1.4 2.8 2.1 4.5 2.1 3 0 5.5-2.2 5.5-5.5 0-6-7-10-12-16z'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #070a11;
+  --panel: #0f141d;
+  --raised: #161d29;
+  --line: #222b3a;
+  --line-soft: #1a2230;
+  --text: #dce2ee;
+  --muted: #97a1b6;
+  --dim: #7a8499;
+  --gold: #e0aa4e;
+  --gold-deep: #a87d33;
+  --heart: #e4736f;
+  --diamond: #6ba6e2;
+  --club: #62c58c;
+  --spade: #dfe5f0;
+  --font-display: "Bricolage Grotesque", system-ui, sans-serif;
+  --font-mono: "Spline Sans Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --measure: 68ch;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--gold); color: var(--ink); }
+
+a { color: var(--gold); text-decoration-color: color-mix(in oklab, var(--gold) 40%, transparent); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--gold); }
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 2px; }
+
+h1, h2, h3 { text-wrap: balance; line-height: 1.08; font-weight: 700; }
+p { text-wrap: pretty; }
+code, pre, .mono { font-family: var(--font-mono); }
+
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 clamp(20px, 4vw, 48px); }
+
+/* ---------- header ---------- */
+header {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in oklab, var(--ink) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line-soft);
+}
+.nav {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 60px;
+}
+.wordmark {
+  font-weight: 800; font-size: 20px; letter-spacing: -0.02em;
+  color: var(--text); text-decoration: none;
+  display: flex; align-items: baseline; gap: 2px;
+}
+.wordmark .tick { color: var(--gold); }
+.nav-links { display: flex; gap: clamp(16px, 3vw, 32px); align-items: center; font-size: 15px; }
+.nav-links a { color: var(--muted); text-decoration: none; padding: 10px 2px; }
+.nav-links a:hover { color: var(--text); }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-weight: 600; font-size: 15px; text-decoration: none;
+  padding: 10px 18px; border-radius: 6px;
+  transition: transform 0.18s cubic-bezier(0.22,1,0.36,1), background 0.18s ease;
+}
+.btn-gold { background: var(--gold); color: #14100a; }
+.btn-gold:hover { background: #eab95f; transform: translateY(-1px); }
+.btn-ghost { border: 1px solid var(--line); color: var(--text); }
+.btn-ghost:hover { border-color: var(--dim); transform: translateY(-1px); }
+.btn:active { transform: translateY(0); transition-duration: 0.05s; }
+@media (prefers-reduced-motion: reduce) { .btn, .btn:hover, .btn:active { transform: none; transition: none; } }
+.nav .btn { padding: 7px 14px; }
+
+/* ---------- hero ---------- */
+.hero {
+  position: relative;
+  padding: clamp(64px, 10vh, 128px) 0 clamp(48px, 7vh, 96px);
+  overflow: hidden;
+}
+.hero-grid-bg {
+  position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    linear-gradient(var(--line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+  background-size: 52px 52px;
+  mask-image: radial-gradient(ellipse 75% 60% at 65% 20%, black 0%, transparent 70%);
+  opacity: 0.55;
+}
+.hero-inner { position: relative; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: clamp(32px, 5vw, 72px); align-items: center; }
+.hero h1 {
+  font-size: clamp(2.6rem, 6vw, 4.6rem);
+  letter-spacing: -0.028em;
+  font-weight: 800;
+}
+.hero h1 .measured { color: var(--gold); }
+.hero .lede {
+  margin-top: 24px; font-size: clamp(1.05rem, 1.4vw, 1.2rem);
+  color: var(--muted); max-width: 54ch;
+}
+.hero .lede strong { color: var(--text); font-weight: 600; }
+.hero-ctas { margin-top: 36px; display: flex; gap: 14px; flex-wrap: wrap; }
+.hero-sub { margin-top: 22px; font-size: 14px; color: var(--dim); }
+.hero-sub code { color: var(--muted); font-size: 13px; background: var(--panel); border: 1px solid var(--line-soft); padding: 2px 7px; border-radius: 5px; }
+
+/* solve log terminal */
+.term {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px -24px rgba(0,0,0,0.7);
+  overflow: hidden;
+  font-size: clamp(11px, 0.9vw, 12.5px);
+}
+.term-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border-bottom: 1px solid var(--line-soft);
+  color: var(--dim); font-family: var(--font-mono); font-size: 12px;
+}
+.term-bar .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--raised); border: 1px solid var(--line); }
+.term-bar .cmd { margin-left: 6px; }
+.term-body { padding: 16px 18px 18px; font-family: var(--font-mono); line-height: 1.75; white-space: pre; overflow-x: auto; scrollbar-width: none; }
+.term-body::-webkit-scrollbar { display: none; }
+.term-body .row { opacity: 0; }
+.term-body .row.on { opacity: 1; transition: opacity 0.25s ease; }
+.term-body .it { color: var(--dim); }
+.term-body .val { color: var(--text); font-weight: 500; }
+.term-body .pct { color: var(--diamond); }
+.term-body .tag { color: var(--gold); }
+.term-body .hd { color: var(--club); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) {
+  .term-body .row { opacity: 1; transition: none; }
+}
+
+/* ---------- sections ---------- */
+section { padding: clamp(56px, 9vh, 112px) 0; scroll-margin-top: 60px; }
+section + section { border-top: 1px solid var(--line-soft); }
+.section-head { max-width: var(--measure); }
+.section-head h2 {
+  font-size: clamp(1.8rem, 3.4vw, 2.7rem);
+  letter-spacing: -0.022em;
+}
+.section-head p { margin-top: 18px; color: var(--muted); font-size: 1.05rem; }
+.section-head p strong { color: var(--text); font-weight: 600; }
+
+/* what it does: screenshot led */
+.shot-frame {
+  margin-top: 48px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel);
+  box-shadow: 0 32px 80px -32px rgba(0,0,0,0.75);
+}
+.shot-frame img { display: block; width: 100%; height: auto; }
+.shot-caption { margin-top: 14px; font-size: 14px; color: var(--dim); font-family: var(--font-mono); }
+.shot-caption b { color: var(--muted); font-weight: 500; }
+
+/* engine list: definition rows, not cards */
+.engine-rows { margin-top: 56px; display: flex; flex-direction: column; }
+.engine-row {
+  display: grid; grid-template-columns: minmax(0, 0.38fr) minmax(0, 0.62fr);
+  gap: clamp(16px, 4vw, 64px);
+  padding: 30px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.engine-row:last-child { border-bottom: 1px solid var(--line-soft); }
+.engine-row h3 { font-size: 1.25rem; letter-spacing: -0.01em; font-weight: 600; }
+.engine-row h3 .suit { margin-right: 10px; font-size: 1.05em; }
+.engine-row p { color: var(--muted); font-size: 15.5px; max-width: 58ch; }
+.engine-row p code { font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--line-soft); padding: 1px 6px; border-radius: 5px; }
+
+/* measured numbers */
+.bench { margin-top: 52px; overflow-x: auto; }
+.bench table { width: 100%; border-collapse: collapse; min-width: 640px; }
+.bench th {
+  text-align: left; font-weight: 600; font-size: 14px; color: var(--dim);
+  padding: 0 16px 12px 0; border-bottom: 1px solid var(--line);
+}
+.bench td { padding: 18px 16px 18px 0; border-bottom: 1px solid var(--line-soft); vertical-align: baseline; }
+.bench td.what { color: var(--muted); font-size: 15.5px; max-width: 44ch; }
+.bench td.num {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  color: var(--text); font-size: 17px; font-weight: 500; white-space: nowrap;
+}
+.bench td.num .unit { color: var(--dim); font-size: 13px; margin-left: 6px; }
+.bench-note { margin-top: 20px; font-size: 14px; color: var(--dim); max-width: var(--measure); }
+.bench-note code { font-size: 12.5px; color: var(--muted); }
+
+/* workbench: alternating media rows */
+.media-row {
+  margin-top: 64px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(28px, 5vw, 72px); align-items: center;
+}
+.media-row.flip .media-copy { order: 2; }
+.media-copy h3 { font-size: clamp(1.4rem, 2.2vw, 1.8rem); letter-spacing: -0.015em; }
+.media-copy p { margin-top: 14px; color: var(--muted); font-size: 15.5px; }
+.media-copy p code { font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--line-soft); padding: 1px 6px; border-radius: 5px; }
+.media-shot { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); box-shadow: 0 20px 50px -20px rgba(0,0,0,0.7); }
+.media-shot img { display: block; width: 100%; height: auto; }
+.media-shot.crop-top img { object-fit: cover; object-position: top; height: 100%; }
+
+/* correctness: a real gated sequence, numbering earned */
+.gates { margin-top: 56px; counter-reset: gate; display: flex; flex-direction: column; gap: 0; }
+.gate {
+  counter-increment: gate;
+  display: grid; grid-template-columns: 72px minmax(0, 1fr);
+  gap: clamp(12px, 3vw, 40px);
+  padding: 28px 0; border-top: 1px solid var(--line-soft);
+}
+.gate:last-child { border-bottom: 1px solid var(--line-soft); }
+.gate::before {
+  content: counter(gate);
+  font-family: var(--font-mono); font-size: 32px; font-weight: 600;
+  color: var(--gold); line-height: 1.1;
+}
+.gate h3 { font-size: 1.15rem; font-weight: 600; }
+.gate p { margin-top: 8px; color: var(--muted); font-size: 15px; max-width: 66ch; }
+.gate p code { font-size: 12.5px; color: var(--text); }
+.beyond { margin-top: 40px; max-width: var(--measure); color: var(--muted); font-size: 15.5px; }
+.beyond .mono-stat { font-family: var(--font-mono); color: var(--text); font-variant-numeric: tabular-nums; font-size: 0.92em; }
+
+/* quick start */
+.qs-cols { margin-top: 48px; display: grid; grid-template-columns: minmax(0, 0.55fr) minmax(0, 0.45fr); gap: clamp(24px, 4vw, 56px); align-items: start; }
+pre.code {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 20px 22px;
+  font-size: 13px; line-height: 1.7; overflow-x: auto; color: var(--text);
+}
+pre.code .c { color: var(--dim); }
+pre.code .k { color: var(--gold); }
+pre.code .s { color: var(--club); }
+pre.code .p { color: var(--dim); }
+.qs-steps { display: flex; flex-direction: column; gap: 26px; }
+.qs-steps h3 { font-size: 1.1rem; font-weight: 600; }
+.qs-steps p { margin-top: 6px; color: var(--muted); font-size: 15px; }
+.qs-steps pre.code { margin-top: 12px; padding: 13px 16px; }
+
+/* footer */
+footer { border-top: 1px solid var(--line-soft); padding: 48px 0 64px; }
+.foot { display: flex; justify-content: space-between; align-items: baseline; gap: 24px; flex-wrap: wrap; }
+.foot .suits { font-size: 15px; letter-spacing: 6px; }
+.foot .suits .s1 { color: var(--spade); }
+.foot .suits .s2 { color: var(--heart); }
+.foot .suits .s3 { color: var(--diamond); }
+.foot .suits .s4 { color: var(--club); }
+.foot p { color: var(--dim); font-size: 14px; }
+.foot nav { display: flex; gap: 24px; font-size: 14px; }
+
+@media (max-width: 880px) {
+  .hero-inner { grid-template-columns: 1fr; }
+  .media-row { grid-template-columns: 1fr; }
+  .media-row.flip .media-copy { order: 0; }
+  .qs-cols { grid-template-columns: 1fr; }
+  .engine-row { grid-template-columns: 1fr; gap: 8px; padding: 24px 0; }
+  .gate { grid-template-columns: 48px minmax(0,1fr); }
+  .gate::before { font-size: 24px; }
+  .nav-links a.hide-sm { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="wordmark" href="#">postflop<span class="tick">.</span></a>
+    <nav class="nav-links">
+      <a class="hide-sm" href="#engine">Engine</a>
+      <a class="hide-sm" href="#numbers">Numbers</a>
+      <a class="hide-sm" href="#workbench">Workbench</a>
+      <a class="hide-sm" href="#correctness">Correctness</a>
+      <a class="btn btn-gold" href="https://github.com/ucsandman/postflop">View on GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="hero" aria-label="Introduction">
+  <div class="hero-grid-bg" aria-hidden="true"></div>
+  <div class="wrap hero-inner">
+    <div>
+      <h1>Convergence is <span class="measured">measured</span>, never asserted.</h1>
+      <p class="lede">postflop is an open-source heads-up no-limit hold'em GTO solver: a Rust Discounted CFR engine with a full best-response exploitability calculator, a native CLI, WebAssembly bindings, and a browser workbench. <strong>Every exploitability and EV figure it prints comes straight out of the best-response calculator.</strong></p>
+      <div class="hero-ctas">
+        <a class="btn btn-gold" href="https://postflop-workbench.vercel.app">Open the workbench</a>
+        <a class="btn btn-ghost" href="https://github.com/ucsandman/postflop">Read the source on GitHub</a>
+      </div>
+      <p class="hero-sub">MIT licensed · Rust engine · solves right in your browser, nothing to install</p>
+    </div>
+    <div class="term" role="img" aria-label="Terminal output of a solve: exploitability falls from 0.40% to 0.12% of pot over 200 iterations, each report tagged [measured]">
+      <div class="term-bar" aria-hidden="true">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="cmd">solver solve --config spot.toml</span>
+      </div>
+      <div class="term-body" id="solve-log" aria-hidden="true"></div>
+    </div>
+  </div>
+</section>
+
+<section id="engine" aria-label="What it does">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Give it a spot. Walk the whole tree.</h2>
+      <p>Board, both ranges, stacks, pot, bet sizings, in a small TOML file. The engine computes an approximate Nash equilibrium with a measured exploitability bound, then lets you inspect everything: per-hand strategies, per-hand EVs, action frequencies, and every runout.</p>
+    </div>
+    <figure class="shot-frame" style="max-width: 980px;">
+      <img src="screens/01-inspector-grid.png" alt="The postflop inspector: a 13 by 13 hand grid where each cell shows stacked action-frequency bars, next to a tree navigator and per-combo strategy breakdown" width="1600" height="1000" loading="eager">
+    </figure>
+    <figcaption class="shot-caption"><b>The inspector.</b> 13×13 rank grid, action frequencies weighted by live combo reach.</figcaption>
+
+    <div class="engine-rows">
+      <div class="engine-row">
+        <h3><span class="suit" style="color:var(--spade)">♠</span>Discounted CFR, full vector traversal</h3>
+        <p>Brown &amp; Sandholm's DCFR with alternating updates (α=1.5, β=0, γ=2, all configurable), a γ-weighted average strategy, and an optional CFR+-style regret floor. Every hand combo is traversed on every iteration. No sampling in the solve path.</p>
+      </div>
+      <div class="engine-row">
+        <h3><span class="suit" style="color:var(--heart)">♥</span>Exact card removal everywhere</h3>
+        <p>Fold and showdown evaluation run O(N+M) sweeps with per-card weight sums and inclusion–exclusion; ties are handled as distinct rank groups. Blocked combos are filtered out of the working vectors, never zero-weighted: 1176 live combos on a flop, 1128 on the turn, 1081 on the river.</p>
+      </div>
+      <div class="engine-row">
+        <h3><span class="suit" style="color:var(--diamond)">♦</span>Deterministic parallelism</h3>
+        <p>The traversal fans out across chance-node runouts with rayon using a parallel-map, sequential-reduce design. Solved strategies are bit-identical for every thread count: 1 thread and 24 threads produce the same file.</p>
+      </div>
+      <div class="engine-row">
+        <h3><span class="suit" style="color:var(--club)">♣</span>Memory-conscious by construction</h3>
+        <p>Flat arena game tree with no pointer chasing, chance tables shared across betting lines by board, and an optional <code>i16</code> storage mode with per-node scale factors that roughly halves peak memory and documents its quantization floor.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="numbers" aria-label="Measured performance">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Nothing on this page is estimated.</h2>
+      <p>All numbers below were measured on a 24-logical-core Windows machine using the benchmark harnesses committed in <strong>engine/examples/</strong>. Run them yourself.</p>
+    </div>
+    <div class="bench">
+      <table>
+        <thead><tr><th scope="col">Workload</th><th scope="col">Result</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="what">7-card hand evaluation, 10M-hand pool, best of 3 passes</td>
+            <td class="num">77,000,000<span class="unit">evals / sec</span></td>
+          </tr>
+          <tr>
+            <td class="what">Full flop solve: 830k-node tree, 305 vs 196 combos, 1 thread → 24 threads</td>
+            <td class="num">2524 → 370<span class="unit">ms / iter (6.8×)</span></td>
+          </tr>
+          <tr>
+            <td class="what">Peak memory on that same spot (f32 storage; ~0.52× with i16)</td>
+            <td class="num">1513<span class="unit">MB</span></td>
+          </tr>
+          <tr>
+            <td class="what">Turn spot, 1,881 nodes, solved to 0.12% of pot</td>
+            <td class="num">0.2<span class="unit">s</span></td>
+          </tr>
+          <tr>
+            <td class="what">Toy river spot: 20k iterations plus 200 best-response reports</td>
+            <td class="num">32<span class="unit">ms</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="bench-note">Reproduce the flop benchmark: <code>cargo run -p engine --release --example solve_flop -- engine/examples/configs/milestone4.toml 400</code></p>
+  </div>
+</section>
+
+<section id="workbench" aria-label="Browser workbench">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>The workbench runs in your browser.</h2>
+      <p>The same engine, compiled to WebAssembly, running in a Web Worker with a live exploitability curve and a memory preflight. Load a solution produced by the CLI, or solve small spots directly on the page. JSON export round-trips through both the browser and the CLI.</p>
+      <div class="hero-ctas" style="margin-top: 28px;">
+        <a class="btn btn-gold" href="https://postflop-workbench.vercel.app">Open the workbench</a>
+      </div>
+    </div>
+
+    <div class="media-row">
+      <div class="media-copy">
+        <h3>Drill into any combo</h3>
+        <p>Click a cell and see every combo behind it: per-combo weights, the full action mix, and per-hand EVs in zero-sum chips. The IP range panel alongside shows reach-weighted density at the same node.</p>
+      </div>
+      <figure class="media-shot"><img src="screens/02-combo-breakdown.png" alt="Combo drill-down: the AKo cell expanded into twelve combos, each with weight, a stacked strategy bar, and its EV in chips, next to the reach-weighted IP range" width="1600" height="1000" loading="lazy"></figure>
+    </div>
+
+    <div class="media-row flip">
+      <div class="media-copy">
+        <h3>Paint ranges by hand or by weight</h3>
+        <p>An interactive range editor with paintable grids, a weight brush, a top-X% slider, and preset spots. Ranges accept standard and PioSOLVER notation, weighted combos included, over all 1326 combos.</p>
+      </div>
+      <figure class="media-shot"><img src="screens/05-range-editor.png" alt="The range editor: a paintable 13 by 13 grid with per-hand weights, a weight brush, and a top-percent slider" width="1005" height="1061" loading="lazy"></figure>
+    </div>
+
+    <div class="media-row">
+      <div class="media-copy">
+        <h3>Watch it converge, live</h3>
+        <p>Solves report exploitability at every interval while they run. The curve you watch is the best-response calculator's own output, in chips and as a percentage of the pot, recomputed at every report.</p>
+      </div>
+      <figure class="media-shot crop-top" style="aspect-ratio: 1600 / 620;"><img src="screens/04-solve-progress.png" alt="A solve in progress: the in-browser solve form with a tree-stats preflight and a live exploitability curve falling over 17 reports" width="1600" height="1000" loading="lazy"></figure>
+    </div>
+
+    <figure class="media-shot crop-top" style="margin-top: 64px; aspect-ratio: 1600 / 290;"><img src="screens/03-runout-selector.png" alt="The runout selector: a 52-card panel grouped by suit with dead cards disabled, re-rooting the inspector at any turn or river card" width="1600" height="1000" loading="lazy"></figure>
+    <figcaption class="shot-caption"><b>Every runout.</b> A 52-card selector re-roots the inspector at any turn or river card; dead cards are disabled.</figcaption>
+  </div>
+</section>
+
+<section id="correctness" aria-label="Correctness">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Validated through four gated milestones.</h2>
+      <p>In order, each with its committed test evidence. A milestone did not open until the previous one passed.</p>
+    </div>
+    <div class="gates">
+      <div class="gate">
+        <div>
+          <h3>Kuhn poker</h3>
+          <p>Converges to the known analytic equilibrium family: exploitability 0.002% of pot, K-bet equal to 3× J-bet, game value −1/18.</p>
+        </div>
+      </div>
+      <div class="gate">
+        <div>
+          <h3>AKQ half-street game</h3>
+          <p>Matches the closed-form equilibrium derived from the indifference conditions, including the boundary case B ≥ P where the Nash set is a segment rather than a point.</p>
+        </div>
+      </div>
+      <div class="gate">
+        <div>
+          <h3>River spot</h3>
+          <p>Indifference conditions verified against hand algebra for named combos (bluff EV equals check EV, call EV equals fold EV within 1e-3). Bluff ratio 1/3 and minimum defense frequency 1/2 recovered on a blocker-free construction.</p>
+        </div>
+      </div>
+      <div class="gate">
+        <div>
+          <h3>Full flop spot</h3>
+          <p>An 830k-node tree whose exploitability falls monotonically from 16.5% to 0.22% of pot, zero-sum error at 7e-7, bit-identical across 1, 8, and 24-thread pools.</p>
+        </div>
+      </div>
+    </div>
+    <p class="beyond">Beyond the milestones: the 7-card evaluator is checked against a slow reference on <span class="mono-stat">1,000,000</span> random hands and exhaustively on all <span class="mono-stat">2,598,960</span> five-card hands with zero mismatches. Terminal sweeps are property-tested against naive O(N·M) oracles at full 1081-combo width. Suit isomorphism is exhaustively verified over all <span class="mono-stat">22,100</span> flops. And where the engine approximates, it says so: the CLI refuses the turn-sampling flag until an exact-labeled sampling mode exists. The solver never silently approximates.</p>
+  </div>
+</section>
+
+<section id="quickstart" aria-label="Quick start">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Solve your first spot.</h2>
+      <p>A spot is a small TOML file. Requires Rust (stable); Node 20+ and wasm-pack for the web UI.</p>
+    </div>
+    <div class="qs-cols">
+      <pre class="code" aria-label="Example spot configuration in TOML"><span class="c"># spot.toml</span>
+<span class="k">board</span> = <span class="s">"Qs Jh 2h"</span>
+<span class="k">oop_range</span> = <span class="s">"22+,ATs+,KTs+,QTs+,JTs,T9s,98s,ATo+,KJo+"</span>
+<span class="k">ip_range</span> = <span class="s">"66+,A9s+,KTs+,QTs+,JTs,ATo+,KQo"</span>
+<span class="k">effective_stack</span> = 40.0
+<span class="k">starting_pot</span> = 6.0
+<span class="k">max_iterations</span> = 600
+<span class="k">target_exploitability</span> = 0.5  <span class="c"># stop at 0.5% of pot</span>
+
+[<span class="k">sizings.oop.flop</span>]
+<span class="k">bet</span> = { percents = [50.0], allin = false }
+[<span class="k">sizings.ip.flop</span>]
+<span class="k">bet</span> = { percents = [50.0], allin = false }
+<span class="k">raise</span> = { percents = [60.0], allin = false }</pre>
+      <div class="qs-steps">
+        <div>
+          <h3>1 · Build and solve</h3>
+          <pre class="code">cargo build --release
+solver solve --config spot.toml \
+  --report-every 100 --out solution.json</pre>
+        </div>
+        <div>
+          <h3>2 · Inspect any line</h3>
+          <p><code>show</code> never re-solves: it rebuilds the deterministic tree and validates the file against it.</p>
+          <pre class="code">solver show --solution solution.json \
+  --line "check,bet:50" --combo AhKh</pre>
+        </div>
+        <div>
+          <h3>3 · Or skip all of that</h3>
+          <p>Solve small spots with nothing installed at <a href="https://postflop-workbench.vercel.app">the hosted workbench</a>, or run it locally: one command builds whatever is missing and opens it.</p>
+          <pre class="code">python launch.py</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <p class="suits" aria-hidden="true"><span class="s1">♠</span><span class="s2">♥</span><span class="s3">♦</span><span class="s4">♣</span></p>
+      <p style="margin-top:10px;">postflop · MIT licensed · written in Rust</p>
+    </div>
+    <nav aria-label="Footer">
+      <a href="https://postflop-workbench.vercel.app">Workbench</a>
+      <a href="https://github.com/ucsandman/postflop">GitHub repository</a>
+      <a href="https://github.com/ucsandman/postflop#quick-start">Documentation</a>
+      <a href="https://github.com/ucsandman/postflop/blob/master/LICENSE">License</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
+<script>
+(function () {
+  // Real output shape from the README's solve run.
+  var rows = [
+    '<span class="it">iter 100</span>  exploitability <span class="pct">0.4043% of pot</span>  <span class="tag">[measured]</span>',
+    '<span class="it">iter 200</span>  exploitability <span class="pct">0.1209% of pot</span>  <span class="tag">[measured]</span>',
+    '<span class="hd">=== final report ===</span>',
+    'OOP EV  pot-share <span class="val">2.6994</span>  <span class="tag">[measured]</span>',
+    'IP  EV  pot-share <span class="val">3.3006</span>  <span class="tag">[measured]</span>'
+  ];
+  var log = document.getElementById('solve-log');
+  log.innerHTML = rows.map(function (r) { return '<div class="row">' + r + '</div>'; }).join('');
+  var els = log.querySelectorAll('.row');
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) {
+    els.forEach(function (el) { el.classList.add('on'); });
+    return;
+  }
+  els.forEach(function (el, i) {
+    setTimeout(function () { el.classList.add('on'); }, 500 + i * 550);
+  });
+})();
+</script>
+
+</body>
+</html>

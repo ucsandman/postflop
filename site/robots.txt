@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://postflop.vercel.app/sitemap.xml

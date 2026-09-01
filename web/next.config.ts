@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Fully static app; export lets the workbench deploy as plain files.
+  output: "export",
 };
 
 export default nextConfig;

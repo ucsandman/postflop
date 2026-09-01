@@ -173,9 +173,9 @@ export default function Workbench() {
       <header className="sticky top-0 z-20 border-b border-line bg-panel/95 backdrop-blur">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
           <div className="flex items-baseline gap-2.5">
-            <span className="text-[15px] font-semibold tracking-tight">
-              <span className="text-accent">◆</span> Solver
-            </span>
+            <a href="https://postflop.vercel.app" className="text-[15px] font-semibold tracking-tight">
+              <span className="text-accent">♠</span> postflop
+            </a>
             <span className="hidden text-dim sm:inline">HU NLHE postflop workbench</span>
           </div>
 

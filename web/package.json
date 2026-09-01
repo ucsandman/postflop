@@ -9,6 +9,7 @@
     "prebuild": "node scripts/sync-wasm.mjs",
     "build": "next build",
     "start": "next start",
+    "deploy": "node scripts/deploy.mjs",
     "lint": "eslint"
   },
   "dependencies": {

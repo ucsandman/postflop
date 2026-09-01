@@ -8,3 +8,7 @@ wasm/pkg/
 wasm/pkg-node/
 web/AGENTS.md
 web/CLAUDE.md
+PRODUCT.md
+.playwright-mcp/
+.vercel/
+web/out/

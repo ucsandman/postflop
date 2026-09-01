@@ -47,3 +47,6 @@ next-env.d.ts
 
 # verification screenshots are committed; scratch is not
 /docs/screens/*.tmp.png
+
+.vercel
+.env*

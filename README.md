@@ -5,6 +5,9 @@ vector-form Discounted CFR with a full best-response exploitability calculator,
 a native CLI, WebAssembly bindings, and a browser workbench for inspecting
 solutions.
 
+**Live:** [postflop.vercel.app](https://postflop.vercel.app) ·
+try the [hosted workbench](https://postflop-workbench.vercel.app), no install needed.
+
 ![Inspector — 13x13 strategy grid with per-combo breakdown](web/docs/screens/01-inspector-grid.png)
 
 ## What it does
@@ -123,6 +126,9 @@ config, validates the file against it, and renders a 13×13 rank grid (or one
 combo's full action distribution).
 
 ### Browser workbench
+
+Hosted at [postflop-workbench.vercel.app](https://postflop-workbench.vercel.app),
+or run it locally:
 
 ```sh
 wasm-pack build wasm --target web --out-dir pkg
