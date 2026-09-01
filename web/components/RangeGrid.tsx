@@ -62,6 +62,7 @@ export default function RangeGrid({
 
   return (
     <div
+      role="group"
       aria-label="13 by 13 range grid, ranks A to 2"
       style={{
         display: "grid",
@@ -88,14 +89,14 @@ export default function RangeGrid({
         const regretFill = cellEv ? regretColor(cellEv.regret, maxRegret) : null;
 
         const title = empty
-          ? `${cell.label} — no live combos here`
+          ? `${cell.label}: no live combos here`
           : mode === "ev"
             ? cellEv && cellEv.bestAction >= 0
-              ? `${cell.label} — best: ${actions?.[cellEv.bestAction]?.text ?? cellEv.bestAction}, margin ${fmtChips(cellEv.margin === Infinity ? 0 : cellEv.margin)} chips`
-              : `${cell.label} — no EV data`
+              ? `${cell.label}: best ${actions?.[cellEv.bestAction]?.text ?? cellEv.bestAction}, margin ${fmtChips(cellEv.margin === Infinity ? 0 : cellEv.margin)} chips`
+              : `${cell.label}: no EV data`
             : mode === "regret"
-              ? `${cell.label} — EV lost ${Number.isNaN(cellEv?.regret ?? NaN) ? "no data" : fmtChips(cellEv!.regret) + " chips"}`
-              : `${cell.label} — ${cell.slots.length} combo${cell.slots.length > 1 ? "s" : ""}, weight ${cell.weight.toFixed(2)}`;
+              ? `${cell.label}: EV lost ${Number.isNaN(cellEv?.regret ?? NaN) ? "no data" : fmtChips(cellEv!.regret) + " chips"}`
+              : `${cell.label}: ${cell.slots.length} combo${cell.slots.length > 1 ? "s" : ""}, weight ${cell.weight.toFixed(2)}`;
 
         return (
           <Fragment key={`${cell.row}-${cell.col}`}>

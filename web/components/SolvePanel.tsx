@@ -182,7 +182,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
 
   return (
     <div className="solve-shell">
-      <section className="col-spot">
+      <section className="col-spot pb-2">
         <div className="bar">
           spot
           <span className="right" style={{ flex: 1, minWidth: 0 }}>
@@ -282,7 +282,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
           <div className="mt-4">
             <span className="label">table context</span>
             <p className="mt-1 text-[11px] text-muted">
-              display only — positions and the player profile each range models. The engine solves
+              display only: positions and the player profile each range models. The engine solves
               the ranges; this labels where they came from.
             </p>
             <div className="mt-2 grid gap-2">
@@ -414,6 +414,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
             disabled={busy !== ""}
             onClick={justPreflight}
             className="btn mt-2 w-full"
+            style={{ height: 40 }}
           >
             Preflight only
           </button>
@@ -425,6 +426,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
         {error && (
           <div
             data-testid="solve-error"
+            role="alert"
             className="shrink-0"
             style={{
               background: "var(--color-err-bg)",
@@ -583,7 +585,7 @@ function LocksPanel({
       {locks.length === 0 ? (
         <p className="p-3 text-[11px] text-muted">
           None. Walk to a decision node in the Inspector and hit{" "}
-          <span className="num text-muted">🔒 lock this node</span> to freeze its strategy here; the
+          <span className="num text-muted">lock node</span> to freeze its strategy here; the
           next solve finds the equilibrium of the rest of the tree <em>given</em> that play, and its
           exploitability is measured against it.
         </p>
@@ -593,7 +595,7 @@ function LocksPanel({
             A lock names its node by the line walked from the root, so it only means anything
             against the tree it was read from. Change the board, ranges, stack or pot and the lock
             below is marked <span style={{ color: "var(--color-err)" }}>stale</span> and the solve
-            refuses to run until it is removed — the same line on another board would resolve
+            refuses to run until it is removed. The same line on another board would resolve
             silently and freeze the wrong strategy.
           </p>
           <ul>
@@ -705,6 +707,7 @@ function StatsPanel({
       )}
       {gate === "hard" && (
         <div
+          role="alert"
           style={{
             background: "var(--color-err-bg)",
             borderTop: "var(--rule) solid var(--color-err)",
@@ -715,11 +718,11 @@ function StatsPanel({
           <Chip>too big for a tab</Chip>
           <p className="mt-1.5 text-[12px]">
             <strong>{fmtBytes(stats?.total_bytes ?? 0)}</strong> is past 1 GB. wasm aborts the module
-            on a failed allocation — the tab will most likely die and take the solve with it. Run
+            on a failed allocation: the tab will most likely die and take the solve with it. Run
             this one on the CLI.
           </p>
           <button onClick={onConfirm} className="btn btn-danger mt-2 w-full">
-            I understand the risk — solve anyway
+            I understand the risk, solve anyway
           </button>
         </div>
       )}

@@ -134,13 +134,15 @@ export default function RangeEditor({
     return idx === undefined ? null : Number(idx);
   };
 
+  /** Clicking a cell that already holds the brush weight clears it; everything else,
+   *  including every cell a drag then crosses, is set to the brush. */
+  const brushValue = (index: number) =>
+    Math.abs(weights[index] - brush / 100) < 1e-9 ? 0 : brush / 100;
+
   const startPaint = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0) return;
     const index = Number(e.currentTarget.dataset.index);
-    const target = brush / 100;
-    // Clicking a cell that already holds the brush weight clears it; everything else,
-    // including every cell the drag then crosses, is set to the brush.
-    const value = Math.abs(weights[index] - target) < 1e-9 ? 0 : target;
+    const value = brushValue(index);
     draft.current = weights;
     painting.current = value;
     last.current = { x: e.clientX, y: e.clientY };
@@ -161,6 +163,16 @@ export default function RangeEditor({
       if (index !== null) paint(index, painting.current);
     }
     last.current = { x: e.clientX, y: e.clientY };
+  };
+
+  /** Keyboard equivalent of a single click: toggle this cell, no drag. */
+  const keyPaint = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    const index = Number(e.currentTarget.dataset.index);
+    const next = weights.slice();
+    next[index] = brushValue(index);
+    emit(next, null);
   };
 
   const endPaint = () => {
@@ -212,6 +224,7 @@ export default function RangeEditor({
               aria-label={`${cell} ${Math.round(w * 100)}%`}
               title={`${cell} — ${comboCount(index)} combos · ${Math.round(w * 100)}%`}
               onPointerDown={startPaint}
+              onKeyDown={keyPaint}
               onPointerEnter={() => setHover(index)}
               className="relative aspect-square cursor-pointer overflow-hidden text-[8px] hover:outline hover:outline-2 hover:-outline-offset-2 hover:outline-accent"
               style={{ background: "var(--color-ink-2)" }}
@@ -234,22 +247,19 @@ export default function RangeEditor({
       <div className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1">
         <span className="label">brush</span>
         <div className="flex items-center gap-1.5">
-          {[25, 50, 75, 100].map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setBrush(p)}
-              data-testid={`brush-${p}-${seat}`}
-              className="btn"
-              style={{
-                padding: "3px 6px",
-                fontSize: 11,
-                background: brush === p ? "var(--color-accent)" : undefined,
-              }}
-            >
-              {p}%
-            </button>
-          ))}
+          <span className="seg">
+            {[25, 50, 75, 100].map((p) => (
+              <button
+                key={p}
+                type="button"
+                aria-pressed={brush === p}
+                onClick={() => setBrush(p)}
+                data-testid={`brush-${p}-${seat}`}
+              >
+                {p}%
+              </button>
+            ))}
+          </span>
           <input
             type="range"
             min={0}
@@ -297,7 +307,7 @@ export default function RangeEditor({
 
       <p className="mt-1 min-h-[14px] text-[11px] leading-tight">
         {error ? (
-          <span className="text-err" data-testid={`range-error-${seat}`}>
+          <span className="text-err" role="alert" data-testid={`range-error-${seat}`}>
             {error}
           </span>
         ) : hover !== null ? (

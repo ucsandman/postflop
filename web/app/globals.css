@@ -26,7 +26,7 @@
   --color-text: #101010;
   --color-text-inv: #f4f1e8;
   --color-muted: #55524a;
-  --color-dim: #7c7870;
+  --color-dim: #625e58;   /* 4.5:1 on paper-2 — captions are body-size text */
   --color-dim-inv: #9a968c;
 
   /* --- Accents. Yellow = filled block with black text only. Magenta = selection. --- */
@@ -35,10 +35,10 @@
   --color-live: #ff2d9b;
   --color-live-deep: #c2196f;
 
-  /* --- Semantic --- */
-  --color-ok: #128a4a;
-  --color-warn: #e08a00;
-  --color-err: #d8232a;
+  /* --- Semantic (text-safe at 4.5:1 on paper; dark theme overrides below) --- */
+  --color-ok: #0f763f;
+  --color-warn: #935a00;
+  --color-err: #c82027;
   --color-err-bg: #f7dcda;
   --color-ok-bg: #d8eee0;
 
@@ -79,14 +79,21 @@
   --color-panel: #17171a;
   --color-paper-2: #202024;
   --color-raised: #26262b;
-  --color-ink: #000000;
-  --color-ink-2: #1c1c1a;
-  --color-ink-3: #2a2a26;
-  --color-line: #000000;
-  --color-line-soft: #35353b;
+  /* Rules must be LIGHTER than the ground in dark, or the whole structural
+     language (3px rules, ink bars, slab edges) disappears against near-black. */
+  --color-ink: #34343a;
+  --color-ink-2: #0c0c0e;
+  --color-ink-3: #222228;
+  --color-line: #34343a;
+  --color-line-soft: #3a3a40;
   --color-text: #f4f1e8;
   --color-muted: #b3aea3;
   --color-dim: #8b877e;
+  --color-ok: #37c97d;
+  --color-warn: #e08a00;
+  --color-err: #ff6b62;
+  --color-err-bg: #3a1a19;
+  --color-ok-bg: #12301f;
   --color-card-s: #f4f1e8;
   --color-card-h: #ff6b62;
   --color-card-d: #6aa5ff;
@@ -109,11 +116,11 @@ html, body {
   letter-spacing: .14em; text-transform: uppercase; color: var(--color-dim);
 }
 .bar {                     /* panel header bar, reversed out on ink */
-  display: flex; align-items: center; gap: 10px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0;
   background: var(--color-ink); color: var(--color-text-inv);
   font: 800 11px/1.2 var(--font-sans);
   letter-spacing: .12em; text-transform: uppercase;
-  padding: 5px 10px; position: relative;
+  padding: 6px 10px 5px; position: relative;
 }
 .bar .meta { font: 500 11px/1.2 var(--font-mono); letter-spacing: 0; text-transform: none; color: var(--color-dim-inv); }
 .bar > .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
@@ -172,7 +179,9 @@ html, body {
   padding: 6px 9px; cursor: pointer;
 }
 .seg > button:first-child { margin-left: 0; }
-.seg > button[aria-pressed="true"] { background: var(--color-accent); color: var(--color-ink); }
+.seg > button:hover { background: var(--color-paper-2); color: var(--color-text); }
+.seg > button:disabled { color: var(--color-dim); cursor: default; background: var(--color-paper-2); }
+.seg > button[aria-pressed="true"], .seg > button[aria-pressed="true"]:hover { background: var(--color-accent); color: #101010; }
 .on-ink .seg > button { background: var(--color-ink-3); color: var(--color-dim-inv); border-color: var(--color-dim-inv); }
 .on-ink .seg > button[aria-pressed="true"] { background: var(--color-accent); color: var(--color-ink); border-color: var(--color-ink); }
 
@@ -191,7 +200,16 @@ input[type="text"], input[type="number"], textarea, select {
   font: 500 13px/1.2 var(--font-mono); width: 100%;
 }
 input:focus, textarea:focus, select:focus, button:focus-visible, [tabindex]:focus-visible {
-  outline: 3px solid var(--color-live); outline-offset: 0; border-color: var(--color-ink);
+  outline: 3px solid var(--color-live); outline-offset: 2px; border-color: var(--color-ink);
+}
+/* Clipped or over-painted contexts get an inset ring instead: the rail hides
+   overflow, seg buttons share edges, grid cells are flush tiles. */
+.rail button:focus-visible, .seg > button:focus-visible, [data-cell]:focus-visible {
+  outline-offset: -3px;
+}
+/* Press feedback: the design has no radius or shadow, so the press is a nudge. */
+.btn:active:not(:disabled), .seg > button:active:not(:disabled), .chip:active {
+  translate: 0 1px;
 }
 input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--color-ink); }
 input[type="range"] { accent-color: var(--color-ink); }
@@ -234,22 +252,29 @@ input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--color-ink); 
   .col-side > * + * { border-left: var(--rule) solid var(--color-ink); }
 }
 
-/* Escape hatches: never trap content in a short well. */
+/* Escape hatches: never trap content in a short well. When .app goes height:auto
+   the stage has no definite height, so a flex-basis of 0 collapses every shell
+   to nothing — they must switch to content height here. */
 @media (max-width: 999px) {
   .app { height: auto; overflow: visible; grid-template-columns: minmax(0,1fr); grid-template-rows: 48px auto var(--statusbar); }
-  .rail { grid-area: 1 / 1; flex-direction: row; align-items: stretch; }
+  .rail { grid-area: 1 / 1; flex-direction: row; align-items: stretch; overflow-x: auto; }
   .stage { grid-area: 2 / 1; border-left: 0; border-top: var(--rule) solid var(--color-ink); }
-  .inspector > * { overflow-y: visible; }
+  .inspector, .solve-shell, .train-shell, .help-shell { flex: 0 0 auto; }
+  .inspector > *, .solve-shell > *, .train-shell > *, .help-shell > * { overflow-y: visible; }
 }
 @media (max-height: 760px) {
   .app { height: auto; overflow: visible; }
-  .inspector > * { overflow-y: visible; }
+  .inspector, .solve-shell, .train-shell, .help-shell { flex: 0 0 auto; }
+  .inspector > *, .solve-shell > *, .train-shell > *, .help-shell > * { overflow-y: visible; }
 }
 
 /* Loading strip: a 3px accent rule sliding along the bottom edge. */
 @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 .slide-rule { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; overflow: hidden; }
 .slide-rule::after { content: ""; position: absolute; inset: 0; background: var(--color-accent); animation: slide 900ms linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .slide-rule::after { animation: none; }
+}
 
 /* ── CARD STOCK ───────────────────────────────────────────────────────────── */
 .cardstock {

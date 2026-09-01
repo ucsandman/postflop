@@ -35,7 +35,7 @@ export default function BlockerPanel({
   if (!oppStrategy || oppActions.length === 0) {
     return (
       <div className="flex h-full flex-col bg-panel">
-        <div className="bar bar-blockers">Blockers</div>
+        <h2 className="bar bar-blockers">Blockers</h2>
         <div className="p-3">
           <div className="label mb-1.5">No {oppPlayer} decision reachable</div>
           <p className="num text-[12px] text-muted">
@@ -67,15 +67,15 @@ export default function BlockerPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-panel">
-      <div className="bar bar-blockers">
+      <h2 className="bar bar-blockers">
         Blockers
         <span className="meta">vs {oppPlayer} · next decision</span>
-      </div>
+      </h2>
 
       {cell && (
         <div className="border-b-2 border-ink px-2.5 py-2">
           <div className="label mb-1.5">
-            {cell.label} — shift in {oppPlayer} frequencies
+            {cell.label}: shift in {oppPlayer} frequencies
           </div>
           {selRows.map(({ slot, combo, score }) => (
             <div key={slot} className="py-1" style={{ borderBottom: "1px solid rgba(16,16,16,.1)" }}>
@@ -131,16 +131,14 @@ export default function BlockerPanel({
             className={`flex h-[24px] items-center justify-between px-1 ${ri % 2 === 1 ? "bg-paper-2" : ""}`}
           >
             <ComboCards cards={combo.cards} className="text-[13px]" />
-            <span className="num text-[11px] font-bold" style={{ color: oppColors[idx] }}>
-              {pct(score.delta[idx])}
-            </span>
+            <span className="num text-[11px] font-bold">{pct(score.delta[idx])}</span>
           </div>
         ))}
       </div>
 
       <p className="border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
         Delta is {oppPlayer}&apos;s reach-weighted action frequency once combos that share a
-        card with the hero hand are excluded, minus the frequency over their whole range —
+        card with the hero hand are excluded, minus the frequency over their whole range:
         how much holding those two cards moves that action.
       </p>
     </div>

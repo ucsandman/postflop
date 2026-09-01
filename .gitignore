@@ -12,3 +12,6 @@ PRODUCT.md
 .playwright-mcp/
 .vercel/
 web/out/
+.playwright-cli/
+.dashclaw-local/
+.offlocal/

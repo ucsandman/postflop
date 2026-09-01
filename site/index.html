@@ -8,8 +8,8 @@
 <meta property="og:title" content="postflop">
 <meta property="og:description" content="A heads-up NLHE postflop GTO solver in Rust. Exploitability measured, never asserted.">
 <meta property="og:image" content="https://postflop.vercel.app/og.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
+<meta property="og:image:width" content="2400">
+<meta property="og:image:height" content="1260">
 <meta property="og:url" content="https://postflop.vercel.app/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="postflop">
@@ -41,7 +41,7 @@
 :root{
   --paper:#E9E5DA; --paper-2:#DDD8C9; --paper-3:#F4F1E8;
   --ink:#101010; --ink-2:#1C1C1A; --ink-3:#2A2A26;
-  --text:#101010; --text-inv:#F4F1E8; --muted:#55524A; --dim:#7C7870; --dim-inv:#9A968C;
+  --text:#101010; --text-inv:#F4F1E8; --muted:#55524A; --dim:#625E58; --dim-inv:#9A968C;
   --hi:#FFE000; --hi-deep:#C7AE00; --live:#FF2D9B;
   --ok:#128A4A; --err:#D8232A;
   --spade:#101010; --heart:#D8232A; --diamond:#1746D9; --club:#128A4A;
@@ -103,8 +103,9 @@ header{position:sticky;top:0;z-index:50;background:var(--ink)}
 /* ---------- hero ---------- */
 .hero-head{background:var(--paper);padding:clamp(40px,6vw,96px) var(--gutter) clamp(32px,4vw,64px)}
 .hero h1{
-  font:900 clamp(56px,8.5vw,168px)/.9 var(--font-display);
+  font:900 clamp(38px,8.5vw,168px)/.9 var(--font-display);
   letter-spacing:-.045em;text-transform:uppercase;
+  overflow-wrap:anywhere;
 }
 .hero h1 .measured{background:var(--hi);color:var(--ink);padding:0 .06em;box-decoration-break:clone;-webkit-box-decoration-break:clone}
 .hero .lede{margin-top:clamp(24px,3vw,40px);font-size:18px;color:var(--muted);max-width:74ch}
@@ -246,7 +247,7 @@ section+section{border-top:var(--rule) solid var(--ink)}
 .gate-body{background:var(--ink-2);color:var(--dim-inv);padding:22px var(--gutter)}
 .gate-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
 .gate-body h3{font:800 20px/1.2 var(--font-display);color:var(--text-inv);text-transform:uppercase;letter-spacing:.02em}
-.gate-status{font:700 11px/1 var(--font-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ok)}
+.gate-status{font:700 11px/1 var(--font-mono);letter-spacing:.1em;text-transform:uppercase;color:#37C97D}
 .gate-body p{margin-top:10px;font-size:15px;max-width:78ch}
 .gate-body p code{font-family:var(--font-mono);font-size:13px;color:var(--text-inv)}
 .beyond{padding:clamp(28px,4vw,48px) var(--gutter);color:var(--muted);font-size:15px;max-width:90ch}
@@ -299,15 +300,23 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
   display:flex;align-items:center;overflow-x:auto;white-space:nowrap;padding:0 10px;
   font:400 11px/1 var(--font-mono);color:var(--text-inv);
 }
+.skip{
+  position:absolute;left:-9999px;top:0;z-index:100;
+  background:var(--hi);color:var(--ink);font:800 13px/1 var(--font-display);
+  letter-spacing:.06em;text-transform:uppercase;padding:12px 18px;
+}
+.skip:focus{left:0}
 .statusbar .sep{color:var(--ink-3);padding:0 10px}
 
+@media (max-width:1000px){
+  .nav-links a.hide-sm{display:none}
+}
 @media (max-width:880px){
   .engine-row{grid-template-columns:64px minmax(0,1fr)}
   .engine-row p{grid-column:2;padding:0 var(--gutter) 24px 20px}
   .engine-row h3{padding-bottom:10px}
   .gate{grid-template-columns:72px minmax(0,1fr)}
   .gate::before{font-size:30px}
-  .nav-links a.hide-sm{display:none}
   /* the two CTA blocks do not fit beside the wordmark on a phone; GitHub keeps
      its hero button and its footer link, so only the yellow block stays here */
   .nav{padding-left:16px}
@@ -318,6 +327,8 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
 </style>
 </head>
 <body>
+
+<a class="skip" href="#main">Skip to content</a>
 
 <header>
   <div class="nav">
@@ -335,7 +346,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
   </div>
 </header>
 
-<main>
+<main id="main">
 
 <section class="hero" aria-label="Introduction">
   <div class="hero-head">
@@ -353,7 +364,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
       <div class="term-body" id="solve-log" aria-hidden="true"></div>
     </div>
     <figure class="hero-shot">
-      <span class="frame"><img src="screens/hero-grid.png" alt="The 13 by 13 strategy grid as the workbench renders it: a black slab of 169 cells on the Qs Jh 2h 8c turn, each cell inked with the out-of-position player's action frequencies" width="1200" height="1200" loading="eager"></span>
+      <span class="frame"><img src="screens/hero-grid.png" alt="The 13 by 13 strategy grid as the workbench renders it: a black slab of 169 cells on the Qs Jh 2h 8c turn, each cell inked with the out-of-position player's action frequencies" width="1080" height="1255" loading="eager"></span>
       <figcaption class="label">The 13×13, as it renders · Qs Jh 2h 8c turn, OOP strategy</figcaption>
     </figure>
   </div>
@@ -365,7 +376,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
     <p>Board, both ranges, stacks, pot, bet sizings, in a small TOML file. The engine computes an approximate Nash equilibrium with a measured exploitability bound, then lets you inspect everything: per-hand strategies, per-hand EVs, action frequencies, and every runout.</p>
   </div>
   <figure>
-    <span class="shot-frame"><img src="screens/01-inspector-grid.png" alt="The postflop inspector: a 13 by 13 hand grid where each cell shows stacked action-frequency bars, next to a tree navigator and per-combo strategy breakdown" width="1600" height="1000" loading="eager"></span>
+    <span class="shot-frame"><img src="screens/01-inspector-grid.png" alt="The postflop inspector: stat band, line rail, twin 13 by 13 strategy and EV grids, per-combo breakdown, opponent range and blocker panels, all in one frame" width="3600" height="2248" loading="eager"></span>
     <figcaption class="shot-caption"><b>The inspector.</b> 13×13 rank grid, action frequencies weighted by live combo reach.</figcaption>
   </figure>
 
@@ -398,7 +409,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
     <h2>Nothing on this page is estimated.</h2>
     <p>All numbers below were measured on a 24-logical-core Windows machine using the benchmark harnesses committed in <strong>engine/examples/</strong>. Run them yourself.</p>
   </div>
-  <div class="bench">
+  <div class="bench" tabindex="0" role="region" aria-label="Measured benchmark results, scrollable">
     <table>
       <thead><tr><th scope="col">Workload</th><th scope="col">Result</th></tr></thead>
       <tbody>
@@ -442,7 +453,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
       <h3>Drill into any combo</h3>
       <p>Click a cell and see every combo behind it: per-combo weights, the full action mix, and per-hand EVs in zero-sum chips. The IP range panel alongside shows reach-weighted density at the same node.</p>
     </div>
-    <figure class="media-shot"><img src="screens/02-combo-breakdown.png" alt="Combo drill-down: the AKo cell expanded into twelve combos, each with weight, a stacked strategy bar, and its EV in chips, next to the reach-weighted IP range" width="1600" height="1000" loading="lazy"></figure>
+    <figure class="media-shot"><img src="screens/02-combo-breakdown.png" alt="Combo drill-down: the KTs cell expanded into its combos, each with weight, a stacked strategy bar, per-action EVs, and its EV in chips, next to the reach-weighted IP range and blocker panel" width="1434" height="1255" loading="lazy"></figure>
   </div>
 
   <div class="media-row flip">
@@ -450,7 +461,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
       <h3>Paint ranges by hand or by weight</h3>
       <p>An interactive range editor with paintable grids, a weight brush, a top-X% slider, and preset spots. Ranges accept standard and PioSOLVER notation, weighted combos included, over all 1326 combos.</p>
     </div>
-    <figure class="media-shot"><img src="screens/05-range-editor.png" alt="The range editor: a paintable 13 by 13 grid with per-hand weights, a weight brush, and a top-percent slider" width="1005" height="1061" loading="lazy"></figure>
+    <figure class="media-shot"><img src="screens/05-range-editor.png" alt="The range editor: two paintable 13 by 13 grids with per-hand weights, a weight brush, and a top-percent slider" width="2040" height="1320" loading="lazy"></figure>
   </div>
 
   <div class="media-row">
@@ -458,7 +469,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
       <h3>Watch it converge, live</h3>
       <p>Solves report exploitability at every interval while they run. The curve you watch is the best-response calculator's own output, in chips and as a percentage of the pot, recomputed at every report.</p>
     </div>
-    <figure class="media-shot crop-top" style="aspect-ratio:1600 / 620;"><img src="screens/04-solve-progress.png" alt="A solve in progress: the in-browser solve form with a tree-stats preflight and a live exploitability curve falling over 17 reports" width="1600" height="1000" loading="lazy"></figure>
+    <figure class="media-shot"><img src="screens/04-solve-progress.png" alt="A finished solve: the in-browser solve form with a tree-stats preflight and a live exploitability curve falling over 17 reports" width="3600" height="2000" loading="lazy"></figure>
   </div>
 
   <div class="media-row flip">
@@ -466,7 +477,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
       <h3>See which hands actually care</h3>
       <p>Beyond frequencies: color the grid by the highest-EV action per hand, or by <em>regret</em>, the chips lost taking the worse action, fading to paper where the solver is indifferent. Per-action EVs sit next to every combo's strategy bar, so a 63/37 mix becomes "these six combos are worth real chips, the rest are free."</p>
     </div>
-    <figure class="media-shot"><img src="screens/07-regret-overlay.png" alt="The regret overlay: the 13 by 13 grid heat-colored by chips lost versus the best action, with per-action EVs beside each JJ combo and a lock-this-node button" width="1600" height="1000" loading="lazy"></figure>
+    <figure class="media-shot"><img src="screens/07-regret-overlay.png" alt="The strategy grid beside its regret surface: the 13 by 13 heat-colored by chips lost versus the best action, fading to paper where the solver is indifferent" width="2160" height="1455" loading="lazy"></figure>
   </div>
 
   <div class="media-row">
@@ -474,7 +485,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
       <h3>Train against the solve</h3>
       <p>Self-contained: pick a sample spot or set up any board, ranges and stacks right in the trainer, and it deals the first hand the moment the solve converges: board, pot, and line, but not the strategy. Pick an action and it is graded on the chips it costs, Best through Blunder, with the full solver mix and a d100 randomizer revealed after you answer. Every spot carries its table context: positions, starting stacks, the preflop action, live range widths, and the VPIP/PFR profile each range models. A running session score, a worst-hands-first review list, a "close decisions only" filter, and type an exact hand like AhKd to drill that combo on every deal.</p>
     </div>
-    <figure class="media-shot crop-top" style="aspect-ratio:1600 / 470;"><img src="screens/08-trainer.png" alt="The trainer: holding 5d5h on Qs Jh 2h 8c, the check answer graded Best with EV loss 0.000 chips, the solver mix shown with a d100 randomizer, and a session panel tracking played hands" width="1600" height="1000" loading="lazy"></figure>
+    <figure class="media-shot"><img src="screens/08-trainer.png" alt="The trainer: a dealt hand on Qs Jh 2h 8c graded against the solve in chips, the solver mix revealed after answering, and a session scorecard with hand history" width="3600" height="1900" loading="lazy"></figure>
   </div>
 
   <div class="media-row flip">
@@ -482,16 +493,16 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
       <h3>Lock a node. Solve the exploit.</h3>
       <p>Freeze any decision node, the strategy on screen or hand-written per-action frequencies in the TOML, and re-solve: the rest of the tree becomes the equilibrium counter-strategy to "villain never bluffs here." Locks travel inside the solution file, the structure guard holds stored strategies to them, and reported exploitability is measured against the locked profile. Locks captured on a different spot are refused, never silently re-applied.</p>
     </div>
-    <figure class="media-shot"><img src="screens/10-node-locks.png" alt="The node locks panel: one pending lock on the root for OOP, flagged stale because the solve form holds a different spot, with remove and clear-all controls" width="356" height="250" loading="lazy"></figure>
+    <figure class="media-shot" style="align-self:center;justify-self:center;max-width:800px;"><img src="screens/10-node-locks.png" alt="The node locks panel: one pending lock on the root for OOP, with remove and clear-all controls" width="800" height="380" loading="lazy"></figure>
   </div>
 
   <figure class="shot-full">
-    <span class="frame"><img src="screens/09-blockers.png" alt="The blocker panel: holding JJ shifts IP's check frequency by minus 3.4 percent and bet by plus 3.4 percent, with the whole range ranked by blocker effect" width="1583" height="410" loading="lazy"></span>
+    <span class="frame" style="max-width:700px;margin-inline:auto;"><img src="screens/09-blockers.png" alt="The blocker panel: how much the selected hand shifts the opponent's action frequencies, with the whole range ranked by blocker effect" width="674" height="1102" loading="lazy"></span>
     <figcaption class="shot-caption"><b>Blocker scores.</b> How much holding these two cards moves the opponent's frequencies, and the whole range ranked by it, so the best bluff cards sort to the top.</figcaption>
   </figure>
 
-  <figure class="shot-full crop-top">
-    <span class="frame" style="aspect-ratio:1600 / 290;"><img src="screens/03-runout-selector.png" alt="The runout selector: a 52-card panel grouped by suit with dead cards disabled, re-rooting the inspector at any turn or river card" width="1600" height="1000" loading="lazy"></span>
+  <figure class="shot-full">
+    <span class="frame"><img src="screens/03-runout-selector.png" alt="The runout view: a 52-card selector grouped by suit, heat-colored by hero EV shift, beside a per-runout EV table sorted by consequence" width="3600" height="2248" loading="lazy"></span>
     <figcaption class="shot-caption"><b>Every runout, colored by consequence.</b> A 52-card selector re-roots the inspector at any turn or river card, heat-colored green to red by how each runout shifts hero EV, range-wide or for one selected combo, with arrow-key stepping between sibling cards.</figcaption>
   </figure>
 </section>
@@ -595,7 +606,7 @@ solver solve --config spot.toml \
     </nav>
   </div>
   <div class="statusbar">
-    <span>RUST ENGINE · DISCOUNTED CFR</span><span class="sep">│</span><span>4 MILESTONE GATES PASSED</span><span class="sep">│</span><span>MIT LICENCE</span><span class="sep">│</span><span>0 ESTIMATED FIGURES</span>
+    <span>RUST ENGINE · DISCOUNTED CFR</span><span class="sep">│</span><span>4 MILESTONE GATES PASSED</span><span class="sep">│</span><span>MIT LICENSE</span><span class="sep">│</span><span>0 ESTIMATED FIGURES</span>
   </div>
 </footer>
 
@@ -630,10 +641,14 @@ document.addEventListener('click', function (e) {
   var btn = e.target.closest('.copy');
   if (!btn) return;
   var src = document.getElementById(btn.dataset.copy);
-  if (!src || !navigator.clipboard) return;
+  if (!src) return;
+  if (!navigator.clipboard) { btn.textContent = 'Press Ctrl+C'; return; }
   navigator.clipboard.writeText(src.innerText).then(function () {
     btn.textContent = 'Copied';
     setTimeout(function () { btn.textContent = 'Copy'; }, 1400);
+  }).catch(function () {
+    btn.textContent = 'Press Ctrl+C';
+    setTimeout(function () { btn.textContent = 'Copy'; }, 2000);
   });
 });
 </script>

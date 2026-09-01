@@ -25,7 +25,10 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
   return (
     <div className="rule-b flex flex-wrap bg-panel">
       {/* Breadcrumb */}
-      <div className="flex min-w-0 flex-1 basis-[420px] flex-wrap items-center gap-1.5 px-3 py-2.5">
+      <nav
+        aria-label="Line walked from the root"
+        className="flex min-w-0 flex-1 basis-[420px] flex-wrap items-center gap-1.5 px-3 py-2.5"
+      >
         <span className="label mr-1">line</span>
         <button onClick={() => onJump(0)} className="chip" aria-current={path.length === 0}>
           root
@@ -41,11 +44,11 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
         {node.kind === "decision" && node.locked && (
           <span
             data-testid="locked-badge"
-            title="This node's strategy was frozen by a locks entry — the rest of the tree was solved around it."
+            title="This node's strategy was frozen by a locks entry; the rest of the tree was solved around it."
             className="ml-1 bg-accent px-1.5 py-1 uppercase text-[#101010]"
             style={{ font: "800 10px/1 var(--font-sans)", letterSpacing: ".06em" }}
           >
-            🔒 locked
+            locked
           </span>
         )}
         {node.kind === "decision" && node.actions && (
@@ -54,7 +57,7 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
             {node.actions.length === 1 ? "" : "s"}
           </span>
         )}
-      </div>
+      </nav>
 
       {/* Available moves */}
       {node.kind === "decision" && node.actions && (
@@ -71,7 +74,7 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
                   token: actionToken(a),
                 })
               }
-              className="relative h-11 min-w-0 flex-1 basis-[180px] overflow-hidden bg-paper-2 hover:outline hover:outline-2 hover:-outline-offset-2 hover:outline-accent"
+              className="relative h-11 min-w-0 flex-1 basis-[180px] overflow-hidden bg-[#1c1c1a] hover:outline hover:outline-2 hover:-outline-offset-2 hover:outline-accent"
               style={{ borderLeft: i > 0 ? "var(--rule-thin) solid var(--color-ink)" : undefined }}
             >
               <span
@@ -105,7 +108,7 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
       {node.kind === "chance" && (
         <div className="flex min-w-0 flex-1 basis-[420px] items-center rule-l px-3 max-[999px]:border-l-0">
           <span className="label">
-            chance node — pick the {node.board.length === 3 ? "turn" : "river"} card below
+            chance node: pick the {node.board.length === 3 ? "turn" : "river"} card below
           </span>
         </div>
       )}
@@ -181,7 +184,7 @@ export function RunoutSelector({
                   dead
                     ? `${card} is already on the board`
                     : ev !== undefined && !Number.isNaN(ev)
-                      ? `deal ${card} — hero EV ${ev.toFixed(3)}`
+                      ? `deal ${card}: hero EV ${ev.toFixed(3)}`
                       : `deal ${card}`
                 }
                 style={tint ? { background: tint, color: "var(--color-ink)" } : undefined}

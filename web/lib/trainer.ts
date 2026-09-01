@@ -29,14 +29,6 @@ export const TIER_LABEL: Record<Tier, string> = {
   blunder: "Blunder",
 };
 
-export const TIER_COLOR: Record<Tier, string> = {
-  best: "#54ad72",
-  correct: "#9dbf5e",
-  inaccuracy: "#efbc60",
-  wrong: "#e2705c",
-  blunder: "#d1462f",
-};
-
 export type Rng = () => number;
 
 export interface Grade {

@@ -386,11 +386,16 @@ export default function Workbench() {
       if (last.kind !== "chance") return;
       const parent = JSON.parse(handle.node(last.from)) as NodeInfo;
       if (!parent.valid_cards) return;
-      const idx = parent.valid_cards.findIndex((v) => v.child === last.to);
+      // Step in the runout grid's own visual order (suit rows s/h/d/c, ranks A→2),
+      // not the engine's index order — ArrowRight should move right along the row.
+      const gridPos = (card: string) =>
+        "shdc".indexOf(card[1]) * 13 + "AKQJT98765432".indexOf(card[0]);
+      const ordered = [...parent.valid_cards].sort((a, b) => gridPos(a.card) - gridPos(b.card));
+      const idx = ordered.findIndex((v) => v.child === last.to);
       if (idx < 0) return;
       e.preventDefault();
       const dir = e.key === "ArrowRight" ? 1 : -1;
-      const next = parent.valid_cards[(idx + dir + parent.valid_cards.length) % parent.valid_cards.length];
+      const next = ordered[(idx + dir + ordered.length) % ordered.length];
       setPath((p) => [
         ...p.slice(0, -1),
         { ...last, to: next.child, label: last.label.replace(/\S+$/, next.card), token: next.card },
@@ -446,7 +451,7 @@ export default function Workbench() {
           >
             <span className="text-card-s-inv">♠</span>
             <span className="max-[1399px]:hidden min-[1000px]:max-[1399px]:hidden"> POSTFLOP</span>
-            <span className="hidden max-[999px]:inline"> POSTFLOP</span>
+            <span className="hidden min-[460px]:max-[999px]:inline"> POSTFLOP</span>
           </div>
           <div className="mt-1.5 h-[3px] w-full bg-accent max-[1399px]:hidden min-[1000px]:max-[1399px]:hidden" />
           <div className="label mt-1 text-[9px] max-[1399px]:hidden">HU NLHE WORKBENCH</div>
@@ -456,7 +461,7 @@ export default function Workbench() {
           {(
             [
               ["inspect", "Inspector", "▦"],
-              ["train", "Train", "⌾"],
+              ["train", "Train", "◎"],
               ["solve", "Solve", "⚙"],
               ["help", "About", "?"],
             ] as [Tab, string, string][]
@@ -465,6 +470,7 @@ export default function Workbench() {
               key={id}
               onClick={() => setTab(id)}
               aria-pressed={tab === id}
+              aria-label={label}
               className={`h-11 border-b-2 border-[#2a2a26] px-3 text-left uppercase max-[999px]:flex-1 max-[999px]:border-b-0 max-[999px]:text-center ${
                 tab === id
                   ? "bg-accent text-[#101010] shadow-[inset_6px_0_0_var(--color-live)]"
@@ -472,8 +478,8 @@ export default function Workbench() {
               }`}
               style={{ font: "800 12px/2.8 var(--font-sans)", letterSpacing: ".06em" }}
             >
-              <span className="min-[1000px]:max-[1399px]:hidden">{label}</span>
-              <span className="hidden min-[1000px]:max-[1399px]:inline" title={label}>
+              <span aria-hidden className="min-[1000px]:max-[1399px]:hidden">{label}</span>
+              <span aria-hidden className="hidden min-[1000px]:max-[1399px]:inline">
                 {glyph}
               </span>
             </button>
@@ -527,36 +533,40 @@ export default function Workbench() {
         <div className="mt-auto max-[999px]:mt-0 max-[999px]:hidden">
           <button
             onClick={() => fileInput.current?.click()}
+            aria-label="Open a solution file"
             className="btn-inv block h-[34px] w-full border-0 border-t-2 border-[#2a2a26] uppercase"
             style={{ font: "800 11px/1 var(--font-sans)", letterSpacing: ".06em" }}
             title="Open a solution file written by the solver CLI or exported from this page"
           >
-            <span className="min-[1000px]:max-[1399px]:hidden">Open file…</span>
-            <span className="hidden min-[1000px]:max-[1399px]:inline">⤓</span>
+            <span aria-hidden className="min-[1000px]:max-[1399px]:hidden">Open file…</span>
+            <span aria-hidden className="hidden min-[1000px]:max-[1399px]:inline">⤓</span>
           </button>
           <button
             data-testid="export"
             disabled={!handle}
             onClick={exportJson}
+            aria-label="Export solution as JSON"
+            title="Export the loaded solution as a JSON file"
             className="btn-inv block h-[34px] w-full border-0 border-t-2 border-[#2a2a26] uppercase"
             style={{ font: "800 11px/1 var(--font-sans)", letterSpacing: ".06em" }}
           >
-            <span className="min-[1000px]:max-[1399px]:hidden">Export JSON</span>
-            <span className="hidden min-[1000px]:max-[1399px]:inline">⤒</span>
+            <span aria-hidden className="min-[1000px]:max-[1399px]:hidden">Export JSON</span>
+            <span aria-hidden className="hidden min-[1000px]:max-[1399px]:inline">⤒</span>
           </button>
           {locks.length > 0 && (
             <button
               data-testid="lock-count"
               onClick={() => setTab("solve")}
+              aria-label={`${locks.length} node locks pending, review on the Solve tab`}
               title="Review the pending locks on the Solve tab and re-solve"
               className="btn-inv block h-[34px] w-full border-0 border-t-2 border-[#2a2a26] uppercase"
               style={{ font: "800 11px/1 var(--font-sans)", letterSpacing: ".06em" }}
             >
-              <span className="min-[1000px]:max-[1399px]:hidden">{locks.length} locks pending →</span>
-              <span className="hidden min-[1000px]:max-[1399px]:inline">🔒</span>
+              <span aria-hidden className="min-[1000px]:max-[1399px]:hidden">{locks.length} locks pending →</span>
+              <span aria-hidden className="hidden min-[1000px]:max-[1399px]:inline">{locks.length}</span>
             </button>
           )}
-          <div className="seg border-t-2 border-[#2a2a26]" role="group" aria-label="theme">
+          <div className="seg on-ink border-t-2 border-[#2a2a26]" role="group" aria-label="theme">
             <button
               aria-pressed={theme === "light"}
               onClick={() => setThemeAndPersist("light")}
@@ -586,7 +596,7 @@ export default function Workbench() {
       {/* ── STAGE ────────────────────────────────────────────────────────── */}
       <div className="stage">
         {error && (
-          <div data-testid="banner" className="flex items-center gap-3 border-b-[3px] border-err bg-err-bg px-3.5 py-2">
+          <div data-testid="banner" role="alert" className="flex items-center gap-3 border-b-[3px] border-err bg-err-bg px-3.5 py-2">
             <span
               className="bg-ink px-2 py-1 uppercase text-text-inv"
               style={{ font: "800 10px/1 var(--font-sans)", letterSpacing: ".12em" }}
@@ -689,7 +699,7 @@ export default function Workbench() {
                       title={
                         pathLeadsHere
                           ? "Freeze this node at the strategy shown and solve the rest of the tree around it, on the next solve."
-                          : "Walk down from root to lock a node — a deep link lands here without a line."
+                          : "Walk down from root to lock a node: a deep link lands here without a line."
                       }
                       className={`border-2 px-2 py-1 text-[10px] uppercase disabled:opacity-40 ${
                         lockedHere
@@ -698,7 +708,7 @@ export default function Workbench() {
                       }`}
                       style={{ font: "800 10px/1 var(--font-sans)", letterSpacing: ".06em" }}
                     >
-                      {lockedHere ? "🔒 lock updated" : "🔒 lock node"}
+                      {lockedHere ? "lock updated" : "lock node"}
                     </button>
                     {!wide && (
                       <span className="seg">
@@ -796,7 +806,7 @@ export default function Workbench() {
                     </div>
                   </div>
                   <p className="border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
-                    Density is that hand&apos;s reach at this node — range weight times their own
+                    Density is that hand&apos;s reach at this node: range weight times their own
                     strategy along the line. They are not acting here, so there are no action
                     frequencies to show.
                   </p>
@@ -975,23 +985,23 @@ function ChanceView({
   return (
     <div className="rule-t grid min-h-0 flex-1 grid-cols-1 min-[1100px]:grid-cols-[minmax(0,1fr)_420px]">
       <section className="flex min-h-0 flex-col overflow-y-auto bg-panel">
-        <div className="bar">
+        <h2 className="bar">
           Deal the {nextStreet}
           <span className="meta">
             {valid.length} of 52 available · {node.board.length} on board
           </span>
-        </div>
+        </h2>
         <div className="flex flex-1 items-center justify-center p-6">
           <RunoutSelector node={node} onStep={onStep} hotness={hotness} size="large" />
         </div>
       </section>
       <section className="flex min-h-0 flex-col overflow-y-auto rule-l bg-panel max-[1099px]:rule-t">
-        <div className="bar bar-ev">
+        <h2 className="bar bar-ev">
           Runout EV
           <span className="meta">
             {rows.length} runouts · max |Δ| {maxDev.toFixed(3)} chips
           </span>
-        </div>
+        </h2>
         <div className="grid grid-cols-[64px_1fr_1fr] border-b-2 border-ink bg-paper-2 px-2.5 py-1.5">
           <span className="label">card</span>
           <span className="label text-right">hero EV</span>
@@ -1036,7 +1046,7 @@ function TerminalView({
   const t = node.terminal;
   return (
     <div className="rule-t flex-1 bg-panel" style={{ padding: "clamp(24px,3vw,48px)" }}>
-      <div className="bar mb-6">Terminal</div>
+      <h2 className="bar mb-6">Terminal</h2>
       <div
         className="uppercase"
         style={{ font: "900 clamp(32px,4vw,64px)/1 var(--font-sans)", letterSpacing: "-.04em" }}
@@ -1046,7 +1056,7 @@ function TerminalView({
       <div className="label mt-6">POT</div>
       <div className="fig fig-1">{t?.pot.toFixed(2)}</div>
       <p className="num mt-6 text-muted">
-        no strategy here — step back up the line to keep inspecting
+        no strategy here. step back up the line to keep inspecting
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         <button className="chip" onClick={() => onJump(0)}>
@@ -1128,7 +1138,7 @@ function Empty({
           </span>
         </h1>
         <p className="num mt-4 max-w-[74ch] text-[14px] text-muted">
-          load a solution file, pick a bundled sample, or solve a spot in the browser — loading
+          load a solution file, pick a bundled sample, or solve a spot in the browser. loading
           rebuilds the tree and reads stored strategies, it never re-solves.
         </p>
         {error && (
@@ -1197,7 +1207,7 @@ function Empty({
             Open file…
           </span>
           <span className="num text-[12px] text-muted">
-            a solution written by the CLI, or exported from this page — drop it anywhere on this
+            a solution written by the CLI, or exported from this page. drop it anywhere on this
             block
           </span>
         </button>
@@ -1249,13 +1259,13 @@ function Empty({
             offsuit hand below. every cell opens a combo breakdown.
           </p>
         </div>
-        <SpecCol title="Action colours">
+        <SpecCol title="Action colors">
           {[
-            ["#e2705c", "bet — smallest sizing"],
+            ["#e2705c", "bet, smallest sizing"],
             ["#d1462f", "bet"],
             ["#b02a16", "bet"],
             ["#8f1a0d", "bet"],
-            ["#6e1209", "bet — largest sizing"],
+            ["#6e1209", "bet, largest sizing"],
             ["#54ad72", "check"],
             ["#2b7c50", "call"],
             ["#48566f", "fold"],
@@ -1266,7 +1276,7 @@ function Empty({
             </div>
           ))}
           <p className="num mt-2 text-[11px] text-muted">
-            colours are consistent in every grid, table and tree block on this page.
+            colors are consistent in every grid, table and tree block on this page.
           </p>
         </SpecCol>
         <SpecCol title="Grid modes">
@@ -1338,7 +1348,7 @@ function Fragment169({
 function SpecCol({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rule-l flex flex-col bg-panel max-[999px]:rule-t max-[999px]:border-l-0">
-      <div className="bar">{title}</div>
+      <h2 className="bar">{title}</h2>
       <div className="p-4">{children}</div>
     </div>
   );

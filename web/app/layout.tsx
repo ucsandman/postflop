@@ -14,13 +14,14 @@ export const metadata: Metadata = {
   title: "postflop workbench: solve and inspect HU NLHE spots in your browser",
   description:
     "Browser inspector and solver for heads-up no-limit hold'em postflop spots, running the postflop Rust engine as WebAssembly. Solve small spots on the page or load solutions produced by the CLI.",
+  alternates: { canonical: "/" },
   openGraph: {
     title: "postflop workbench",
     description:
       "Solve and inspect heads-up NLHE postflop spots in your browser. The postflop Rust engine, compiled to WebAssembly.",
     url: "https://postflop-workbench.vercel.app/",
     siteName: "postflop",
-    images: [{ url: "https://postflop.vercel.app/og.png", width: 1200, height: 630 }],
+    images: [{ url: "/og.png", width: 2400, height: 1260 }],
     type: "website",
   },
   twitter: {
@@ -28,7 +29,7 @@ export const metadata: Metadata = {
     title: "postflop workbench",
     description:
       "Solve and inspect heads-up NLHE postflop spots in your browser. The postflop Rust engine, compiled to WebAssembly.",
-    images: ["https://postflop.vercel.app/og.png"],
+    images: ["/og.png"],
   },
 };
 

@@ -275,7 +275,7 @@ export default function TrainPanel({
       handle,
       spot: null,
       note: fixedHand
-        ? `${fixedHand} never reached a gradeable decision for that seat in ${MAX_DEALS} random lines — it may be outside the range, blocked by the board, or at zero weight.`
+        ? `${fixedHand} never reached a gradeable decision for that seat in ${MAX_DEALS} random lines. It may be outside the range, blocked by the board, or at zero weight.`
         : closeOnly
           ? `No close decision (top two actions within 1% of pot) turned up in ${MAX_DEALS} random lines. Turn the filter off, or load a spot with more mixing.`
           : `No gradeable spot for that seat in ${MAX_DEALS} random lines.`,
@@ -332,7 +332,7 @@ export default function TrainPanel({
       handle,
       spot: null,
       note:
-        `Hand over — ${walk.kind === "end" ? walk.text : `${spot.cards} has no defined EV at the next decision`}. ` +
+        `Hand over: ${walk.kind === "end" ? walk.text : `${spot.cards} has no defined EV at the next decision`}. ` +
         `Line: ${walk.history.join(" › ")}`,
     });
   };
@@ -379,7 +379,7 @@ export default function TrainPanel({
                 data-testid="train-new-spot"
                 onClick={() => setSetupOpen((s) => !s)}
                 className="btn"
-                style={{ padding: "5px 9px", fontSize: 11 }}
+                style={{ padding: "9px 10px", fontSize: 11 }}
               >
                 {setupOpen ? "Close setup" : "New spot…"}
               </button>
@@ -417,13 +417,19 @@ export default function TrainPanel({
               data-testid="train-hand"
               value={handText}
               onChange={(e) => setHandText(e.target.value)}
-              placeholder="any — or AhKd"
+              placeholder="any, or AhKd"
               spellCheck={false}
+              aria-invalid={fixedHand === false}
+              aria-describedby={fixedHand === false ? "train-hand-error" : undefined}
               className={`num w-24 border-2 bg-raised px-2 py-1 text-text placeholder:text-dim ${
                 fixedHand === false ? "border-err" : "border-ink"
               }`}
             />
-            {fixedHand === false && <span className="text-[11px] text-err">two cards, e.g. AhKd</span>}
+            {fixedHand === false && (
+              <span id="train-hand-error" className="text-[11px] text-err">
+                two cards, e.g. AhKd
+              </span>
+            )}
           </label>
 
           <button
@@ -733,10 +739,10 @@ export default function TrainPanel({
                 </div>
 
                 <p className="num mt-2 text-[11px] text-muted">
-                  Randomizer: rolled <span className="text-text">{result.roll}</span> of 100 —{" "}
+                  Randomizer: rolled <span className="text-text">{result.roll}</span> of 100.{" "}
                   {rollAction(spot.freqs, result.roll) < 0
-                    ? "the solver has no frequency here."
-                    : `at the table that picks ${
+                    ? "The solver has no frequency here."
+                    : `At the table, that picks ${
                         spot.actions[rollAction(spot.freqs, result.roll)].text
                       }.`}
                 </p>
@@ -764,7 +770,7 @@ export default function TrainPanel({
           Session
           <span className="meta">{rows.length} hands this session</span>
           <span className="right">
-            <button onClick={clear} className="btn" style={{ padding: "5px 9px", fontSize: 11 }}>
+            <button onClick={clear} className="btn" style={{ padding: "9px 10px", fontSize: 11 }}>
               Clear
             </button>
           </span>
@@ -804,7 +810,7 @@ export default function TrainPanel({
             <button
               onClick={() => setSortWorst((s) => !s)}
               className="btn"
-              style={{ padding: "5px 9px", fontSize: 11 }}
+              style={{ padding: "9px 10px", fontSize: 11 }}
             >
               {sortWorst ? "Worst first" : "Most recent"}
             </button>

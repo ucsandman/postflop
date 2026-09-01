@@ -57,14 +57,14 @@ export default function ComboPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-panel">
-      <div className="bar bar-strategy">
+      <h2 className="bar bar-strategy">
         <span style={{ font: "900 22px/1 var(--font-sans)", letterSpacing: "-.03em", textTransform: "none" }}>
           {cell.label}
         </span>
         <span className="meta">
           {rows.length} combo{rows.length === 1 ? "" : "s"} · {player} · weight {cell.weight.toFixed(3)}
         </span>
-      </div>
+      </h2>
 
       {cell.noReach && (
         <p
@@ -83,7 +83,8 @@ export default function ComboPanel({
         <span className="label text-right">weight</span>
         <span className="label">strategy</span>
         {actions.map((a, i) => (
-          <span key={i} className="label truncate text-right" title={a.text}>
+          <span key={i} className="label flex items-center justify-end gap-1 truncate" title={a.text}>
+            <span className="h-[5px] w-2.5 shrink-0" style={{ background: colors[i] }} />
             {a.label}
           </span>
         ))}
@@ -113,13 +114,14 @@ export default function ComboPanel({
                 />
               ))}
             </span>
+            {/* Neutral ink, not the action colour: the light ramp ends fail AA as
+                11px text on paper — the head-row swatch carries the colour coding. */}
             {actions.map((a, i) => {
               const v = actionEvs[i]?.[slot] ?? NaN;
               return (
                 <span
                   key={i}
-                  className="num text-right text-[11px]"
-                  style={{ color: colors[i] }}
+                  className={`num text-right text-[11px] ${Number.isNaN(v) ? "text-dim" : "text-muted"}`}
                   title={`${a.text} EV: ${Number.isNaN(v) ? "no defined EV" : v.toFixed(3)}`}
                 >
                   {Number.isNaN(v) ? "—" : v.toFixed(2)}
@@ -195,12 +197,12 @@ function NodeOverview({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-panel">
-      <div className="bar">
+      <h2 className="bar">
         Node overview
         <span className="meta">
           {n} combos · no cell selected · click any cell to drill in
         </span>
-      </div>
+      </h2>
 
       <div className="label border-b-2 border-ink bg-paper-2 px-2.5 py-1.5">Action EV ladder</div>
       <div>
@@ -231,7 +233,7 @@ function NodeOverview({
               ri % 2 === 1 ? "bg-paper-2" : ""
             }`}
             style={{ borderBottom: "1px solid rgba(16,16,16,.14)" }}
-            title="Select this hand's cell in the grid"
+            title={`Select ${combo.cards.slice(0, 2)} ${combo.cards.slice(2, 4)} in the grid`}
           >
             <ComboCards cards={combo.cards} className="text-[13px]" />
             <span className="num text-right text-muted">{combo.weight.toFixed(3)}</span>
