@@ -6,6 +6,7 @@ pub mod evaluator;
 pub mod game;
 pub mod games;
 pub mod iso;
+pub mod nlhe;
 pub mod range;
 pub mod terminal;
 pub mod tree;
