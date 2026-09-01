@@ -89,6 +89,9 @@
   --color-text: #f4f1e8;
   --color-muted: #b3aea3;
   --color-dim: #8b877e;
+  /* Dark's ink is #34343a, not #101010, so the light theme's dim-on-ink lands at
+     4.19:1 here — every .bar meta, rank axis and rail caption. Same grey, lifted. */
+  --color-dim-inv: #a9a59b;
   --color-ok: #37c97d;
   --color-warn: #e08a00;
   --color-err: #ff6b62;
@@ -149,7 +152,9 @@ html, body {
 .on-ink .text-card-h { color: var(--color-card-h-inv); }
 .on-ink .text-card-d { color: var(--color-card-d-inv); }
 .on-ink .text-card-c { color: var(--color-card-c-inv); }
-.on-ink .label { color: var(--color-dim-inv); }
+/* The rail is an ink slab too, it just never carried the class — its captions were
+   reading the paper-tuned --color-dim on black at 2.96:1. */
+.on-ink .label, .rail .label { color: var(--color-dim-inv); }
 
 /* ── CONTROLS ─────────────────────────────────────────────────────────────── */
 .btn {
@@ -316,5 +321,11 @@ input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--color-ink); 
 .help-shell > * { min-width: 0; min-height: 0; overflow-y: auto; }
 @media (min-width: 1100px) { .help-shell { grid-template-columns: minmax(0,1fr) 340px; } }
 @media (max-width: 999px), (max-height: 760px) {
+  /* Repeats the escape hatch from the APP SHELL block above. These three shells are
+     declared AFTER it at equal specificity, so their `flex: 1 1 0` was winning the
+     cascade there: `.app` went height:auto, the stage lost its definite height, and a
+     0 flex-basis collapsed each shell to 0px while its children painted on top of one
+     another. `.inspector` is declared before that block and was never affected. */
+  .solve-shell, .train-shell, .help-shell { flex: 0 0 auto; }
   .solve-shell > *, .train-shell > *, .help-shell > * { overflow-y: visible; }
 }

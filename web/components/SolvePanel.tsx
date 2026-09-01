@@ -370,7 +370,10 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
 
           <div className="mt-4">
             <span className="label">solver budget</span>
-            <div className="mt-2 grid grid-cols-3 gap-3">
+            {/* Below 640px "target expl. (% pot)" and "report every N iters" wrap to two
+                lines while "max iterations" stays on one, so its input sat 12px above the
+                other two. One column below that width; 640 is where all three stop wrapping. */}
+            <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label="max iterations">
                 <input
                   type="text"

@@ -516,7 +516,7 @@ export default function TrainPanel({
               spellCheck={false}
               aria-invalid={fixedHand === false}
               aria-describedby={fixedHand === false ? "train-hand-error" : undefined}
-              className={`num w-24 border-2 bg-raised px-2 py-1 text-text placeholder:text-dim ${
+              className={`num w-36 border-2 bg-raised px-2 py-1 text-text placeholder:text-dim ${
                 fixedHand === false ? "border-err" : "border-ink"
               }`}
             />
@@ -642,7 +642,15 @@ export default function TrainPanel({
                   ["decision nodes", spotInfo.meta.node_count.toLocaleString()],
                 ] as const
               ).map(([label, value], i) => (
-                <div key={label} className={`min-w-[130px] flex-1 px-3 py-3 ${i > 0 ? "rule-l" : ""}`}>
+                /* justify-end: below ~440px "effective stack" wraps to two lines while
+                   its neighbours stay on one, which pushed 97.5 bb 12px below 5.5 bb and
+                   27%. The cells already stretch to the row height, so hanging the pair
+                   from the bottom puts every figure on one baseline. No-op where nothing
+                   wraps. */
+                <div
+                  key={label}
+                  className={`flex min-w-[130px] flex-1 flex-col justify-end px-3 py-3 ${i > 0 ? "rule-l" : ""}`}
+                >
                   <div className="label">{label}</div>
                   <div className="fig fig-3 mt-1">{value}</div>
                 </div>

@@ -35,7 +35,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${mono.variable} h-full`}>
+    // The boot script below stamps data-theme on this element before React hydrates,
+    // which React reports as an attribute mismatch ("A tree hydrated but some
+    // attributes… didn't match") for every visitor who has ever picked a theme.
+    <html lang="en" suppressHydrationWarning className={`${display.variable} ${mono.variable} h-full`}>
       <body className="min-h-full">
         <script
           dangerouslySetInnerHTML={{

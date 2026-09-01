@@ -226,8 +226,8 @@ export default function RangeEditor({
               onPointerDown={startPaint}
               onKeyDown={keyPaint}
               onPointerEnter={() => setHover(index)}
-              className="relative aspect-square cursor-pointer overflow-hidden text-[8px] hover:outline hover:outline-2 hover:-outline-offset-2 hover:outline-accent"
-              style={{ background: "var(--color-ink-2)" }}
+              className="relative aspect-square cursor-pointer overflow-hidden hover:outline hover:outline-2 hover:-outline-offset-2 hover:outline-accent"
+              style={{ background: "var(--color-ink-2)", containerType: "inline-size" }}
             >
               {/* Partial weights read as a part-filled cell, the same stacked-bar language
                   the Inspector uses for action frequencies. */}
@@ -235,7 +235,14 @@ export default function RangeEditor({
                 className="absolute inset-x-0 bottom-0"
                 style={{ height: `${w * 100}%`, background: FILL }}
               />
-              <span className="num relative z-[1] flex h-full w-full items-center justify-center font-semibold text-white/95 [text-shadow:0_1px_2px_rgba(0,0,0,.75)]">
+              {/* `.num` hard-sets 13px, which "AKs" cannot fit into below a ~24px cell —
+                  the Solve tab's two-up column gives 18px cells at 1500–1899px and the
+                  labels were clipped. 50cqw of the cell keeps three mono glyphs inside it
+                  and caps at the 13px this reads as everywhere the cell is wide enough. */}
+              <span
+                className="num relative z-[1] flex h-full w-full items-center justify-center font-semibold text-white/95 [text-shadow:0_1px_2px_rgba(0,0,0,.75)]"
+                style={{ fontSize: "min(13px, 50cqw)" }}
+              >
                 {cell}
               </span>
             </button>
@@ -246,7 +253,10 @@ export default function RangeEditor({
       {/* minmax(0,...) or the range inputs' intrinsic width blows the track out. */}
       <div className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1">
         <span className="label">brush</span>
-        <div className="flex items-center gap-1.5">
+        {/* Wraps: the four preset blocks have a 196px min-content width, so in the
+            Solve tab's two-up column they ate the whole row — the slider collapsed
+            to 0px and the readout spilled past the editor's ink border. */}
+        <div className="flex flex-wrap items-center gap-1.5">
           <span className="seg">
             {[25, 50, 75, 100].map((p) => (
               <button
@@ -269,7 +279,10 @@ export default function RangeEditor({
             aria-label={`${label} brush weight`}
             data-testid={`brush-slider-${seat}`}
             onChange={(e) => setBrush(Number(e.target.value))}
-            className="min-w-0 flex-1"
+            /* basis-20, not basis-0: with a 0 basis the track never forces a wrap, so
+               next to the 196px preset blocks it grew to 14px — a bare thumb on a track
+               too short to drag. At 80px it wraps to its own line and grows there. */
+            className="min-w-0 flex-1 basis-20"
           />
           <span className="num w-8 text-right text-muted" style={{ fontSize: 11 }}>
             {brush}%

@@ -1301,7 +1301,10 @@ function ChanceView({
               onClick={() =>
                 onStep({ from: node.id, to: r.child, kind: "chance", label: `${nextStreet} ${r.card}`, token: r.card })
               }
-              className={`grid h-[26px] w-full grid-cols-[64px_1fr_1fr] items-center px-2.5 text-left hover:bg-accent ${
+              /* A yellow block carries black text — the suit colour and the ok/err
+                 deviation are unreadable on it. In dark theme the EV column is ivory
+                 (#f4f1e8) and the deviation #37c97d: 1.06:1 and 1.5:1 on #ffe000. */
+              className={`grid h-[26px] w-full grid-cols-[64px_1fr_1fr] items-center px-2.5 text-left hover:bg-accent [&:hover>*]:text-[#101010] ${
                 i % 2 === 1 ? "bg-paper-2" : ""
               }`}
             >
@@ -1483,7 +1486,7 @@ function Empty({
             void onFile(e.dataTransfer.files?.[0]);
           }}
           className={`rule-l flex min-w-[280px] flex-1 basis-1/2 flex-col items-start justify-center gap-3 p-5 text-left min-[1500px]:basis-0 max-[1499px]:rule-t ${
-            dragging ? "bg-accent" : "bg-panel"
+            dragging ? "bg-accent text-[#101010] [&_*]:text-[#101010]" : "bg-panel"
           }`}
           style={{ outline: "3px dashed var(--color-ink)", outlineOffset: "-12px" }}
         >
