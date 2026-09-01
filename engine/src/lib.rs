@@ -1,6 +1,11 @@
+pub mod br;
 pub mod cards;
+pub mod cfr;
 pub mod config;
 pub mod evaluator;
+pub mod game;
+pub mod games;
 pub mod iso;
 pub mod range;
+pub mod terminal;
 pub mod tree;
