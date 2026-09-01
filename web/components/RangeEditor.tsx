@@ -21,8 +21,8 @@ import {
 } from "@/lib/range";
 import { loadWasm } from "@/lib/wasm";
 
-/** Range fill, matching the Inspector's reach-density blue. */
-const FILL = "#3f6fa8";
+/** Range fill, matching the Inspector's opponent-reach slate. */
+const FILL = "#48566f";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -175,10 +175,13 @@ export default function RangeEditor({
   const label = seat.toUpperCase();
 
   return (
-    <div className="rounded border border-line-soft p-2" data-testid={`range-editor-${seat}`}>
+    <div
+      style={{ border: "var(--rule-thin) solid var(--color-ink)", padding: 10 }}
+      data-testid={`range-editor-${seat}`}
+    >
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
-        <span className="label text-accent-dim">{label} range</span>
-        <span className="num text-[11px] text-muted" data-testid={`range-count-${seat}`}>
+        <span className="label">{label} range</span>
+        <span className="num text-muted" style={{ fontSize: 11 }} data-testid={`range-count-${seat}`}>
           {Number.isInteger(rounded) ? rounded : rounded.toFixed(1)} combos ({pct.toFixed(1)}%)
         </span>
       </div>
@@ -190,8 +193,13 @@ export default function RangeEditor({
         onLostPointerCapture={endPaint}
         onPointerLeave={() => setHover(null)}
         data-testid={`range-grid-${seat}`}
-        className={`grid touch-none select-none gap-px bg-line-soft p-px ${ready ? "" : "opacity-40"}`}
-        style={{ gridTemplateColumns: "repeat(13, minmax(0, 1fr))" }}
+        className={`grid touch-none select-none ${ready ? "" : "opacity-40"}`}
+        style={{
+          gridTemplateColumns: "repeat(13, minmax(0, 1fr))",
+          background: "var(--color-ink)",
+          padding: 2,
+          gap: 2,
+        }}
       >
         {CLASS_LABELS.map((cell, index) => {
           const w = weights[index] ?? 0;
@@ -205,7 +213,8 @@ export default function RangeEditor({
               title={`${cell} — ${comboCount(index)} combos · ${Math.round(w * 100)}%`}
               onPointerDown={startPaint}
               onPointerEnter={() => setHover(index)}
-              className="relative aspect-square cursor-pointer overflow-hidden bg-[#0d121a] text-[8px] hover:outline hover:outline-1 hover:-outline-offset-1 hover:outline-[#5b6b86]"
+              className="relative aspect-square cursor-pointer overflow-hidden text-[8px] hover:outline hover:outline-2 hover:-outline-offset-2 hover:outline-accent"
+              style={{ background: "var(--color-ink-2)" }}
             >
               {/* Partial weights read as a part-filled cell, the same stacked-bar language
                   the Inspector uses for action frequencies. */}
@@ -231,11 +240,12 @@ export default function RangeEditor({
               type="button"
               onClick={() => setBrush(p)}
               data-testid={`brush-${p}-${seat}`}
-              className={`rounded border px-1.5 py-0.5 text-[10px] ${
-                brush === p
-                  ? "border-accent bg-accent font-semibold text-ink"
-                  : "border-line bg-raised text-muted hover:border-accent-dim"
-              }`}
+              className="btn"
+              style={{
+                padding: "3px 6px",
+                fontSize: 11,
+                background: brush === p ? "var(--color-accent)" : undefined,
+              }}
             >
               {p}%
             </button>
@@ -249,9 +259,11 @@ export default function RangeEditor({
             aria-label={`${label} brush weight`}
             data-testid={`brush-slider-${seat}`}
             onChange={(e) => setBrush(Number(e.target.value))}
-            className="min-w-0 flex-1 accent-[#e0aa4e]"
+            className="min-w-0 flex-1"
           />
-          <span className="num w-8 text-right text-[11px] text-muted">{brush}%</span>
+          <span className="num w-8 text-right text-muted" style={{ fontSize: 11 }}>
+            {brush}%
+          </span>
         </div>
 
         <span className="label">top&nbsp;%</span>
@@ -265,9 +277,9 @@ export default function RangeEditor({
             aria-label={`${label} strongest percent of combos`}
             data-testid={`range-top-${seat}`}
             onChange={(e) => emit(topWeights(Number(e.target.value)), Number(e.target.value))}
-            className="min-w-0 flex-1 accent-[#e0aa4e]"
+            className="min-w-0 flex-1"
           />
-          <span className="num w-14 text-right text-[11px] text-muted">
+          <span className="num w-14 text-right text-muted" style={{ fontSize: 11 }}>
             {topPct === null ? "custom" : `top ${topPct}%`}
           </span>
         </div>
@@ -283,9 +295,9 @@ export default function RangeEditor({
         className="mt-1.5"
       />
 
-      <p className="mt-1 min-h-[14px] text-[10px] leading-tight">
+      <p className="mt-1 min-h-[14px] text-[11px] leading-tight">
         {error ? (
-          <span className="text-card-h" data-testid={`range-error-${seat}`}>
+          <span className="text-err" data-testid={`range-error-${seat}`}>
             {error}
           </span>
         ) : hover !== null ? (

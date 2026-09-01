@@ -14,204 +14,215 @@ interface Props {
   colors: string[];
   onStep: (step: PathStep) => void;
   onJump: (depth: number) => void;
-  /** How each runout shifts hero EV, for the chance-node card grid. Absent elsewhere. */
-  hotness?: RunoutHotness | null;
 }
 
-export default function TreeNav({ node, path, freqs, colors, onStep, onJump, hotness }: Props) {
+/**
+ * The line rail: breadcrumb on the left half, this node's actions as full-bleed
+ * frequency-inked blocks on the right. Chance and terminal nodes render their own
+ * hero layouts in the inspector, so here they only get a short label.
+ */
+export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: Props) {
   return (
-    <div className="panel flex flex-col">
+    <div className="rule-b flex flex-wrap bg-panel">
       {/* Breadcrumb */}
-      <div className="flex flex-wrap items-center gap-1 border-b border-line px-3 py-2">
+      <div className="flex min-w-0 flex-1 basis-[420px] flex-wrap items-center gap-1.5 px-3 py-2.5">
         <span className="label mr-1">line</span>
-        <button
-          onClick={() => onJump(0)}
-          className="rounded border border-line bg-raised px-1.5 py-0.5 text-[11px] hover:border-accent-dim"
-        >
+        <button onClick={() => onJump(0)} className="chip" aria-current={path.length === 0}>
           root
         </button>
         {path.map((step, i) => (
-          <span key={i} className="flex items-center gap-1">
+          <span key={i} className="flex items-center gap-1.5">
             <span className="text-dim">›</span>
-            <button
-              onClick={() => onJump(i + 1)}
-              className={`num rounded border px-1.5 py-0.5 text-[11px] hover:border-accent-dim ${
-                i === path.length - 1
-                  ? "border-accent-dim bg-[#1c1608] text-accent"
-                  : "border-line bg-raised"
-              }`}
-            >
+            <button onClick={() => onJump(i + 1)} className="chip" aria-current={i === path.length - 1}>
               {step.label}
             </button>
           </span>
         ))}
+        {node.kind === "decision" && node.locked && (
+          <span
+            data-testid="locked-badge"
+            title="This node's strategy was frozen by a locks entry — the rest of the tree was solved around it."
+            className="ml-1 bg-accent px-1.5 py-1 uppercase text-[#101010]"
+            style={{ font: "800 10px/1 var(--font-sans)", letterSpacing: ".06em" }}
+          >
+            🔒 locked
+          </span>
+        )}
+        {node.kind === "decision" && node.actions && (
+          <span className="label ml-auto pl-2">
+            {PLAYER_NAMES[node.player ?? 0]} to act · {node.actions.length} action
+            {node.actions.length === 1 ? "" : "s"}
+          </span>
+        )}
       </div>
 
       {/* Available moves */}
-      <div className="px-3 py-2">
-        {node.kind === "decision" && node.actions && (
-          <>
-            <div className="label mb-1.5 flex items-center gap-2">
-              <span>
-                {PLAYER_NAMES[node.player ?? 0]} to act — {node.actions.length} action
-                {node.actions.length === 1 ? "" : "s"}
-              </span>
-              {node.locked && (
+      {node.kind === "decision" && node.actions && (
+        <div className="flex min-w-0 flex-1 basis-[420px] flex-wrap rule-l max-[999px]:border-l-0 max-[999px]:rule-t">
+          {node.actions.map((a, i) => (
+            <button
+              key={i}
+              onClick={() =>
+                onStep({
+                  from: node.id,
+                  to: a.child,
+                  kind: "action",
+                  label: `${PLAYER_NAMES[node.player ?? 0]} ${a.text}`,
+                  token: actionToken(a),
+                })
+              }
+              className="relative h-11 min-w-0 flex-1 basis-[180px] overflow-hidden bg-paper-2 hover:outline hover:outline-2 hover:-outline-offset-2 hover:outline-accent"
+              style={{ borderLeft: i > 0 ? "var(--rule-thin) solid var(--color-ink)" : undefined }}
+            >
+              <span
+                className="absolute inset-y-0 left-0"
+                style={{ width: `${(freqs[i] ?? 0) * 100}%`, background: colors[i] }}
+              />
+              <span className="relative z-[1] flex h-full items-center gap-2 px-2.5">
                 <span
-                  data-testid="locked-badge"
-                  title="This node's strategy was frozen by a [[locks]] entry — the rest of the tree was solved around it."
-                  className="rounded border border-accent-dim bg-[#1c1608] px-1.5 py-0.5 text-[10px] font-semibold tracking-normal text-accent"
+                  className="uppercase text-text-inv [text-shadow:0_1px_2px_rgba(0,0,0,.85)]"
+                  style={{ font: "800 12px/1 var(--font-sans)", letterSpacing: ".04em" }}
                 >
-                  🔒 locked
+                  {a.text}
                 </span>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {node.actions.map((a, i) => (
-                <button
-                  key={i}
-                  onClick={() =>
-                    onStep({
-                      from: node.id,
-                      to: a.child,
-                      kind: "action",
-                      label: `${PLAYER_NAMES[node.player ?? 0]} ${a.text}`,
-                      token: actionToken(a),
-                    })
-                  }
-                  className="group relative overflow-hidden rounded border border-line bg-raised px-2.5 py-1.5 text-left hover:border-accent-dim"
-                >
-                  <span
-                    className="absolute inset-y-0 left-0 opacity-25"
-                    style={{ width: `${(freqs[i] ?? 0) * 100}%`, background: colors[i] }}
-                  />
-                  <span className="relative flex items-center gap-2">
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-                      style={{ background: colors[i] }}
-                    />
-                    <span className="num">{a.text}</span>
-                    {a.percent_of_pot != null && (
-                      <span className="num text-dim">{a.percent_of_pot.toFixed(0)}%</span>
-                    )}
-                    <span className="num font-semibold text-accent">
-                      {((freqs[i] ?? 0) * 100).toFixed(1)}%
-                    </span>
+                {a.percent_of_pot != null && (
+                  <span className="num text-[11px]" style={{ color: "rgba(244,241,232,.72)" }}>
+                    {a.percent_of_pot.toFixed(0)}%
                   </span>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-
-        {node.kind === "chance" && node.valid_cards && (
-          <RunoutSelector node={node} onStep={onStep} hotness={hotness} />
-        )}
-
-        {node.kind === "terminal" && node.terminal && (
-          <div className="text-muted">
-            <span className="label mr-2">terminal</span>
-            {node.terminal.kind === "fold" ? (
-              <span className="num">
-                {PLAYER_NAMES[node.terminal.folder]} folds · pot {node.terminal.pot.toFixed(2)}
+                )}
+                <span
+                  className="ml-auto text-text-inv [text-shadow:0_1px_2px_rgba(0,0,0,.85)]"
+                  style={{ font: "900 20px/1 var(--font-sans)", letterSpacing: "-.03em", fontVariantNumeric: "tabular-nums" }}
+                >
+                  {((freqs[i] ?? 0) * 100).toFixed(1)}%
+                </span>
               </span>
-            ) : (
-              <span className="num">showdown · pot {node.terminal.pot.toFixed(2)}</span>
-            )}
-            <span className="ml-2 text-dim">
-              — no strategy here; step back up the line to keep inspecting.
-            </span>
-          </div>
-        )}
-      </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {node.kind === "chance" && (
+        <div className="flex min-w-0 flex-1 basis-[420px] items-center rule-l px-3 max-[999px]:border-l-0">
+          <span className="label">
+            chance node — pick the {node.board.length === 3 ? "turn" : "river"} card below
+          </span>
+        </div>
+      )}
+
+      {node.kind === "terminal" && node.terminal && (
+        <div className="flex min-w-0 flex-1 basis-[420px] items-center gap-2.5 rule-l px-3 max-[999px]:border-l-0">
+          <span className="label">terminal</span>
+          <span className="num">
+            {node.terminal.kind === "fold"
+              ? `${PLAYER_NAMES[node.terminal.folder]} folds · pot ${node.terminal.pot.toFixed(2)}`
+              : `showdown · pot ${node.terminal.pot.toFixed(2)}`}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
 
-function RunoutSelector({
+export function RunoutSelector({
   node,
   onStep,
   hotness,
+  size = "normal",
 }: {
   node: NodeInfo;
   onStep: (s: PathStep) => void;
   hotness?: RunoutHotness | null;
+  size?: "normal" | "large";
 }) {
   const valid = new Map(node.valid_cards!.map((v) => [v.card, v.child]));
   const onBoard = new Set(node.board);
   const nextStreet = node.board.length === 3 ? "turn" : "river";
+  const large = size === "large";
+  const cellCls = large ? "h-[52px] w-[64px] text-[18px]" : "h-6 w-7 text-[11px]";
 
   return (
-    <>
-      <div className="mb-1.5 flex items-baseline gap-2">
-        <span className="label">deal the {nextStreet}</span>
-        <span className="num text-dim">
-          {valid.size} of 52 available · {onBoard.size} on board
-        </span>
-        {hotness && hotness.maxDeviation > 0 && (
-          <span className="text-[11px] text-dim">— shaded by hero EV vs. the runout average</span>
-        )}
-      </div>
-      <div className="inline-flex flex-col gap-px rounded border border-line-soft bg-line-soft p-px">
-        {SUITS.split("").map((suit) => (
-          <div key={suit} className="flex gap-px">
-            <span
-              className={`num flex w-6 items-center justify-center bg-panel text-[12px] ${SUIT_CLASS[suit]}`}
-            >
-              {SUIT_GLYPH[suit]}
-            </span>
-            {RANKS.split("").map((rank) => {
-              const card = rank + suit;
-              const child = valid.get(card);
-              const dead = onBoard.has(card);
-              const deviation = child !== undefined ? hotness?.deviationByChild.get(child) : undefined;
-              const tint =
-                deviation !== undefined ? hotnessColor(deviation, hotness!.maxDeviation) : null;
-              const ev = child !== undefined ? hotness?.evByChild.get(child) : undefined;
-              return (
-                <button
-                  key={card}
-                  disabled={child === undefined}
-                  onClick={() =>
-                    onStep({
-                      from: node.id,
-                      to: child!,
-                      kind: "chance",
-                      label: `${nextStreet} ${card}`,
-                      token: card,
-                    })
-                  }
-                  title={
-                    dead
-                      ? `${card} is already on the board`
-                      : ev !== undefined && !Number.isNaN(ev)
-                        ? `deal ${card} — hero EV ${ev.toFixed(3)}`
-                        : `deal ${card}`
-                  }
-                  style={tint ? { background: tint } : undefined}
-                  className={[
-                    "num h-6 w-7 text-[11px] font-semibold transition-colors",
-                    child === undefined
-                      ? dead
-                        ? "cursor-not-allowed bg-[#241214] text-[#6b3238] line-through"
-                        : "cursor-not-allowed bg-[#0b0f16] text-[#2c3442]"
-                      : `cursor-pointer hover:bg-accent hover:text-ink ${tint ? "" : "bg-raised"} ${SUIT_CLASS[suit]}`,
-                  ].join(" ")}
-                >
-                  {rank}
-                </button>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-    </>
+    <div className="inline-flex flex-col" style={{ background: "var(--color-ink)", padding: 2, gap: 2 }}>
+      {hotness && hotness.maxDeviation > 0 && (
+        <div className="label px-1 py-1" style={{ color: "var(--color-dim-inv)" }}>
+          shaded by hero EV vs. the runout average
+        </div>
+      )}
+      {SUITS.split("").map((suit) => (
+        <div key={suit} className="flex" style={{ gap: 2 }}>
+          <span
+            className={`num on-ink flex w-[22px] items-center justify-center text-[13px] ${SUIT_CLASS[suit]}`}
+            style={{ background: "var(--color-ink)" }}
+          >
+            {SUIT_GLYPH[suit]}
+          </span>
+          {RANKS.split("").map((rank) => {
+            const card = rank + suit;
+            const child = valid.get(card);
+            const dead = onBoard.has(card);
+            const deviation = child !== undefined ? hotness?.deviationByChild.get(child) : undefined;
+            const tint =
+              deviation !== undefined ? hotnessColor(deviation, hotness!.maxDeviation) : null;
+            const ev = child !== undefined ? hotness?.evByChild.get(child) : undefined;
+            return (
+              <button
+                key={card}
+                disabled={child === undefined}
+                onClick={() =>
+                  onStep({
+                    from: node.id,
+                    to: child!,
+                    kind: "chance",
+                    label: `${nextStreet} ${card}`,
+                    token: card,
+                  })
+                }
+                title={
+                  dead
+                    ? `${card} is already on the board`
+                    : ev !== undefined && !Number.isNaN(ev)
+                      ? `deal ${card} — hero EV ${ev.toFixed(3)}`
+                      : `deal ${card}`
+                }
+                style={tint ? { background: tint, color: "var(--color-ink)" } : undefined}
+                className={[
+                  "num font-bold transition-colors",
+                  cellCls,
+                  child === undefined
+                    ? dead
+                      ? "cursor-not-allowed bg-[#1c1c1a] text-[#5a5852] line-through"
+                      : "cursor-not-allowed bg-[#1c1c1a] text-[#3a3936]"
+                    : tint
+                      ? "cursor-pointer hover:!bg-accent hover:!text-[#101010]"
+                      : `on-ink cursor-pointer bg-[#2a2a26] hover:!bg-accent hover:!text-[#101010] ${SUIT_CLASS[suit]}`,
+                ].join(" ")}
+              >
+                {rank}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </div>
   );
 }
 
-export function BoardStrip({ board }: { board: string[] }) {
+export function BoardStrip({
+  board,
+  size = 15,
+  variant = "glyph",
+}: {
+  board: string[];
+  size?: number;
+  variant?: "glyph" | "stock";
+}) {
   return board.length ? (
-    <Cards cards={board} className="text-[15px] font-semibold" />
+    <Cards
+      cards={board}
+      variant={variant}
+      size={variant === "stock" ? size : undefined}
+      className={variant === "stock" ? "gap-1" : "font-semibold"}
+    />
   ) : (
     <Card card="?s" className="opacity-30" />
   );

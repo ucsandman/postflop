@@ -5,7 +5,7 @@ import { Cards, ComboCards } from "@/components/Card";
 import SolvePanel from "@/components/SolvePanel";
 import { actionColors, cellOf, comboFreqs, rangeFreqs } from "@/lib/grid";
 import {
-  TIER_COLOR,
+  CORRECT_PCT_POT,
   TIER_LABEL,
   flipHand,
   grade,
@@ -22,6 +22,7 @@ import {
   type Grade,
   type HandRecord,
   type Rng,
+  type Tier,
 } from "@/lib/trainer";
 import type { SpotContext } from "@/lib/config";
 import type { Combo, Meta, NodeAction, NodeInfo } from "@/lib/types";
@@ -35,6 +36,24 @@ const STOP_AT_HERO = 0.45;
 const MAX_DEALS = 40;
 /** Hard stop on one walk, so a malformed tree can never spin the UI. */
 const MAX_STEPS = 60;
+
+/** Verdict colour on paper. `TIER_COLOR` is a grid-fill ramp — its lightest bet red is the
+ *  lowest-contrast pairing there is against bone — so the tiers read as semantic tokens here. */
+const TIER_TEXT: Record<Tier, string> = {
+  best: "text-ok",
+  correct: "text-ok",
+  inaccuracy: "text-warn",
+  wrong: "text-err",
+  blunder: "text-err",
+};
+/** The verdict word's ground: a block only at the two ends of the ramp. */
+const TIER_BLOCK: Record<Tier, string> = {
+  best: "bg-ok-bg",
+  correct: "",
+  inaccuracy: "",
+  wrong: "bg-err-bg",
+  blunder: "bg-err-bg",
+};
 
 interface Spot {
   node: NodeInfo;
@@ -342,401 +361,491 @@ export default function TrainPanel({
   );
 
   return (
-    <main className="flex flex-1 flex-col gap-3 p-3">
-      <section className="panel flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5">
-        <div className="flex items-center gap-2">
-          <span className="label">hero</span>
-          <div className="flex gap-px overflow-hidden rounded border border-line">
-            {(
-              [
-                ["any", "either"],
-                ["oop", "OOP"],
-                ["ip", "IP"],
-              ] as const
-            ).map(([id, text]) => (
+    <div className="train-shell">
+      {/* ── Drill column ───────────────────────────────────────────────────────── */}
+      <section className="flex min-h-0 flex-col bg-panel">
+        <div className="bar">
+          Train
+          <span className="meta">
+            {spot
+              ? `node ${spot.node.id} · ${spot.node.street} · pot ${spot.node.pot.toFixed(2)}`
+              : spotInfo
+                ? `${spotInfo.meta.node_count.toLocaleString()} nodes loaded · ${stats.hands} graded`
+                : "no spot loaded"}
+          </span>
+          {handle && (
+            <span className="right">
               <button
-                key={id}
-                onClick={() => setSeat(id)}
-                className={`px-2 py-0.5 ${
-                  seat === id ? "bg-accent font-semibold text-ink" : "bg-raised text-muted hover:text-text"
-                }`}
+                data-testid="train-new-spot"
+                onClick={() => setSetupOpen((s) => !s)}
+                className="btn"
+                style={{ padding: "5px 9px", fontSize: 11 }}
               >
-                {text}
+                {setupOpen ? "Close setup" : "New spot…"}
               </button>
-            ))}
-          </div>
+            </span>
+          )}
         </div>
 
-        <label className="flex items-center gap-1.5 text-muted">
-          <input type="checkbox" checked={closeOnly} onChange={(e) => setCloseOnly(e.target.checked)} />
-          close decisions only
-          <span className="text-[11px] text-dim">top two actions within 1% of pot</span>
-        </label>
+        <div className="rule-b flex flex-wrap items-center gap-x-4 gap-y-2 bg-paper-2 px-3 py-2">
+          <span className="flex items-center gap-2">
+            <span className="label">hero</span>
+            <span className="seg">
+              {(
+                [
+                  ["any", "either"],
+                  ["oop", "OOP"],
+                  ["ip", "IP"],
+                ] as const
+              ).map(([id, text]) => (
+                <button key={id} aria-pressed={seat === id} onClick={() => setSeat(id)}>
+                  {text}
+                </button>
+              ))}
+            </span>
+          </span>
 
-        <label className="flex items-center gap-1.5 text-muted">
-          <span className="label">hand</span>
-          <input
-            data-testid="train-hand"
-            value={handText}
-            onChange={(e) => setHandText(e.target.value)}
-            placeholder="any — or AhKd"
-            spellCheck={false}
-            className={`num w-24 rounded border bg-raised px-2 py-1 text-text placeholder:text-dim ${
-              fixedHand === false ? "border-card-h" : "border-line"
-            }`}
-          />
-          {fixedHand === false && <span className="text-[11px] text-card-h">two cards, e.g. AhKd</span>}
-        </label>
+          <label className="flex items-center gap-1.5 text-muted">
+            <input type="checkbox" checked={closeOnly} onChange={(e) => setCloseOnly(e.target.checked)} />
+            close decisions only
+            <span className="text-[11px] text-dim">top two actions within 1% of pot</span>
+          </label>
 
-        <div className="ml-auto flex items-center gap-2">
-          {handle && (
-            <button
-              data-testid="train-new-spot"
-              onClick={() => setSetupOpen((s) => !s)}
-              className="rounded border border-line bg-raised px-3 py-1.5 text-muted hover:border-accent-dim hover:text-text"
-            >
-              {setupOpen ? "Close setup" : "New spot…"}
-            </button>
-          )}
+          <label className="flex items-center gap-1.5 text-muted">
+            <span className="label">hand</span>
+            <input
+              data-testid="train-hand"
+              value={handText}
+              onChange={(e) => setHandText(e.target.value)}
+              placeholder="any — or AhKd"
+              spellCheck={false}
+              className={`num w-24 border-2 bg-raised px-2 py-1 text-text placeholder:text-dim ${
+                fixedHand === false ? "border-err" : "border-ink"
+              }`}
+            />
+            {fixedHand === false && <span className="text-[11px] text-err">two cards, e.g. AhKd</span>}
+          </label>
+
           <button
             data-testid="train-deal"
             disabled={!handle || fixedHand === false}
             onClick={deal}
-            className="rounded bg-accent px-3.5 py-1.5 font-semibold text-ink hover:bg-[#efbc60] disabled:opacity-40"
+            className="btn btn-primary ml-auto"
+            style={{ height: 44, fontSize: 14, padding: "0 16px" }}
           >
             {spot ? "Deal another" : "Deal a hand"}
           </button>
         </div>
-      </section>
 
-      {(!handle || setupOpen) && (
-        <section className="flex flex-col gap-3">
-          <div className="panel flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5">
-            <span className="font-semibold">
+        {(!handle || setupOpen) && (
+          <div className="rule-b">
+            <div className="bar">
               {handle ? "Set up a new spot" : "Pick a spot to train"}
-            </span>
-            <span className="text-dim">
-              start instantly from a sample, or set up any board, ranges and stacks below —
-              the trainer starts dealing the moment it solves.
-            </span>
-            <div className="ml-auto flex gap-2">
-              {samples.map((s) => (
-                <button
+              <span className="meta">
+                {samples.length} bundled spots · the trainer deals the moment one lands
+              </span>
+            </div>
+            <div className="flex flex-wrap">
+              {samples.map((s, i) => (
+                <div
                   key={s.file}
-                  data-testid={`train-sample-${s.file}`}
-                  onClick={() => {
-                    autoDeal.current = true;
-                    onLoadSample(s.file, s.name);
-                  }}
-                  className="rounded border border-line bg-raised px-3 py-1.5 hover:border-accent-dim"
-                  title={s.detail}
+                  className={`on-ink flex min-w-[240px] flex-1 flex-col ${i > 0 ? "rule-l" : ""}`}
                 >
-                  {s.name}
-                </button>
+                  <div className="flex flex-1 flex-col gap-2 p-4">
+                    <div
+                      className="uppercase text-text-inv"
+                      style={{
+                        font: "900 clamp(20px,1.6vw,28px)/1 var(--font-sans)",
+                        letterSpacing: "-.03em",
+                      }}
+                    >
+                      {s.name}
+                    </div>
+                    <div className="num text-[12px] text-dim-inv">{s.detail}</div>
+                  </div>
+                  <button
+                    data-testid={`train-sample-${s.file}`}
+                    onClick={() => {
+                      autoDeal.current = true;
+                      onLoadSample(s.file, s.name);
+                    }}
+                    title={s.detail}
+                    className="btn h-11 w-full"
+                    style={{ fontSize: 13 }}
+                  >
+                    Load →
+                  </button>
+                </div>
               ))}
             </div>
+            <SolvePanel
+              locks={[]}
+              onRemoveLock={() => {}}
+              onClearLocks={() => {}}
+              onSolved={(json, wall, ctx) => {
+                autoDeal.current = true;
+                onSolved(json, wall, ctx);
+              }}
+            />
           </div>
-          <SolvePanel
-            locks={[]}
-            onRemoveLock={() => {}}
-            onClearLocks={() => {}}
-            onSolved={(json, wall, ctx) => {
-              autoDeal.current = true;
-              onSolved(json, wall, ctx);
-            }}
-          />
-        </section>
-      )}
+        )}
 
-      {!handle ? null : (
-        <div className="grid flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <section className="panel flex flex-col overflow-hidden">
-            {note && (
-              <p className="border-b border-line bg-[#1c1608] px-3 py-2 text-accent">{note}</p>
-            )}
+        {note && (
+          <p
+            className="rule-b bg-accent px-3 py-2 uppercase text-ink"
+            style={{ font: "800 11px/1.4 var(--font-sans)", letterSpacing: ".04em" }}
+          >
+            {note}
+          </p>
+        )}
 
-            {!spot ? (
-              <div className="flex flex-1 items-center justify-center px-8 py-12 text-dim">
-                Deal a hand: you get the board, the pot and the line — not the strategy. Pick an
-                action and it is graded on the chips it costs against the solve.
-              </div>
-            ) : (
-              <>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line px-3 py-2">
-                  <Cards cards={spot.node.board} className="text-[15px] font-semibold" />
-                  <span className="num text-muted">
-                    pot <span className="text-text">{spot.node.pot.toFixed(2)}</span>
-                  </span>
-                  <span className="num text-muted">
-                    stacks{" "}
-                    <span className="text-text">
-                      {spot.node.stacks[0].toFixed(2)} / {spot.node.stacks[1].toFixed(2)}
-                    </span>
-                  </span>
-                  {spotInfo && (
-                    <span className="num text-dim">
-                      started {spotInfo.meta.effective_stack.toFixed(1)} behind · pot{" "}
-                      {spotInfo.meta.starting_pot.toFixed(1)}
-                    </span>
-                  )}
-                  <span className="num text-dim">
-                    {spot.node.street} · node {spot.node.id}
-                  </span>
+        {handle && !spot && spotInfo && (
+          <>
+            <div className="rule-b flex flex-wrap">
+              {(
+                [
+                  ["starting pot", spotInfo.meta.starting_pot.toFixed(2)],
+                  ["effective stack", spotInfo.meta.effective_stack.toFixed(2)],
+                  ["OOP range", `${(spotInfo.widths[0] * 100).toFixed(0)}%`],
+                  ["IP range", `${(spotInfo.widths[1] * 100).toFixed(0)}%`],
+                  ["decision nodes", spotInfo.meta.node_count.toLocaleString()],
+                ] as const
+              ).map(([label, value], i) => (
+                <div key={label} className={`min-w-[130px] flex-1 px-3 py-3 ${i > 0 ? "rule-l" : ""}`}>
+                  <div className="label">{label}</div>
+                  <div className="fig fig-3 mt-1">{value}</div>
                 </div>
-
-                <div
-                  data-testid="train-players"
-                  className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-line-soft px-3 py-2"
-                >
-                  {([0, 1] as const).map((p) => {
-                    const prof = spotContext?.[p === 0 ? "oop" : "ip"];
-                    const hasStats = !!prof && (prof.vpip !== "" || prof.pfr !== "");
-                    return (
-                      <span key={p} className="flex items-baseline gap-2">
-                        <span
-                          className={`label ${spot.hero === p ? "text-accent" : "text-accent-dim"}`}
-                        >
-                          {prof?.pos || PLAYER_NAMES[p]}
-                          {prof?.pos && prof.pos !== PLAYER_NAMES[p] ? ` (${PLAYER_NAMES[p]})` : ""}
-                          {spot.hero === p ? " · you" : ""}
-                        </span>
-                        {spotInfo && (
-                          <span className="num text-muted">
-                            range {(spotInfo.widths[p] * 100).toFixed(0)}% of hands
-                          </span>
-                        )}
-                        {hasStats && (
-                          <span className="num text-dim" title="the player profile these ranges model">
-                            {prof.vpip !== "" && `VPIP ${prof.vpip}`}
-                            {prof.vpip !== "" && prof.pfr !== "" && " / "}
-                            {prof.pfr !== "" && `PFR ${prof.pfr}`}
-                          </span>
-                        )}
-                      </span>
-                    );
-                  })}
-                  {spotContext?.preflop && (
-                    <span className="text-[11px] text-dim">preflop: {spotContext.preflop}</span>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1 border-b border-line-soft px-3 py-2">
-                  <span className="label mr-1">line</span>
-                  {spot.history.length === 0 ? (
-                    <span className="num text-dim">start of the solved spot</span>
-                  ) : (
-                    spot.history.map((label, i) => (
-                      <span key={i} className="flex items-center gap-1">
-                        {i > 0 && <span className="text-dim">›</span>}
-                        <span className="num rounded border border-line bg-raised px-1.5 py-0.5 text-[11px]">
-                          {label}
-                        </span>
-                      </span>
-                    ))
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-baseline gap-3 px-3 py-3">
-                  <span className="label">you are {PLAYER_NAMES[spot.hero]} holding</span>
-                  <ComboCards cards={spot.cards} className="text-xl font-semibold" />
-                </div>
-
-                <div className="flex flex-wrap gap-1.5 px-3 pb-3">
-                  {spot.actions.map((a, i) => (
-                    <button
-                      key={i}
-                      disabled={result !== null}
-                      onClick={() => answer(i)}
-                      className={`flex items-center gap-2 rounded border px-2.5 py-1.5 ${
-                        result?.chosen === i
-                          ? "border-accent bg-[#1c1608]"
-                          : "border-line bg-raised hover:border-accent-dim"
-                      } ${result !== null && result.chosen !== i ? "opacity-40" : ""}`}
-                    >
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-                        style={{ background: spot.colors[i] }}
-                      />
-                      <span className="num">{a.text}</span>
-                      {a.percent_of_pot != null && (
-                        <span className="num text-dim">{a.percent_of_pot.toFixed(0)}%</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-
-                {result && (
-                  <div className="border-t border-line px-3 py-3">
-                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                      <span
-                        className="rounded px-2 py-0.5 font-semibold text-ink"
-                        style={{ background: TIER_COLOR[result.grade.tier] }}
-                      >
-                        {TIER_LABEL[result.grade.tier]}
-                      </span>
-                      <span className="num text-muted">
-                        EV loss{" "}
-                        <span className="text-text">{result.grade.evLoss.toFixed(3)} chips</span> ·{" "}
-                        <span className="text-text">{(result.grade.pctPot * 100).toFixed(2)}%</span>{" "}
-                        of pot
-                      </span>
-                      <span className="num text-muted">
-                        solver plays it{" "}
-                        <span className="text-text">{(result.grade.freq * 100).toFixed(1)}%</span> with
-                        this hand
-                      </span>
-                    </div>
-
-                    <div className="mt-2.5 grid gap-1">
-                      <div className="grid grid-cols-[1fr_120px_84px_46px] gap-x-2 text-[11px]">
-                        <span className="label">solver mix for this hand</span>
-                        <span className="label">frequency</span>
-                        <span className="label text-right">EV (chips)</span>
-                        <span className="label text-right">d100</span>
-                      </div>
-                      {spot.actions.map((a, i) => {
-                        const rolled = rollAction(spot.freqs, result.roll) === i;
-                        return (
-                          <div
-                            key={i}
-                            className="grid grid-cols-[1fr_120px_84px_46px] items-center gap-x-2"
-                          >
-                            <span className="flex items-center gap-1.5">
-                              <span
-                                className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-                                style={{ background: spot.colors[i] }}
-                              />
-                              <span className="num">{a.text}</span>
-                              {i === result.grade.bestAction && (
-                                <span className="text-[11px] text-accent">best EV</span>
-                              )}
-                              {i === result.chosen && (
-                                <span className="text-[11px] text-muted">you</span>
-                              )}
-                            </span>
-                            <span className="flex items-center gap-1.5">
-                              <span className="h-2 flex-1 overflow-hidden rounded-sm bg-[#0a0e15]">
-                                <span
-                                  className="block h-full"
-                                  style={{
-                                    width: `${spot.freqs[i] * 100}%`,
-                                    background: spot.colors[i],
-                                  }}
-                                />
-                              </span>
-                              <span className="num w-10 text-right text-muted">
-                                {(spot.freqs[i] * 100).toFixed(1)}%
-                              </span>
-                            </span>
-                            <span className="num text-right">{spot.actionEvs[i].toFixed(3)}</span>
-                            <span className="num text-right text-accent">{rolled ? "◀" : ""}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <p className="mt-2 text-[11px] text-dim">
-                      Randomizer: rolled{" "}
-                      <span className="num text-muted">{result.roll}</span> of 100 —{" "}
-                      {rollAction(spot.freqs, result.roll) < 0
-                        ? "the solver has no frequency here."
-                        : `at the table that picks ${
-                            spot.actions[rollAction(spot.freqs, result.roll)].text
-                          }.`}
-                    </p>
-
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        onClick={deal}
-                        className="rounded bg-accent px-3 py-1.5 font-semibold text-ink hover:bg-[#efbc60]"
-                      >
-                        Next hand
-                      </button>
-                      <button
-                        data-testid="train-continue"
-                        onClick={continueHand}
-                        className="rounded border border-line bg-raised px-3 py-1.5 hover:border-accent-dim"
-                      >
-                        Continue hand
-                      </button>
-                      <button
-                        onClick={() => onReview(spot.node.id, spot.cell)}
-                        className="rounded border border-line bg-raised px-3 py-1.5 hover:border-accent-dim"
-                      >
-                        Review in inspector
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </section>
-
-          <section className="panel flex h-fit flex-col overflow-hidden">
-            <div className="flex items-baseline justify-between border-b border-line px-3 py-2">
-              <span className="font-semibold">Session</span>
-              <button onClick={clear} className="text-[11px] text-dim hover:text-text">
-                clear
-              </button>
+              ))}
             </div>
-
-            <div className="grid grid-cols-3 gap-x-2 border-b border-line-soft px-3 py-2">
-              <Stat label="hands" value={String(stats.hands)} />
-              <Stat label="best/correct" value={`${(stats.accuracy * 100).toFixed(0)}%`} />
-              <Stat label="avg EV loss" value={`${(stats.avgLossPct * 100).toFixed(2)}%`} />
-            </div>
-
-            <div className="flex items-baseline justify-between border-b border-line-soft px-3 py-1.5">
-              <span className="label">played hands</span>
-              <button
-                onClick={() => setSortWorst((s) => !s)}
-                className="text-[11px] text-dim hover:text-text"
+            {/* Pre-deal poster: the drill area is never blank ground (Law 1/5). */}
+            <button
+              onClick={deal}
+              disabled={fixedHand === false}
+              className="on-ink flex min-h-0 flex-1 flex-col items-start justify-center gap-4 text-left"
+              style={{ padding: "clamp(24px,3vw,56px)" }}
+            >
+              <span
+                className="uppercase text-text-inv"
+                style={{ font: "900 clamp(40px,5vw,96px)/0.92 var(--font-sans)", letterSpacing: "-.045em" }}
               >
-                sort: {sortWorst ? "worst first" : "most recent"}
-              </button>
+                Deal a hand{" "}
+                <span className="bg-accent text-[#101010]" style={{ padding: "0 .12em" }}>
+                  →
+                </span>
+              </span>
+              <span className="num text-[13px] text-dim-inv">
+                you get a random combo at a random decision node on the solved tree · pick an
+                action · graded in chips against the solve, instantly
+              </span>
+            </button>
+          </>
+        )}
+
+        {spot && (
+          <>
+            <div className="rule-b flex flex-wrap items-center gap-x-4 gap-y-1 bg-paper-2 px-3 py-2">
+              <Cards cards={spot.node.board} className="text-[15px] font-semibold" />
+              <span className="num text-muted">
+                pot <span className="text-text">{spot.node.pot.toFixed(2)}</span>
+              </span>
+              <span className="num text-muted">
+                stacks{" "}
+                <span className="text-text">
+                  {spot.node.stacks[0].toFixed(2)} / {spot.node.stacks[1].toFixed(2)}
+                </span>
+              </span>
+              {spotInfo && (
+                <span className="num text-dim">
+                  started {spotInfo.meta.effective_stack.toFixed(1)} behind · pot{" "}
+                  {spotInfo.meta.starting_pot.toFixed(1)}
+                </span>
+              )}
+              <span className="num text-dim">
+                {spot.node.street} · node {spot.node.id}
+              </span>
             </div>
 
-            <div className="max-h-[420px] overflow-y-auto">
-              {listed.length === 0 ? (
-                <p className="px-3 py-4 text-dim">Nothing played yet.</p>
+            <div
+              data-testid="train-players"
+              className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-line-soft px-3 py-2"
+            >
+              {([0, 1] as const).map((p) => {
+                const prof = spotContext?.[p === 0 ? "oop" : "ip"];
+                const hasStats = !!prof && (prof.vpip !== "" || prof.pfr !== "");
+                return (
+                  <span key={p} className="flex items-baseline gap-2">
+                    <span className={`label ${spot.hero === p ? "text-text" : "text-dim"}`}>
+                      {prof?.pos || PLAYER_NAMES[p]}
+                      {prof?.pos && prof.pos !== PLAYER_NAMES[p] ? ` (${PLAYER_NAMES[p]})` : ""}
+                      {spot.hero === p ? " · you" : ""}
+                    </span>
+                    {spotInfo && (
+                      <span className="num text-muted">
+                        range {(spotInfo.widths[p] * 100).toFixed(0)}% of hands
+                      </span>
+                    )}
+                    {hasStats && (
+                      <span className="num text-dim" title="the player profile these ranges model">
+                        {prof.vpip !== "" && `VPIP ${prof.vpip}`}
+                        {prof.vpip !== "" && prof.pfr !== "" && " / "}
+                        {prof.pfr !== "" && `PFR ${prof.pfr}`}
+                      </span>
+                    )}
+                  </span>
+                );
+              })}
+              {spotContext?.preflop && (
+                <span className="text-[11px] text-dim">preflop: {spotContext.preflop}</span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1 border-b border-line-soft px-3 py-2">
+              <span className="label mr-1">line</span>
+              {spot.history.length === 0 ? (
+                <span className="num text-dim">start of the solved spot</span>
               ) : (
-                listed.map((r, i) => (
-                  <button
-                    key={`${r.node}-${r.cards}-${i}`}
-                    onClick={() => onReview(r.node, { row: r.row, col: r.col })}
-                    title={`node ${r.node} · ${r.board} · ${r.action}`}
-                    className="grid w-full grid-cols-[64px_1fr_58px] items-center gap-x-2 border-b border-line-soft/60 px-3 py-1 text-left hover:bg-raised"
-                  >
-                    <ComboCards cards={r.cards} className="text-[13px]" />
-                    <span className="num truncate text-[11px]" style={{ color: TIER_COLOR[r.tier] }}>
-                      {TIER_LABEL[r.tier]}
-                      <span className="ml-1.5 text-dim">{r.action}</span>
+                spot.history.map((label, i) => (
+                  <span key={i} className="flex items-center gap-1">
+                    {i > 0 && <span className="text-dim">›</span>}
+                    <span className="num border-2 border-ink bg-raised px-1.5 py-0.5 text-[11px]">
+                      {label}
                     </span>
-                    <span className="num text-right text-muted">
-                      {(r.pctPot * 100).toFixed(2)}%
-                    </span>
-                  </button>
+                  </span>
                 ))
               )}
             </div>
 
-            <p className="border-t border-line px-3 py-2 text-[11px] text-dim">
-              Grades are EV loss against the solve, not frequency matching: on a mixed node every
-              action the solver is indifferent between costs nothing. Clicking a hand opens that
-              node and hand class in the inspector.
-            </p>
-          </section>
-        </div>
-      )}
-    </main>
-  );
-}
+            <div className="flex flex-wrap items-center gap-4 px-3 py-3">
+              <span className="label">you are {PLAYER_NAMES[spot.hero]} holding</span>
+              <ComboCards cards={spot.cards} variant="stock" size={34} className="gap-1.5" />
+            </div>
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="label mb-0.5">{label}</div>
-      <div className="num text-base font-semibold text-accent">{value}</div>
+            <div
+              className="flex flex-wrap gap-1.5 p-3"
+              style={
+                result === null
+                  ? { outline: "3px solid var(--color-live)", outlineOffset: "-3px" }
+                  : undefined
+              }
+            >
+              {spot.actions.map((a, i) => (
+                <button
+                  key={i}
+                  disabled={result !== null}
+                  onClick={() => answer(i)}
+                  className={`btn flex items-center gap-2 ${
+                    result !== null && result.chosen !== i ? "opacity-40" : ""
+                  }`}
+                  style={
+                    result?.chosen === i
+                      ? { background: "var(--color-accent)", color: "var(--color-ink)" }
+                      : undefined
+                  }
+                >
+                  <span className="h-1 w-4 shrink-0" style={{ background: spot.colors[i] }} />
+                  <span className="num">{a.text}</span>
+                  {a.percent_of_pot != null && (
+                    <span className="num text-dim">{a.percent_of_pot.toFixed(0)}%</span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {result && (
+              <div className="rule-t p-3">
+                <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+                  <span
+                    className={`uppercase ${TIER_BLOCK[result.grade.tier]}`}
+                    style={{
+                      font: "900 30px/1 var(--font-sans)",
+                      letterSpacing: "-.03em",
+                      padding: TIER_BLOCK[result.grade.tier] ? "4px 10px" : 0,
+                    }}
+                  >
+                    {TIER_LABEL[result.grade.tier]}
+                  </span>
+                  <div>
+                    <div className="label">EV loss · chips</div>
+                    <div
+                      className={`fig fig-1 ${
+                        result.grade.evLoss === 0
+                          ? "text-ok"
+                          : result.grade.pctPot < CORRECT_PCT_POT
+                            ? "text-warn"
+                            : "text-err"
+                      }`}
+                    >
+                      {result.grade.evLoss.toFixed(3)}
+                    </div>
+                    <div className="num mt-1 text-[11px] text-muted">
+                      {(result.grade.pctPot * 100).toFixed(2)}% of pot
+                    </div>
+                  </div>
+                  <div>
+                    <div className="label">solver plays it</div>
+                    <div className="fig fig-2">{(result.grade.freq * 100).toFixed(1)}%</div>
+                    <div className="num mt-1 text-[11px] text-muted">with this hand</div>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-1">
+                  <div className="grid grid-cols-[1fr_120px_84px_46px] gap-x-2 border-b-2 border-ink bg-paper-2 px-1.5 py-1">
+                    <span className="label">solver mix for this hand</span>
+                    <span className="label">frequency</span>
+                    <span className="label text-right">EV (chips)</span>
+                    <span className="label text-right">d100</span>
+                  </div>
+                  {spot.actions.map((a, i) => {
+                    const rolled = rollAction(spot.freqs, result.roll) === i;
+                    return (
+                      <div
+                        key={i}
+                        className="grid h-[26px] grid-cols-[1fr_120px_84px_46px] items-center gap-x-2 px-1.5"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-1 w-4 shrink-0" style={{ background: spot.colors[i] }} />
+                          <span className="num">{a.text}</span>
+                          {i === result.grade.bestAction && <span className="label text-ok">best EV</span>}
+                          {i === result.chosen && <span className="label text-muted">you</span>}
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            className="h-2.5 flex-1 overflow-hidden bg-paper-2"
+                            style={{ outline: "1px solid var(--color-ink)", outlineOffset: "-1px" }}
+                          >
+                            <span
+                              className="block h-full"
+                              style={{
+                                width: `${spot.freqs[i] * 100}%`,
+                                background: spot.colors[i],
+                              }}
+                            />
+                          </span>
+                          <span className="num w-10 text-right text-muted">
+                            {(spot.freqs[i] * 100).toFixed(1)}%
+                          </span>
+                        </span>
+                        <span className="num text-right">{spot.actionEvs[i].toFixed(3)}</span>
+                        <span className="num text-right">{rolled ? "◀" : ""}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <p className="num mt-2 text-[11px] text-muted">
+                  Randomizer: rolled <span className="text-text">{result.roll}</span> of 100 —{" "}
+                  {rollAction(spot.freqs, result.roll) < 0
+                    ? "the solver has no frequency here."
+                    : `at the table that picks ${
+                        spot.actions[rollAction(spot.freqs, result.roll)].text
+                      }.`}
+                </p>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button onClick={deal} className="btn">
+                    Next hand
+                  </button>
+                  <button data-testid="train-continue" onClick={continueHand} className="btn">
+                    Continue hand
+                  </button>
+                  <button onClick={() => onReview(spot.node.id, spot.cell)} className="btn">
+                    Review in inspector
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      {/* ── Session scorecard ──────────────────────────────────────────────────── */}
+      <section className="flex min-h-0 flex-col bg-panel">
+        <div className="bar">
+          Session
+          <span className="meta">{rows.length} hands this session</span>
+          <span className="right">
+            <button onClick={clear} className="btn" style={{ padding: "5px 9px", fontSize: 11 }}>
+              Clear
+            </button>
+          </span>
+        </div>
+
+        <div className="rule-b bg-paper-2 px-3 py-3">
+          <div className="label">best or correct</div>
+          <div className="fig fig-1 mt-1">{(stats.accuracy * 100).toFixed(0)}%</div>
+          <div className="num mt-1 text-[11px] text-muted">
+            {stats.correct} of {stats.hands} graded decisions
+          </div>
+        </div>
+
+        <div className="rule-b flex">
+          <div className="flex-1 px-3 py-2">
+            <div className="label">hands played</div>
+            <div className="num mt-1 text-[15px]">{stats.hands}</div>
+          </div>
+          <div className="rule-l flex-1 px-3 py-2">
+            <div className="label">mean EV loss</div>
+            <div className="num mt-1 text-[15px]">{(stats.avgLossPct * 100).toFixed(2)}%</div>
+          </div>
+        </div>
+
+        <div className="border-t-2 border-ink bg-paper-2 px-3 py-2 text-[11px] text-muted">
+          Grades are EV loss against the solve, not frequency matching: on a mixed node every
+          action the solver is indifferent between costs nothing.
+        </div>
+      </section>
+
+      {/* ── Hand history ───────────────────────────────────────────────────────── */}
+      <section className="flex min-h-0 flex-col bg-panel">
+        <div className="bar">
+          Hand history
+          <span className="meta">{listed.length} played</span>
+          <span className="right">
+            <button
+              onClick={() => setSortWorst((s) => !s)}
+              className="btn"
+              style={{ padding: "5px 9px", fontSize: 11 }}
+            >
+              {sortWorst ? "Worst first" : "Most recent"}
+            </button>
+          </span>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {listed.length === 0 ? (
+            <div className="px-3 py-3">
+              <div className="label">0 hands graded</div>
+              <p className="num mt-1 text-[11px] text-muted">
+                every action you pick is scored on the chips it costs against the solve and lands
+                here, worst first.
+              </p>
+            </div>
+          ) : (
+            listed.map((r, i) => (
+              <button
+                key={`${r.node}-${r.cards}-${i}`}
+                onClick={() => onReview(r.node, { row: r.row, col: r.col })}
+                title={`node ${r.node} · ${r.board} · ${r.action}`}
+                className={`grid h-[28px] w-full grid-cols-[62px_minmax(0,1fr)_52px] items-center gap-x-2 px-2.5 text-left hover:bg-[color-mix(in_srgb,var(--color-accent)_22%,transparent)] ${
+                  i % 2 === 1 ? "bg-paper-2" : ""
+                }`}
+                style={{ borderBottom: "1px solid rgba(16,16,16,.14)" }}
+              >
+                <ComboCards cards={r.cards} className="text-[13px]" />
+                <span className={`num truncate text-[11px] ${TIER_TEXT[r.tier]}`}>
+                  {TIER_LABEL[r.tier]}
+                  <span className="ml-1.5 text-dim">{r.action}</span>
+                </span>
+                <span className="num text-right text-muted">{(r.pctPot * 100).toFixed(2)}%</span>
+              </button>
+            ))
+          )}
+        </div>
+
+        <div className="border-t-2 border-ink bg-paper-2 px-3 py-2 text-[11px] text-muted">
+          Clicking a hand opens that node and hand class in the inspector.
+        </div>
+      </section>
     </div>
   );
 }

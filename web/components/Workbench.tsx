@@ -6,7 +6,8 @@ import ComboPanel from "@/components/ComboPanel";
 import RangeGrid from "@/components/RangeGrid";
 import SolvePanel from "@/components/SolvePanel";
 import TrainPanel from "@/components/TrainPanel";
-import TreeNav, { BoardStrip } from "@/components/TreeNav";
+import TreeNav, { BoardStrip, RunoutSelector } from "@/components/TreeNav";
+import Card, { Cards } from "@/components/Card";
 import Help from "@/components/Help";
 import {
   Cell,
@@ -16,6 +17,7 @@ import {
   buildEvGrid,
   buildGrid,
   buildRunoutHotness,
+  cellLabel,
   rangeFreqs,
 } from "@/lib/grid";
 import { PRESETS, lineOf, spotKey, type NodeLock, type SpotContext } from "@/lib/config";
@@ -64,11 +66,26 @@ function findHeroPlayer(handle: SolutionHandle, startNodeId: number): 0 | 1 {
   return cur.kind === "decision" ? (cur.player ?? 0) : 0;
 }
 
+/** True at ≥1900px, where the inspector shows the strategy grid and the EV/regret
+ *  grid side by side and the 3-way mode toggle is retired. */
+function useWide(): boolean {
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1900px)");
+    const on = () => setWide(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return wide;
+}
+
 const SAMPLES = [
   {
     file: "fixture-turn.json",
     name: "Turn spot",
     detail: "Qs Jh 2h 8c · 772 decision nodes",
+    board: ["Qs", "Jh", "2h", "8c"],
     // The bundled fixtures were solved from these presets, so the presets' table
     // context (positions, modeled profiles) is the fixtures' context too.
     context: PRESETS.find((p) => p.id === "turn-fixture")?.form.context ?? null,
@@ -77,6 +94,7 @@ const SAMPLES = [
     file: "fixture-river.json",
     name: "River spot",
     detail: "Ks 7d 2c 8h 3d · 5 decision nodes",
+    board: ["Ks", "7d", "2c", "8h", "3d"],
     context: PRESETS.find((p) => p.id === "river-drill")?.form.context ?? null,
   },
 ];
@@ -100,6 +118,15 @@ export default function Workbench() {
   });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [booted, setBooted] = useState(false);
+  // Client-only component (window is read in initializers above), so the boot
+  // script's dataset.theme is readable here without an effect.
+  const [theme, setTheme] = useState<"light" | "dark">(() =>
+    typeof document !== "undefined" && document.documentElement.dataset.theme === "dark"
+      ? "dark"
+      : "light",
+  );
+  const wide = useWide();
   /**
    * Nodes the next solve should freeze. Session state, not part of the persisted solve
    * form: a lock is a whole node's strategy (numActions x combos floats) captured from a
@@ -120,6 +147,14 @@ export default function Workbench() {
   useEffect(() => {
     initialParams.current = new URLSearchParams(window.location.search);
   }, []);
+
+  const setThemeAndPersist = (t: "light" | "dark") => {
+    setTheme(t);
+    document.documentElement.dataset.theme = t;
+    try {
+      localStorage.setItem("pf-theme", t);
+    } catch {}
+  };
 
   const adopt = useCallback((json: string, label: string, keepTab = false) => {
     setError(null);
@@ -168,19 +203,30 @@ export default function Workbench() {
       .finally(() => setLoading(false));
   }, []);
 
-  const loadSample = async (file: string, name: string, keepTab = false) => {
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await fetch(`/fixtures/${file}`);
-      if (!res.ok) throw new Error(`could not fetch ${file}: HTTP ${res.status}`);
-      await adopt(await res.text(), name, keepTab);
-      setSpotContext(SAMPLES.find((s) => s.file === file)?.context ?? null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setLoading(false);
-    }
-  };
+  const loadSample = useCallback(
+    async (file: string, name: string, keepTab = false) => {
+      setError(null);
+      setLoading(true);
+      try {
+        const res = await fetch(`/fixtures/${file}`);
+        if (!res.ok) throw new Error(`could not fetch ${file}: HTTP ${res.status}`);
+        await adopt(await res.text(), name, keepTab);
+        setSpotContext(SAMPLES.find((s) => s.file === file)?.context ?? null);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setLoading(false);
+      }
+    },
+    [adopt],
+  );
+
+  // Auto-load the turn fixture on mount: the screen boots into real solver output
+  // instead of an empty void. keepTab: a `?tab=solve` deep link must not be stolen.
+  useEffect(() => {
+    // Boot fetch on mount; loadSample's setState calls run in the async continuation.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadSample("fixture-turn.json", "Turn spot", true).finally(() => setBooted(true));
+  }, [loadSample]);
 
   const onFile = async (f: File | undefined) => {
     if (!f) return;
@@ -384,272 +430,452 @@ export default function Workbench() {
       ? (view.cells.find((c) => c.row === selected.row && c.col === selected.col) ?? null)
       : null;
 
+  const loaded = !!(handle && view && meta && rootEvs);
+
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-20 border-b border-line bg-panel/95 backdrop-blur">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
-          <div className="flex items-baseline gap-2.5">
-            <a href="https://postflop.vercel.app" className="text-[15px] font-semibold tracking-tight">
-              <span className="text-accent">♠</span> postflop
-            </a>
-            <span className="hidden text-dim sm:inline">HU NLHE postflop workbench</span>
+    <div className="app">
+      {/* ── RAIL ─────────────────────────────────────────────────────────── */}
+      <aside className="rail">
+        <a
+          href="https://postflop.vercel.app"
+          className="block border-b-2 border-[#2a2a26] px-3 py-3.5 max-[999px]:flex max-[999px]:items-center max-[999px]:border-b-0 max-[999px]:py-0"
+        >
+          <div
+            className="text-text-inv"
+            style={{ font: "900 20px/1 var(--font-sans)", letterSpacing: "-.03em" }}
+          >
+            <span className="text-card-s-inv">♠</span>
+            <span className="max-[1399px]:hidden min-[1000px]:max-[1399px]:hidden"> POSTFLOP</span>
+            <span className="hidden max-[999px]:inline"> POSTFLOP</span>
           </div>
+          <div className="mt-1.5 h-[3px] w-full bg-accent max-[1399px]:hidden min-[1000px]:max-[1399px]:hidden" />
+          <div className="label mt-1 text-[9px] max-[1399px]:hidden">HU NLHE WORKBENCH</div>
+        </a>
 
-          <nav className="flex gap-px overflow-hidden rounded border border-line">
-            {(
-              [
-                ["inspect", "Inspector"],
-                ["train", "Train"],
-                ["solve", "Solve"],
-                ["help", "About"],
-              ] as [Tab, string][]
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => setTab(id)}
-                className={`px-3 py-1 ${
-                  tab === id ? "bg-accent font-semibold text-ink" : "bg-raised text-muted hover:text-text"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-
-          <div className="ml-auto flex flex-wrap items-center gap-1.5">
-            {SAMPLES.map((s) => (
-              <button
-                key={s.file}
-                data-testid={`sample-${s.file}`}
-                onClick={() => loadSample(s.file, s.name)}
-                title={s.detail}
-                className="rounded border border-line bg-raised px-2.5 py-1 hover:border-accent-dim"
-              >
-                {s.name}
-              </button>
-            ))}
+        <nav className="flex flex-col max-[999px]:flex-1 max-[999px]:flex-row">
+          {(
+            [
+              ["inspect", "Inspector", "▦"],
+              ["train", "Train", "⌾"],
+              ["solve", "Solve", "⚙"],
+              ["help", "About", "?"],
+            ] as [Tab, string, string][]
+          ).map(([id, label, glyph]) => (
             <button
-              onClick={() => fileInput.current?.click()}
-              className="rounded border border-line bg-raised px-2.5 py-1 hover:border-accent-dim"
+              key={id}
+              onClick={() => setTab(id)}
+              aria-pressed={tab === id}
+              className={`h-11 border-b-2 border-[#2a2a26] px-3 text-left uppercase max-[999px]:flex-1 max-[999px]:border-b-0 max-[999px]:text-center ${
+                tab === id
+                  ? "bg-accent text-[#101010] shadow-[inset_6px_0_0_var(--color-live)]"
+                  : "bg-[#101010] text-dim-inv hover:bg-[#2a2a26] hover:text-text-inv"
+              }`}
+              style={{ font: "800 12px/2.8 var(--font-sans)", letterSpacing: ".06em" }}
             >
-              Open file…
+              <span className="min-[1000px]:max-[1399px]:hidden">{label}</span>
+              <span className="hidden min-[1000px]:max-[1399px]:inline" title={label}>
+                {glyph}
+              </span>
             </button>
-            <input
-              ref={fileInput}
-              type="file"
-              accept=".json,application/json"
-              className="hidden"
-              onChange={(e) => onFile(e.target.files?.[0])}
-            />
+          ))}
+        </nav>
+
+        <div className="border-b-2 border-[#2a2a26] max-[999px]:hidden min-[1000px]:max-[1399px]:hidden">
+          {loaded && meta ? (
+            <>
+              <div className="bar">LOADED</div>
+              <div className="px-3 py-2.5 min-[1000px]:max-[1399px]:hidden">
+                <div className="num break-all text-[11px] text-text-inv">{source}</div>
+                <div className="mt-2 flex items-baseline justify-between">
+                  <span className="label">NODES</span>
+                  <span className="num text-text-inv">{meta.node_count.toLocaleString()}</span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="label">ENGINE</span>
+                  <span className="num text-text-inv">{meta.engine_version}</span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="label">ITERS</span>
+                  <span className="num text-text-inv">{meta.iterations.toLocaleString()}</span>
+                </div>
+              </div>
+              <div className="px-3 pb-3 min-[1400px]:pt-0 max-[1399px]:px-1 max-[1399px]:pt-2">
+                <div className="label mb-1 min-[1000px]:max-[1399px]:hidden">EXPLOITABILITY</div>
+                <div className="w-full bg-accent px-2 py-1.5 text-[#101010]">
+                  <span className="fig fig-2">{meta.exploitability_pct_of_pot.toFixed(4)}%</span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col gap-0 p-2">
+              {SAMPLES.map((s) => (
+                <button
+                  key={s.file}
+                  data-testid={`sample-${s.file}`}
+                  onClick={() => loadSample(s.file, s.name)}
+                  title={s.detail}
+                  className="btn-inv mb-2 h-[34px] w-full border-2"
+                  style={{ font: "800 11px/1 var(--font-sans)", letterSpacing: ".06em", textTransform: "uppercase" }}
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-auto max-[999px]:mt-0 max-[999px]:hidden">
+          <button
+            onClick={() => fileInput.current?.click()}
+            className="btn-inv block h-[34px] w-full border-0 border-t-2 border-[#2a2a26] uppercase"
+            style={{ font: "800 11px/1 var(--font-sans)", letterSpacing: ".06em" }}
+            title="Open a solution file written by the solver CLI or exported from this page"
+          >
+            <span className="min-[1000px]:max-[1399px]:hidden">Open file…</span>
+            <span className="hidden min-[1000px]:max-[1399px]:inline">⤓</span>
+          </button>
+          <button
+            data-testid="export"
+            disabled={!handle}
+            onClick={exportJson}
+            className="btn-inv block h-[34px] w-full border-0 border-t-2 border-[#2a2a26] uppercase"
+            style={{ font: "800 11px/1 var(--font-sans)", letterSpacing: ".06em" }}
+          >
+            <span className="min-[1000px]:max-[1399px]:hidden">Export JSON</span>
+            <span className="hidden min-[1000px]:max-[1399px]:inline">⤒</span>
+          </button>
+          {locks.length > 0 && (
             <button
-              data-testid="export"
-              disabled={!handle}
-              onClick={exportJson}
-              className="rounded border border-accent-dim bg-[#1c1608] px-2.5 py-1 text-accent hover:bg-[#2a2110] disabled:opacity-30"
+              data-testid="lock-count"
+              onClick={() => setTab("solve")}
+              title="Review the pending locks on the Solve tab and re-solve"
+              className="btn-inv block h-[34px] w-full border-0 border-t-2 border-[#2a2a26] uppercase"
+              style={{ font: "800 11px/1 var(--font-sans)", letterSpacing: ".06em" }}
             >
-              Export JSON
+              <span className="min-[1000px]:max-[1399px]:hidden">{locks.length} locks pending →</span>
+              <span className="hidden min-[1000px]:max-[1399px]:inline">🔒</span>
+            </button>
+          )}
+          <div className="seg border-t-2 border-[#2a2a26]" role="group" aria-label="theme">
+            <button
+              aria-pressed={theme === "light"}
+              onClick={() => setThemeAndPersist("light")}
+              className="h-[30px] flex-1 border-0"
+            >
+              ☀<span className="min-[1000px]:max-[1399px]:hidden"> BONE</span>
+            </button>
+            <button
+              aria-pressed={theme === "dark"}
+              onClick={() => setThemeAndPersist("dark")}
+              className="h-[30px] flex-1 border-0"
+            >
+              ☾<span className="min-[1000px]:max-[1399px]:hidden"> INK</span>
             </button>
           </div>
         </div>
 
-        {(error || loading) && (
-          <div
-            data-testid="banner"
-            className={`px-4 py-1.5 ${
-              error ? "border-t border-[#7a2b25] bg-[#1e0e0c] text-card-h" : "bg-raised text-muted"
-            }`}
-          >
-            {error ? `Could not load that solution: ${error}` : "reading…"}
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".json,application/json"
+          className="hidden"
+          onChange={(e) => onFile(e.target.files?.[0])}
+        />
+      </aside>
+
+      {/* ── STAGE ────────────────────────────────────────────────────────── */}
+      <div className="stage">
+        {error && (
+          <div data-testid="banner" className="flex items-center gap-3 border-b-[3px] border-err bg-err-bg px-3.5 py-2">
+            <span
+              className="bg-ink px-2 py-1 uppercase text-text-inv"
+              style={{ font: "800 10px/1 var(--font-sans)", letterSpacing: ".12em" }}
+            >
+              Could not load
+            </span>
+            <span className="num text-[12px]">{error}</span>
           </div>
         )}
-      </header>
+        {!error && loading && (
+          <div
+            data-testid="banner"
+            className="relative bg-accent px-3.5 py-1.5 uppercase text-[#101010]"
+            style={{ font: "800 12px/1.4 var(--font-sans)", letterSpacing: ".08em" }}
+          >
+            reading…
+            <span className="slide-rule" style={{ background: "var(--color-ink)" }} />
+          </div>
+        )}
 
-      <div hidden={tab !== "help"}>
-        <Help />
-      </div>
-      {/* Kept mounted: unmounting on the tab switch would throw away the progress curve
-          of the solve that just finished, which is exactly when it is worth reading. */}
-      <div hidden={tab !== "solve"}>
-        <SolvePanel
-          locks={locks}
-          onRemoveLock={(l) => setLocks((ls) => ls.filter((x) => x.line !== l))}
-          onClearLocks={() => setLocks([])}
-          onSolved={(json, wall, ctx) => {
-            setSpotContext(ctx);
-            return adopt(json, `browser solve (${wall.toFixed(2)}s)`);
-          }}
-        />
-      </div>
-      {/* Kept mounted for the same reason as the solve panel: switching to the inspector
-          to review a hand must not throw away the session's score and played-hands list. */}
-      <div hidden={tab !== "train"}>
-        <TrainPanel
-          handle={handle}
-          spotContext={spotContext}
-          samples={SAMPLES}
-          onLoadSample={(file, name) => void loadSample(file, name, true)}
-          onSolved={(json, wall, ctx) => {
-            setSpotContext(ctx);
-            return adopt(json, `browser solve (${wall.toFixed(2)}s)`, true);
-          }}
-          onReview={(node, cell) => {
-            setNodeId(node);
-            setPath([]);
-            setSelected(cell);
-            setTab("inspect");
-          }}
-        />
-      </div>
+        {tab === "inspect" && loaded && view && meta && rootEvs && (
+          <StatBand meta={meta} rootEvs={rootEvs} source={source} node={view.node} />
+        )}
 
-      {tab === "inspect" &&
-        (!handle || !view || !meta || !rootEvs ? (
-          <Empty onSample={loadSample} />
-        ) : (
-          <main className="flex flex-1 flex-col gap-3 p-3">
-            <Overview meta={meta} rootEvs={rootEvs} source={source} node={view.node} />
+        {tab === "inspect" && loaded && view && (
+          <TreeNav
+            node={view.node}
+            path={path}
+            freqs={view.kind === "decision" ? view.freqs : []}
+            colors={view.kind === "decision" ? view.colors : []}
+            onStep={step}
+            onJump={jump}
+          />
+        )}
 
-            <TreeNav
-              node={view.node}
-              path={path}
-              freqs={view.kind === "decision" ? view.freqs : []}
-              colors={view.kind === "decision" ? view.colors : []}
-              onStep={step}
-              onJump={jump}
-              hotness={runoutHotness}
-            />
+        <div className={tab === "help" ? "help-shell" : "hidden"}>
+          <Help />
+        </div>
+        {/* Kept mounted: unmounting on the tab switch would throw away the progress curve
+            of the solve that just finished, which is exactly when it is worth reading. */}
+        <div className={tab === "solve" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+          <SolvePanel
+            locks={locks}
+            onRemoveLock={(l) => setLocks((ls) => ls.filter((x) => x.line !== l))}
+            onClearLocks={() => setLocks([])}
+            onSolved={(json, wall, ctx) => {
+              setSpotContext(ctx);
+              return adopt(json, `browser solve (${wall.toFixed(2)}s)`);
+            }}
+          />
+        </div>
+        {/* Kept mounted for the same reason as the solve panel: switching to the inspector
+            to review a hand must not throw away the session's score and played-hands list. */}
+        <div className={tab === "train" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+          <TrainPanel
+            handle={handle}
+            spotContext={spotContext}
+            samples={SAMPLES}
+            onLoadSample={(file, name) => void loadSample(file, name, true)}
+            onSolved={(json, wall, ctx) => {
+              setSpotContext(ctx);
+              return adopt(json, `browser solve (${wall.toFixed(2)}s)`, true);
+            }}
+            onReview={(node, cell) => {
+              setNodeId(node);
+              setPath([]);
+              setSelected(cell);
+              setTab("inspect");
+            }}
+          />
+        </div>
 
-            {view.kind === "decision" ? (
-              <div className="grid flex-1 gap-3 xl:grid-cols-[minmax(360px,480px)_minmax(0,1fr)_230px]">
-                <section className="panel flex h-fit flex-col overflow-hidden">
-                  <div className="flex items-baseline justify-between border-b border-line px-3 py-2">
-                    <span className="font-semibold">
-                      {PLAYER_NAMES[view.player]} strategy
-                      <span className="ml-2 font-normal text-dim">
-                        {view.combos.length} combos · node {view.node.id}
-                      </span>
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        data-testid="lock-node"
-                        disabled={!pathLeadsHere}
-                        onClick={lockCurrentNode}
-                        title={
-                          pathLeadsHere
-                            ? "Freeze this node at the strategy shown and solve the rest of the tree around it, on the next solve."
-                            : "Walk down from root to lock a node — a deep link lands here without a line."
-                        }
-                        className={`rounded border px-2 py-0.5 text-[11px] disabled:opacity-30 ${
-                          lockedHere
-                            ? "border-accent-dim bg-[#1c1608] text-accent"
-                            : "border-line bg-raised text-muted hover:border-accent-dim hover:text-text"
-                        }`}
-                      >
-                        {lockedHere ? "🔒 lock updated" : "🔒 lock this node"}
-                      </button>
-                      {locks.length > 0 && (
-                        <button
-                          data-testid="lock-count"
-                          onClick={() => setTab("solve")}
-                          title="Review the pending locks on the Solve tab and re-solve"
-                          className="rounded border border-line bg-raised px-2 py-0.5 text-[11px] text-muted hover:border-accent-dim hover:text-text"
-                        >
-                          {locks.length} pending →
-                        </button>
-                      )}
-                      <div className="flex gap-px overflow-hidden rounded border border-line text-[11px]">
+        {tab === "inspect" &&
+          (!loaded || !view ? (
+            booted ? (
+              <Empty
+                error={error}
+                onSample={loadSample}
+                onSolveTab={() => setTab("solve")}
+                onOpen={() => fileInput.current?.click()}
+                onFile={onFile}
+              />
+            ) : (
+              <Booting />
+            )
+          ) : view.kind === "decision" ? (
+            <div className="inspector rule-t">
+              {/* Column 1 — strategy grid */}
+              <section className="flex flex-col bg-panel">
+                <div className="bar bar-strategy">
+                  {PLAYER_NAMES[view.player]} strategy
+                  <span className="meta">
+                    {view.combos.length} combos · node {view.node.id} · {view.node.street}
+                  </span>
+                  <span className="right">
+                    <button
+                      data-testid="lock-node"
+                      disabled={!pathLeadsHere}
+                      onClick={lockCurrentNode}
+                      title={
+                        pathLeadsHere
+                          ? "Freeze this node at the strategy shown and solve the rest of the tree around it, on the next solve."
+                          : "Walk down from root to lock a node — a deep link lands here without a line."
+                      }
+                      className={`border-2 px-2 py-1 text-[10px] uppercase disabled:opacity-40 ${
+                        lockedHere
+                          ? "border-ink bg-accent text-[#101010]"
+                          : "border-dim-inv bg-[#2a2a26] text-text-inv hover:bg-accent hover:text-[#101010]"
+                      }`}
+                      style={{ font: "800 10px/1 var(--font-sans)", letterSpacing: ".06em" }}
+                    >
+                      {lockedHere ? "🔒 lock updated" : "🔒 lock node"}
+                    </button>
+                    {!wide && (
+                      <span className="seg">
                         {(["strategy", "ev", "regret"] as const).map((m) => (
-                          <button
-                            key={m}
-                            onClick={() => setGridMode(m)}
-                            className={`px-2 py-0.5 ${
-                              gridMode === m
-                                ? "bg-accent font-semibold text-ink"
-                                : "bg-raised text-muted hover:text-text"
-                            }`}
-                          >
+                          <button key={m} aria-pressed={gridMode === m} onClick={() => setGridMode(m)}>
                             {m}
                           </button>
                         ))}
-                      </div>
-                      <span className="num text-dim">{view.node.street}</span>
-                    </div>
-                  </div>
-                  <div className="p-2">
-                    <RangeGrid
-                      cells={view.cells}
-                      colors={view.colors}
-                      mode={gridMode}
-                      evCells={view.evCells}
-                      actions={view.actions}
-                      size="large"
-                      selected={selected}
-                      onSelect={(c) => setSelected({ row: c.row, col: c.col })}
-                    />
-                  </div>
-                  <Legend actions={view.actions} colors={view.colors} freqs={view.freqs} mode={gridMode} />
-                </section>
-
-                <section className="min-h-[320px] xl:h-[calc(100vh-260px)]">
-                  <ComboPanel
-                    cell={selectedCell}
-                    combos={view.combos}
-                    strategy={view.strategy}
-                    evs={view.evs}
-                    actionEvs={view.actionEvs}
-                    actions={view.actions}
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="p-2.5">
+                  <RangeGrid
+                    cells={view.cells}
                     colors={view.colors}
-                    player={PLAYER_NAMES[view.player]}
+                    mode={wide ? "strategy" : gridMode}
+                    evCells={view.evCells}
+                    actions={view.actions}
+                    size="large"
+                    selected={selected}
+                    onSelect={(c) => setSelected({ row: c.row, col: c.col })}
                   />
-                </section>
+                </div>
+                <Legend
+                  actions={view.actions}
+                  colors={view.colors}
+                  freqs={view.freqs}
+                  mode={wide ? "strategy" : gridMode}
+                />
+              </section>
 
-                <section className="panel flex h-fit flex-col overflow-hidden">
-                  <div className="border-b border-line px-3 py-2">
-                    <span className="font-semibold">{PLAYER_NAMES[1 - view.player]} range</span>
-                    <div className="text-dim">
-                      {view.oppCombos.length} combos · reach-weighted
-                    </div>
+              {/* Column 2 — EV/regret twin grid, ≥1900px only */}
+              <section className="col-ev flex-col bg-panel">
+                <div className="bar bar-ev">
+                  {gridMode === "regret" ? "Regret surface" : "EV surface"}
+                  <span className="meta">same node · same selection</span>
+                  <span className="right">
+                    <span className="seg">
+                      {(["ev", "regret"] as const).map((m) => (
+                        <button key={m} aria-pressed={(gridMode === "regret" ? "regret" : "ev") === m} onClick={() => setGridMode(m)}>
+                          {m}
+                        </button>
+                      ))}
+                    </span>
+                  </span>
+                </div>
+                <div className="p-2.5">
+                  <RangeGrid
+                    cells={view.cells}
+                    colors={view.colors}
+                    mode={gridMode === "regret" ? "regret" : "ev"}
+                    evCells={view.evCells}
+                    actions={view.actions}
+                    size="large"
+                    selected={selected}
+                    onSelect={(c) => setSelected({ row: c.row, col: c.col })}
+                  />
+                </div>
+                <div
+                  className="mt-auto border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted"
+                >
+                  {LEGEND_CAPTION[gridMode === "regret" ? "regret" : "ev"]}
+                </div>
+              </section>
+
+              {/* Column 3 — combo breakdown */}
+              <section className="flex flex-col bg-panel">
+                <ComboPanel
+                  cell={selectedCell}
+                  combos={view.combos}
+                  strategy={view.strategy}
+                  evs={view.evs}
+                  actionEvs={view.actionEvs}
+                  actions={view.actions}
+                  colors={view.colors}
+                  freqs={view.freqs}
+                  player={PLAYER_NAMES[view.player]}
+                  onPickCell={(c) => setSelected(c)}
+                />
+              </section>
+
+              {/* Side column — opponent range + blockers */}
+              <div className="col-side flex flex-col">
+                <section className="flex flex-col bg-panel">
+                  <div className="bar bar-opp">
+                    {PLAYER_NAMES[1 - view.player]} range
+                    <span className="meta">{view.oppCombos.length} combos · reach-weighted</span>
                   </div>
                   <div className="p-2">
-                    <RangeGrid
-                      cells={view.oppCells}
-                      colors={["#4a7fc1"]}
-                      mode="reach"
-                      size="small"
-                    />
+                    {/* Width cap: in the 1100–1499px full-width side row this grid would
+                        otherwise stretch to half the stage and dwarf the strategy grid. */}
+                    <div style={{ maxWidth: 360 }}>
+                      <RangeGrid cells={view.oppCells} colors={["#48566f"]} mode="reach" size="small" />
+                    </div>
                   </div>
-                  <p className="border-t border-line px-3 py-2 text-[11px] text-dim">
+                  <p className="border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
                     Density is that hand&apos;s reach at this node — range weight times their own
                     strategy along the line. They are not acting here, so there are no action
                     frequencies to show.
                   </p>
                 </section>
+                <section className="flex min-h-0 flex-1 flex-col rule-t bg-panel">
+                  <BlockerPanel
+                    cell={selectedCell}
+                    combos={view.combos}
+                    oppCombos={view.oppCombos}
+                    oppStrategy={view.oppActionStrategy}
+                    oppActions={view.oppActionNode?.actions ?? []}
+                    oppColors={view.oppActionColors}
+                    oppPlayer={PLAYER_NAMES[1 - view.player]}
+                  />
+                </section>
               </div>
-            ) : (
-              <div className="panel flex items-center justify-center px-8 py-12 text-dim">
-                {view.node.kind === "chance"
-                  ? "Chance node — pick a runout card above to keep walking."
-                  : "Terminal node — the hand is over on this line."}
-              </div>
-            )}
+            </div>
+          ) : view.node.kind === "chance" ? (
+            <ChanceView node={view.node} hotness={runoutHotness} onStep={step} />
+          ) : (
+            <TerminalView node={view.node} path={path} onJump={jump} />
+          ))}
+      </div>
 
-            {view.kind === "decision" && (
-              <BlockerPanel
-                cell={selectedCell}
-                combos={view.combos}
-                oppCombos={view.oppCombos}
-                oppStrategy={view.oppActionStrategy}
-                oppActions={view.oppActionNode?.actions ?? []}
-                oppColors={view.oppActionColors}
-                oppPlayer={PLAYER_NAMES[1 - view.player]}
-              />
-            )}
-          </main>
-        ))}
+      {/* ── STATUS BAR ───────────────────────────────────────────────────── */}
+      <footer className="statusbar on-ink flex items-center overflow-x-auto whitespace-nowrap px-2.5">
+        <StatusSeg label={loaded ? `NODE ${nodeId}` : "NO SPOT"} value={loaded && view ? view.node.kind.toUpperCase() : booted ? "WASM IDLE" : "BOOTING"} />
+        <StatusSeg label="COMBOS" value={view?.kind === "decision" ? view.combos.length.toLocaleString() : "0"} />
+        <StatusSeg label="ITERS" value={meta ? meta.iterations.toLocaleString() : "0"} />
+        <StatusSeg label="EXPL" value={meta ? `${meta.exploitability_pct_of_pot.toFixed(4)}%` : "—"} />
+        <StatusSeg label="NODES" value={meta ? meta.node_count.toLocaleString() : "0"} />
+        <StatusSeg label="MODE" value={gridMode.toUpperCase()} />
+        <StatusSeg
+          label="SEL"
+          value={
+            selectedCell
+              ? `${selectedCell.label} (${selectedCell.slots.length} combo${selectedCell.slots.length === 1 ? "" : "s"})`
+              : "NO SELECTION"
+          }
+        />
+        <StatusSeg label="LOCKS" value={String(locks.length)} />
+        <span
+          className="num ml-auto overflow-hidden text-ellipsis pl-2.5 text-[11px] text-dim-inv"
+          title={path.length ? "root › " + path.map((s) => s.label).join(" › ") : "root"}
+        >
+          LINE <span className="text-text-inv">{path.length ? "root › " + path.map((s) => s.label).join(" › ") : "root"}</span>
+        </span>
+      </footer>
     </div>
   );
 }
 
-function Overview({
+function StatusSeg({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <span className="num text-[11px] text-dim-inv">
+        {label} <span className="text-text-inv">{value}</span>
+      </span>
+      <span className="px-2.5 text-[#2a2a26]">│</span>
+    </>
+  );
+}
+
+function Booting() {
+  return (
+    <div className="on-ink relative flex flex-1 items-center">
+      <span
+        className="px-6 uppercase text-dim-inv"
+        style={{ font: "800 12px/1.2 var(--font-sans)", letterSpacing: ".12em" }}
+      >
+        Reading fixture-turn.json
+      </span>
+      <span className="slide-rule" />
+    </div>
+  );
+}
+
+/** Stat band: the stage's one yellow block lives here (exploitability). */
+function StatBand({
   meta,
   rootEvs,
   source,
@@ -661,64 +887,185 @@ function Overview({
   node: NodeInfo;
 }) {
   return (
-    <section className="panel grid gap-x-6 gap-y-2 px-3 py-2.5 md:grid-cols-[auto_auto_auto_1fr]">
-      <div>
-        <div className="label mb-1">node</div>
-        <div className="flex items-center gap-3">
-          <BoardStrip board={node.board} />
-          <span className="num text-muted">
-            pot <span className="text-text">{node.pot.toFixed(2)}</span>
-          </span>
-          <span className="num text-muted">
-            stacks{" "}
-            <span className="text-text">
-              {node.stacks[0].toFixed(2)} / {node.stacks[1].toFixed(2)}
-            </span>
-          </span>
+    <section className="on-ink rule-b flex flex-wrap">
+      <StatTile label="BOARD" first wide>
+        <BoardStrip board={node.board} size={20} variant="stock" />
+      </StatTile>
+      <StatTile label="POT">
+        <span className="fig fig-2">{node.pot.toFixed(2)}</span>
+      </StatTile>
+      <StatTile label="STACKS">
+        <span className="num text-[15px] text-text-inv">
+          {node.stacks[0].toFixed(2)} / {node.stacks[1].toFixed(2)}
+        </span>
+      </StatTile>
+      <StatTile label="EXPLOITABILITY">
+        <span className="inline-block bg-accent px-2 py-1 text-[#101010]">
+          <span className="fig fig-1">{meta.exploitability_pct_of_pot.toFixed(4)}%</span>
+        </span>
+        <span className="num mt-1 block text-[11px] text-dim-inv">
+          {meta.exploitability_chips.toFixed(6)} chips
+        </span>
+      </StatTile>
+      <StatTile label="ROOT EV · ZERO-SUM">
+        <span className="fig fig-2">{rootEvs.zero_sum[0].toFixed(4)}</span>
+        <span className="num text-dim-inv"> / {rootEvs.zero_sum[1].toFixed(4)}</span>
+      </StatTile>
+      <StatTile label="ROOT EV · POT-SHARE">
+        <span className="fig fig-2">{rootEvs.pot_share[0].toFixed(4)}</span>
+        <span className="num text-dim-inv"> / {rootEvs.pot_share[1].toFixed(4)}</span>
+      </StatTile>
+      <StatTile label="SOLVE">
+        <div className="num text-[12px] leading-snug text-text-inv">
+          {meta.iterations.toLocaleString()} iters
+          <br />
+          {meta.wall_seconds.toFixed(3)} s · engine {meta.engine_version}
+          <br />
+          {meta.node_count.toLocaleString()} nodes{source ? ` · ${source}` : ""}
         </div>
-      </div>
-
-      <div>
-        <div className="label mb-1">exploitability</div>
-        <div className="num">
-          <span className="font-semibold text-accent">
-            {meta.exploitability_pct_of_pot.toFixed(4)}%
-          </span>
-          <span className="text-dim"> of pot · {meta.exploitability_chips.toFixed(6)} chips</span>
-        </div>
-      </div>
-
-      <div>
-        <div className="label mb-1">root EV per hand</div>
-        <div className="num text-muted">
-          zero-sum{" "}
-          <span className="text-text">
-            {rootEvs.zero_sum[0].toFixed(4)} / {rootEvs.zero_sum[1].toFixed(4)}
-          </span>
-          <span className="mx-2 text-dim">|</span>
-          pot-share{" "}
-          <span className="text-text">
-            {rootEvs.pot_share[0].toFixed(4)} / {rootEvs.pot_share[1].toFixed(4)}
-          </span>
-        </div>
-      </div>
-
-      <div className="md:text-right">
-        <div className="label mb-1">solve</div>
-        <div className="num text-dim">
-          {meta.iterations.toLocaleString()} iters · {meta.wall_seconds.toFixed(3)} s · engine{" "}
-          {meta.engine_version} · {meta.node_count.toLocaleString()} nodes
-          {source && <span className="ml-2 text-muted">[{source}]</span>}
-        </div>
-      </div>
+      </StatTile>
     </section>
+  );
+}
+
+function StatTile({
+  label,
+  first = false,
+  wide = false,
+  children,
+}: {
+  label: string;
+  first?: boolean;
+  wide?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`${wide ? "min-w-[230px]" : "min-w-[150px]"} flex-1 overflow-hidden px-3.5 py-2.5`}
+      style={first ? undefined : { borderLeft: "var(--rule) solid var(--color-ink)" }}
+    >
+      <div className="label mb-1">{label}</div>
+      {children}
+    </div>
+  );
+}
+
+/** Chance node: the runout matrix at full size beside a per-runout EV table. */
+function ChanceView({
+  node,
+  hotness,
+  onStep,
+}: {
+  node: NodeInfo;
+  hotness: RunoutHotness | null;
+  onStep: (s: PathStep) => void;
+}) {
+  const valid = node.valid_cards ?? [];
+  const nextStreet = node.board.length === 3 ? "turn" : "river";
+  const rows = valid
+    .map((v) => ({
+      card: v.card,
+      child: v.child,
+      ev: hotness?.evByChild.get(v.child) ?? NaN,
+      dev: hotness?.deviationByChild.get(v.child) ?? NaN,
+    }))
+    .sort((a, b) => (Number.isNaN(b.dev) ? -Infinity : b.dev) - (Number.isNaN(a.dev) ? -Infinity : a.dev));
+  const maxDev = hotness?.maxDeviation ?? 0;
+
+  return (
+    <div className="rule-t grid min-h-0 flex-1 grid-cols-1 min-[1100px]:grid-cols-[minmax(0,1fr)_420px]">
+      <section className="flex min-h-0 flex-col overflow-y-auto bg-panel">
+        <div className="bar">
+          Deal the {nextStreet}
+          <span className="meta">
+            {valid.length} of 52 available · {node.board.length} on board
+          </span>
+        </div>
+        <div className="flex flex-1 items-center justify-center p-6">
+          <RunoutSelector node={node} onStep={onStep} hotness={hotness} size="large" />
+        </div>
+      </section>
+      <section className="flex min-h-0 flex-col overflow-y-auto rule-l bg-panel max-[1099px]:rule-t">
+        <div className="bar bar-ev">
+          Runout EV
+          <span className="meta">
+            {rows.length} runouts · max |Δ| {maxDev.toFixed(3)} chips
+          </span>
+        </div>
+        <div className="grid grid-cols-[64px_1fr_1fr] border-b-2 border-ink bg-paper-2 px-2.5 py-1.5">
+          <span className="label">card</span>
+          <span className="label text-right">hero EV</span>
+          <span className="label text-right">vs. mean</span>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {rows.map((r, i) => (
+            <button
+              key={r.card}
+              onClick={() =>
+                onStep({ from: node.id, to: r.child, kind: "chance", label: `${nextStreet} ${r.card}`, token: r.card })
+              }
+              className={`grid h-[26px] w-full grid-cols-[64px_1fr_1fr] items-center px-2.5 text-left hover:bg-accent ${
+                i % 2 === 1 ? "bg-paper-2" : ""
+              }`}
+            >
+              <Card card={r.card} className="text-[13px]" />
+              <span className="num text-right">{Number.isNaN(r.ev) ? "—" : r.ev.toFixed(3)}</span>
+              <span
+                className={`num text-right ${Number.isNaN(r.dev) ? "text-dim" : r.dev >= 0 ? "text-ok" : "text-err"}`}
+              >
+                {Number.isNaN(r.dev) ? "—" : `${r.dev >= 0 ? "+" : ""}${r.dev.toFixed(3)}`}
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** Terminal node: the hand is over — a poster, not a hint sentence. */
+function TerminalView({
+  node,
+  path,
+  onJump,
+}: {
+  node: NodeInfo;
+  path: PathStep[];
+  onJump: (depth: number) => void;
+}) {
+  const t = node.terminal;
+  return (
+    <div className="rule-t flex-1 bg-panel" style={{ padding: "clamp(24px,3vw,48px)" }}>
+      <div className="bar mb-6">Terminal</div>
+      <div
+        className="uppercase"
+        style={{ font: "900 clamp(32px,4vw,64px)/1 var(--font-sans)", letterSpacing: "-.04em" }}
+      >
+        {t?.kind === "fold" ? `${PLAYER_NAMES[t.folder]} folds` : "Showdown"}
+      </div>
+      <div className="label mt-6">POT</div>
+      <div className="fig fig-1">{t?.pot.toFixed(2)}</div>
+      <p className="num mt-6 text-muted">
+        no strategy here — step back up the line to keep inspecting
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <button className="chip" onClick={() => onJump(0)}>
+          root
+        </button>
+        {path.map((s, i) => (
+          <button key={i} className="chip" onClick={() => onJump(i + 1)}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
 const LEGEND_CAPTION: Record<"strategy" | "ev" | "regret", string> = {
   strategy: "cells weighted by live combo reach · faded = zero reach · dark = no live combos",
-  ev: "color = highest-EV action · white = near-indifferent · dark = no EV data",
-  regret: "color = chips lost vs. the best action · white = no regret · dark = no EV data",
+  ev: "color = highest-EV action · ivory = near-indifferent · dark = no EV data",
+  regret: "color = chips lost vs. the best action · ivory = no regret · dark = no EV data",
 };
 
 function Legend({
@@ -733,43 +1080,266 @@ function Legend({
   mode: "strategy" | "ev" | "regret";
 }) {
   return (
-    <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-3 py-2">
+    <div className="mt-auto flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t-2 border-ink bg-paper-2 px-2.5 py-2">
       {actions.map((a, i) => (
         <span key={i} className="flex items-center gap-1.5">
-          <span className="h-2.5 w-4 rounded-[2px]" style={{ background: colors[i] }} />
-          <span className="num">{a.text}</span>
-          <span className="num text-dim">{((freqs[i] ?? 0) * 100).toFixed(1)}%</span>
+          <span className="h-1 w-4" style={{ background: colors[i] }} />
+          <span className="num text-[12px]">{a.text}</span>
+          <span style={{ font: "800 12px/1 var(--font-sans)" }}>
+            {((freqs[i] ?? 0) * 100).toFixed(1)}%
+          </span>
         </span>
       ))}
-      <span className="ml-auto text-[11px] text-dim">{LEGEND_CAPTION[mode]}</span>
+      <span className="label ml-auto">{LEGEND_CAPTION[mode]}</span>
     </div>
   );
 }
 
-function Empty({ onSample }: { onSample: (file: string, name: string) => void }) {
+/**
+ * The no-solution screen. Renders only when the boot fixture failed or a user file
+ * failed to parse — three full-bleed rows: poster headline, four entry slabs, and a
+ * spec sheet that teaches the colour language. Zero exposed void.
+ */
+function Empty({
+  error,
+  onSample,
+  onSolveTab,
+  onOpen,
+  onFile,
+}: {
+  error: string | null;
+  onSample: (file: string, name: string) => void;
+  onSolveTab: () => void;
+  onOpen: () => void;
+  onFile: (f: File | undefined) => void;
+}) {
+  const [dragging, setDragging] = useState(false);
   return (
-    <div className="flex flex-1 items-center justify-center p-8">
-      <div className="panel max-w-lg p-6">
-        <h1 className="mb-1 text-lg font-semibold">Load a solution</h1>
-        <p className="mb-4 text-muted">
-          Open a solution file written by the <span className="num">solver</span> CLI or exported
-          from this page, or start from one of the bundled samples. Loading rebuilds the game tree
-          and reads the stored strategies — it never re-solves.
+    <div className="rule-t grid min-h-0 flex-1 grid-rows-[auto_minmax(280px,38%)_minmax(0,1fr)] overflow-y-auto">
+      {/* Row 1 — poster headline */}
+      <div className="rule-b bg-panel" style={{ padding: "clamp(24px,3vw,56px)" }}>
+        <h1
+          className="uppercase"
+          style={{ font: "900 clamp(48px,6vw,112px)/0.92 var(--font-sans)", letterSpacing: "-.045em" }}
+        >
+          No solution{" "}
+          <span className="bg-accent text-[#101010]" style={{ padding: "0 .12em" }}>
+            loaded
+          </span>
+        </h1>
+        <p className="num mt-4 max-w-[74ch] text-[14px] text-muted">
+          load a solution file, pick a bundled sample, or solve a spot in the browser — loading
+          rebuilds the tree and reads stored strategies, it never re-solves.
         </p>
-        <div className="flex flex-wrap gap-2">
-          {SAMPLES.map((s) => (
+        {error && (
+          <p className="num mt-3 text-[13px] text-err">
+            <span
+              className="mr-2 bg-ink px-2 py-0.5 uppercase text-text-inv"
+              style={{ font: "800 10px/1.4 var(--font-sans)", letterSpacing: ".1em" }}
+            >
+              could not load
+            </span>
+            {error}
+          </p>
+        )}
+      </div>
+
+      {/* Row 2 — four entry slabs */}
+      <div className="rule-b flex min-h-[280px] flex-wrap">
+        {SAMPLES.map((s, i) => (
+          <div
+            key={s.file}
+            className={`on-ink flex min-w-[280px] flex-1 basis-1/2 flex-col min-[1500px]:basis-0 ${
+              i > 0 ? "rule-l" : ""
+            }`}
+          >
+            <div className="flex flex-1 flex-col gap-3 p-5">
+              <Cards cards={s.board} variant="stock" size={22} className="gap-1.5" />
+              <div
+                className="uppercase text-text-inv"
+                style={{ font: "900 clamp(24px,2vw,36px)/1 var(--font-sans)", letterSpacing: "-.03em" }}
+              >
+                {s.name}
+              </div>
+              <div className="num text-[12px] text-dim-inv">{s.detail}</div>
+            </div>
             <button
-              key={s.file}
               data-testid={`empty-sample-${s.file}`}
               onClick={() => onSample(s.file, s.name)}
-              className="rounded border border-line bg-raised px-3 py-2 text-left hover:border-accent-dim"
+              className="h-11 w-full bg-[#2a2a26] uppercase text-text-inv hover:bg-accent hover:text-[#101010]"
+              style={{ font: "800 13px/1 var(--font-sans)", letterSpacing: ".08em" }}
             >
-              <div className="font-semibold">{s.name}</div>
-              <div className="num text-[11px] text-dim">{s.detail}</div>
+              Load →
             </button>
-          ))}
-        </div>
+          </div>
+        ))}
+        <button
+          onClick={onOpen}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            void onFile(e.dataTransfer.files?.[0]);
+          }}
+          className={`rule-l flex min-w-[280px] flex-1 basis-1/2 flex-col items-start justify-center gap-3 p-5 text-left min-[1500px]:basis-0 max-[1499px]:rule-t ${
+            dragging ? "bg-accent" : "bg-panel"
+          }`}
+          style={{ outline: "3px dashed var(--color-ink)", outlineOffset: "-12px" }}
+        >
+          <span
+            className="uppercase"
+            style={{ font: "900 clamp(22px,1.8vw,30px)/1 var(--font-sans)", letterSpacing: "-.03em" }}
+          >
+            Open file…
+          </span>
+          <span className="num text-[12px] text-muted">
+            a solution written by the CLI, or exported from this page — drop it anywhere on this
+            block
+          </span>
+        </button>
+        <button
+          onClick={onSolveTab}
+          className="rule-l flex min-w-[280px] flex-1 basis-1/2 flex-col items-start justify-center gap-3 bg-accent p-5 text-left text-[#101010] min-[1500px]:basis-0 max-[1499px]:rule-t"
+        >
+          <span
+            className="uppercase"
+            style={{ font: "900 clamp(22px,1.8vw,30px)/1 var(--font-sans)", letterSpacing: "-.03em" }}
+          >
+            Solve a new spot →
+          </span>
+          <span className="num text-[12px]">
+            set a board, two ranges and a sizing tree; the engine runs as WebAssembly on this page
+          </span>
+        </button>
       </div>
+
+      {/* Row 3 — spec sheet */}
+      <div className="grid min-h-0 grid-cols-1 min-[1000px]:grid-cols-[380px_minmax(0,1fr)] min-[1280px]:grid-cols-[380px_repeat(3,minmax(0,1fr))]">
+        <div className="bg-panel p-4">
+          <div style={{ display: "grid", gridTemplateColumns: "var(--axis) repeat(13, minmax(0,1fr))", gap: 2, padding: 2, background: "var(--color-ink)" }}>
+            <span />
+            {"AKQJT98765432".split("").map((r) => (
+              <span key={`c${r}`} className="flex items-center justify-center" style={{ font: "700 8px/1 var(--font-mono)", color: "var(--color-dim-inv)", minHeight: "var(--axis)" }}>
+                {r}
+              </span>
+            ))}
+            {Array.from({ length: 169 }, (_, i) => {
+              const row = Math.floor(i / 13);
+              const col = i % 13;
+              const fill = row === col ? "#48566f" : row < col ? "#2b7c50" : "#2a2a26";
+              return (
+                <Fragment169 key={i} first={col === 0} rank={"AKQJT98765432"[row]}>
+                  <span
+                    className="flex aspect-square items-center justify-center"
+                    style={{ background: fill, font: "700 8px/1 var(--font-mono)", color: "rgba(244,241,232,.85)" }}
+                  >
+                    {cellLabel(row, col)}
+                  </span>
+                </Fragment169>
+              );
+            })}
+          </div>
+          <div className="label mt-2">169 hand classes · 1,326 combinations</div>
+          <p className="num mt-1 text-[11px] text-muted">
+            six combinations per pair on the diagonal, four per suited hand above it, twelve per
+            offsuit hand below. every cell opens a combo breakdown.
+          </p>
+        </div>
+        <SpecCol title="Action colours">
+          {[
+            ["#e2705c", "bet — smallest sizing"],
+            ["#d1462f", "bet"],
+            ["#b02a16", "bet"],
+            ["#8f1a0d", "bet"],
+            ["#6e1209", "bet — largest sizing"],
+            ["#54ad72", "check"],
+            ["#2b7c50", "call"],
+            ["#48566f", "fold"],
+          ].map(([hex, label]) => (
+            <div key={hex + label} className="flex items-center gap-2.5 py-1">
+              <span className="h-[5px] w-5" style={{ background: hex }} />
+              <span className="num text-[12px]">{label}</span>
+            </div>
+          ))}
+          <p className="num mt-2 text-[11px] text-muted">
+            colours are consistent in every grid, table and tree block on this page.
+          </p>
+        </SpecCol>
+        <SpecCol title="Grid modes">
+          {(
+            [
+              ["strategy", ["#b02a16", "#54ad72", "#48566f"]],
+              ["ev", ["#b02a16", "#d8b8ae", "#f4f1e8"]],
+              ["regret", ["#f4f1e8", "#f6d199", "#e0883d"]],
+            ] as [string, string[]][]
+          ).map(([m, sw]) => (
+            <div key={m} className="flex items-start gap-2.5 py-1.5">
+              <span className="grid shrink-0 grid-cols-3" style={{ width: 30 }}>
+                {[...sw, ...sw, ...sw].map((c, i) => (
+                  <span key={i} className="aspect-square" style={{ background: c }} />
+                ))}
+              </span>
+              <div>
+                <div className="label">{m}</div>
+                <div className="num text-[11px] text-muted">
+                  {LEGEND_CAPTION[m as keyof typeof LEGEND_CAPTION]}
+                </div>
+              </div>
+            </div>
+          ))}
+        </SpecCol>
+        <SpecCol title="Keys & gestures">
+          {[
+            "← → step sibling runouts",
+            "click a cell to drill in combo by combo",
+            "lock a node and solve the rest around it",
+            "deep links carry ?node and ?combo",
+            "every figure on screen came out of the engine",
+          ].map((t) => (
+            <div key={t} className="num py-1 text-[12px]">
+              {t}
+            </div>
+          ))}
+        </SpecCol>
+      </div>
+    </div>
+  );
+}
+
+/** Row-header + cell pair for the empty-state lattice. */
+function Fragment169({
+  first,
+  rank,
+  children,
+}: {
+  first: boolean;
+  rank: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      {first && (
+        <span
+          className="flex items-center justify-center"
+          style={{ font: "700 8px/1 var(--font-mono)", color: "var(--color-dim-inv)" }}
+        >
+          {rank}
+        </span>
+      )}
+      {children}
+    </>
+  );
+}
+
+function SpecCol({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rule-l flex flex-col bg-panel max-[999px]:rule-t max-[999px]:border-l-0">
+      <div className="bar">{title}</div>
+      <div className="p-4">{children}</div>
     </div>
   );
 }

@@ -1,81 +1,295 @@
 @import "tailwindcss";
 
-@theme {
-  --color-ink: #070a11;
-  --color-panel: #0f141d;
-  --color-raised: #161d29;
-  --color-line: #222b3a;
-  --color-line-soft: #1a2230;
-  --color-text: #dce2ee;
-  --color-muted: #8791a6;
-  --color-dim: #5b6577;
-  --color-accent: #e0aa4e;
-  --color-accent-dim: #8a6a2f;
-  --color-card-s: #dfe5f0;
-  --color-card-h: #e4736f;
-  --color-card-d: #6ba6e2;
-  --color-card-c: #62c58c;
+/* ───────────────────────────────────────────────────────────────────────────
+   BONE & RULE
+   Chrome is paper. Data is ink. Every separator is a 3px black rule.
+   Token NAMES are deliberately unchanged from the navy scheme (`panel`,
+   `raised`, `line`, `accent`, `card-s`…) so existing utility usages re-skin
+   without a rename sweep. Only their values changed.
+   ─────────────────────────────────────────────────────────────────────────── */
 
-  --font-sans: ui-sans-serif, "Segoe UI", Inter, -apple-system, system-ui, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+@theme {
+  /* --- Paper (chrome) --- */
+  --color-paper: #e9e5da;
+  --color-panel: #e9e5da;
+  --color-paper-2: #ddd8c9;
+  --color-raised: #f4f1e8;
+
+  /* --- Ink (rules and data slabs) --- */
+  --color-ink: #101010;
+  --color-ink-2: #1c1c1a;
+  --color-ink-3: #2a2a26;
+  --color-line: #101010;
+  --color-line-soft: #c9c3b2;
+
+  /* --- Text --- */
+  --color-text: #101010;
+  --color-text-inv: #f4f1e8;
+  --color-muted: #55524a;
+  --color-dim: #7c7870;
+  --color-dim-inv: #9a968c;
+
+  /* --- Accents. Yellow = filled block with black text only. Magenta = selection. --- */
+  --color-accent: #ffe000;
+  --color-accent-dim: #c7ae00;
+  --color-live: #ff2d9b;
+  --color-live-deep: #c2196f;
+
+  /* --- Semantic --- */
+  --color-ok: #128a4a;
+  --color-warn: #e08a00;
+  --color-err: #d8232a;
+  --color-err-bg: #f7dcda;
+  --color-ok-bg: #d8eee0;
+
+  /* --- Suits on paper (four-colour deck) --- */
+  --color-card-s: #101010;
+  --color-card-h: #d8232a;
+  --color-card-d: #1746d9;
+  --color-card-c: #128a4a;
+  /* --- Suits reversed out on an ink slab --- */
+  --color-card-s-inv: #f4f1e8;
+  --color-card-h-inv: #ff6b62;
+  --color-card-d-inv: #6aa5ff;
+  --color-card-c-inv: #37c97d;
+
+  --font-sans: var(--font-archivo), "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jbmono), "JetBrains Mono", ui-monospace, Consolas, monospace;
 }
 
-html,
-body {
-  background: var(--color-ink);
+/* Geometry. Not in @theme: these are not colours and generate no utilities. */
+:root {
+  --rule: 3px;
+  --rule-thin: 2px;
+  --rail: 200px;
+  --axis: 14px;       /* rank-axis gutter on the large grid */
+  --statusbar: 26px;
+}
+@media (max-width: 1279px) {
+  :root { --rule: 2px; --rule-thin: 1px; }
+}
+@media (max-width: 1399px) { :root { --rail: 64px; } }
+@media (max-width: 999px)  { :root { --rail: 100%; } }
+
+/* ── DARK INVERSION ─────────────────────────────────────────────────────────
+   Only CHROME inverts — the grid slab, the stat band and every panel bar are
+   already ink in both themes, so no action-colour or suit-on-ink changes. */
+:root[data-theme="dark"] {
+  --color-paper: #17171a;
+  --color-panel: #17171a;
+  --color-paper-2: #202024;
+  --color-raised: #26262b;
+  --color-ink: #000000;
+  --color-ink-2: #1c1c1a;
+  --color-ink-3: #2a2a26;
+  --color-line: #000000;
+  --color-line-soft: #35353b;
+  --color-text: #f4f1e8;
+  --color-muted: #b3aea3;
+  --color-dim: #8b877e;
+  --color-card-s: #f4f1e8;
+  --color-card-h: #ff6b62;
+  --color-card-d: #6aa5ff;
+  --color-card-c: #37c97d;
+}
+
+html, body {
+  background: var(--color-paper);
   color: var(--color-text);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 14px;          /* up from 13px: hours of study */
+  line-height: 1.35;
   -webkit-font-smoothing: antialiased;
 }
+* { border-radius: 0 !important; }
 
-/* Tabular numerals everywhere a figure sits in a column. */
-.num {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
+/* ── TYPE SCALE ───────────────────────────────────────────────────────────── */
+.label {                   /* section captions */
+  font: 800 10px/1.2 var(--font-sans);
+  letter-spacing: .14em; text-transform: uppercase; color: var(--color-dim);
+}
+.bar {                     /* panel header bar, reversed out on ink */
+  display: flex; align-items: center; gap: 10px;
+  background: var(--color-ink); color: var(--color-text-inv);
+  font: 800 11px/1.2 var(--font-sans);
+  letter-spacing: .12em; text-transform: uppercase;
+  padding: 5px 10px; position: relative;
+}
+.bar .meta { font: 500 11px/1.2 var(--font-mono); letter-spacing: 0; text-transform: none; color: var(--color-dim-inv); }
+.bar > .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+/* 6px role stripe on the bar's top edge — find a panel by colour at a glance */
+.bar::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 6px; background: var(--stripe, transparent); }
+.bar-strategy { --stripe: var(--color-accent); }
+.bar-ev       { --stripe: var(--color-live); }
+.bar-opp      { --stripe: #48566f; }
+.bar-blockers { --stripe: var(--color-ok); }
+
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -.02em; font-weight: 500; font-size: 13px; }
+
+.fig   { font: 900 var(--fs, 30px)/.92 var(--font-sans); letter-spacing: -.045em; font-variant-numeric: tabular-nums; }
+.fig-1 { --fs: clamp(26px, 2vw, 40px); }   /* exploitability, session score, drill EV loss */
+.fig-2 { --fs: clamp(20px, 1.5vw, 30px); } /* pot, root EV, action frequency */
+.fig-3 { --fs: 22px; }   /* combo count, node count */
+
+/* ── STRUCTURE ────────────────────────────────────────────────────────────── */
+.panel { background: var(--color-panel); border: 0; }
+.rule-t { border-top:    var(--rule) solid var(--color-ink); }
+.rule-r { border-right:  var(--rule) solid var(--color-ink); }
+.rule-b { border-bottom: var(--rule) solid var(--color-ink); }
+.rule-l { border-left:   var(--rule) solid var(--color-ink); }
+.on-ink { background: var(--color-ink-2); color: var(--color-text-inv); }
+.on-ink .text-card-s { color: var(--color-card-s-inv); }
+.on-ink .text-card-h { color: var(--color-card-h-inv); }
+.on-ink .text-card-d { color: var(--color-card-d-inv); }
+.on-ink .text-card-c { color: var(--color-card-c-inv); }
+.on-ink .label { color: var(--color-dim-inv); }
+
+/* ── CONTROLS ─────────────────────────────────────────────────────────────── */
+.btn {
+  border: var(--rule-thin) solid var(--color-ink);
+  background: var(--color-raised); color: var(--color-text);
+  font: 800 12px/1 var(--font-sans); letter-spacing: .06em; text-transform: uppercase;
+  padding: 8px 12px; cursor: pointer; transition: background 90ms linear;
+}
+.btn:hover { background: var(--color-accent); color: var(--color-ink); }
+.btn-primary { background: var(--color-accent); color: var(--color-ink); }
+.btn-primary:hover { background: var(--color-ink); color: var(--color-accent); }
+.btn-danger { background: var(--color-err-bg); }
+.btn:disabled { background: var(--color-paper-2); border-color: #b4afa0; color: var(--color-dim); cursor: default; }
+.btn:disabled:hover { background: var(--color-paper-2); color: var(--color-dim); }
+.on-ink .btn, .btn-inv {
+  background: var(--color-ink-3); border-color: var(--color-dim-inv); color: var(--color-text-inv);
+}
+.on-ink .btn:hover, .btn-inv:hover { background: var(--color-accent); color: var(--color-ink); }
+.btn-inv:disabled { background: var(--color-ink-2); border-color: var(--color-ink-3); color: var(--color-dim-inv); opacity: .6; }
+
+/* Segmented control: square blocks sharing borders */
+.seg { display: flex; }
+.seg > button {
+  border: var(--rule-thin) solid var(--color-ink); margin-left: calc(var(--rule-thin) * -1);
+  background: var(--color-raised); color: var(--color-muted);
+  font: 800 11px/1 var(--font-sans); letter-spacing: .06em; text-transform: uppercase;
+  padding: 6px 9px; cursor: pointer;
+}
+.seg > button:first-child { margin-left: 0; }
+.seg > button[aria-pressed="true"] { background: var(--color-accent); color: var(--color-ink); }
+.on-ink .seg > button { background: var(--color-ink-3); color: var(--color-dim-inv); border-color: var(--color-dim-inv); }
+.on-ink .seg > button[aria-pressed="true"] { background: var(--color-accent); color: var(--color-ink); border-color: var(--color-ink); }
+
+/* Breadcrumb chip */
+.chip {
+  border: var(--rule-thin) solid var(--color-ink); background: var(--color-raised);
+  font: 500 12px/1 var(--font-mono); padding: 6px 8px; cursor: pointer;
+}
+.chip:hover { background: var(--color-accent); color: var(--color-ink); }
+.chip[aria-current="true"] { background: var(--color-accent); color: var(--color-ink); font-weight: 700; }
+
+input[type="text"], input[type="number"], textarea, select {
+  background: var(--color-raised);
+  border: var(--rule-thin) solid var(--color-ink);
+  padding: 7px 9px; color: var(--color-text);
+  font: 500 13px/1.2 var(--font-mono); width: 100%;
+}
+input:focus, textarea:focus, select:focus, button:focus-visible, [tabindex]:focus-visible {
+  outline: 3px solid var(--color-live); outline-offset: 0; border-color: var(--color-ink);
+}
+input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--color-ink); }
+input[type="range"] { accent-color: var(--color-ink); }
+input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--color-ink); border-radius: 0; }
+
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-thumb { background: var(--color-ink); }
+::-webkit-scrollbar-track { background: var(--color-paper-2); }
+.on-ink ::-webkit-scrollbar-thumb { background: var(--color-dim-inv); }
+.on-ink ::-webkit-scrollbar-track { background: var(--color-ink-2); }
+
+/* ── APP SHELL ────────────────────────────────────────────────────────────── */
+.app {
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) var(--statusbar);
+  height: 100dvh; overflow: hidden;
+}
+.rail   { grid-area: 1 / 1; display: flex; flex-direction: column; background: var(--color-ink); color: var(--color-text-inv); overflow: hidden; }
+.stage  { grid-area: 1 / 2; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: var(--rule) solid var(--color-ink); }
+.statusbar { grid-column: 1 / -1; border-top: var(--rule) solid var(--color-ink); }
+
+/* Inspector column templates. These lines ARE the anti-deadspace answer. */
+.inspector { display: grid; flex: 1 1 0; min-height: 0; grid-template-columns: minmax(0,1fr); }
+.inspector > * { min-width: 0; min-height: 0; overflow-y: auto; }
+.inspector > * + * { border-left: var(--rule) solid var(--color-ink); }
+@media (min-width: 1100px) { .inspector { grid-template-columns: minmax(380px,44%) minmax(0,1fr); } }
+@media (min-width: 1500px) { .inspector { grid-template-columns: clamp(400px,28vw,520px) minmax(0,1fr) 340px; } }
+@media (min-width: 1900px) { .inspector { grid-template-columns: clamp(420px,22vw,540px) clamp(420px,22vw,540px) minmax(0,1fr) 340px; } }
+
+/* The EV/regret twin grid exists only at ≥1900px. */
+.col-ev { display: none; }
+@media (min-width: 1900px) { .col-ev { display: flex; } }
+
+/* Side column (opponent range + blockers): its own column at ≥1500px;
+   a full-width split row below the grid/combo columns at 1100–1499px. */
+@media (min-width: 1100px) and (max-width: 1499px) {
+  .col-side { grid-column: 1 / -1; border-left: 0; border-top: var(--rule) solid var(--color-ink); display: flex; }
+  .col-side > * { flex: 1 1 0; min-width: 0; }
+  .col-side > * + * { border-left: var(--rule) solid var(--color-ink); }
 }
 
-.panel {
-  background: var(--color-panel);
-  border: 1px solid var(--color-line);
-  border-radius: 6px;
+/* Escape hatches: never trap content in a short well. */
+@media (max-width: 999px) {
+  .app { height: auto; overflow: visible; grid-template-columns: minmax(0,1fr); grid-template-rows: 48px auto var(--statusbar); }
+  .rail { grid-area: 1 / 1; flex-direction: row; align-items: stretch; }
+  .stage { grid-area: 2 / 1; border-left: 0; border-top: var(--rule) solid var(--color-ink); }
+  .inspector > * { overflow-y: visible; }
+}
+@media (max-height: 760px) {
+  .app { height: auto; overflow: visible; }
+  .inspector > * { overflow-y: visible; }
 }
 
-.label {
-  font-size: 10px;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--color-dim);
-  font-weight: 600;
+/* Loading strip: a 3px accent rule sliding along the bottom edge. */
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.slide-rule { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; overflow: hidden; }
+.slide-rule::after { content: ""; position: absolute; inset: 0; background: var(--color-accent); animation: slide 900ms linear infinite; }
+
+/* ── CARD STOCK ───────────────────────────────────────────────────────────── */
+.cardstock {
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 2.2em; height: 3em; line-height: 1;
+  background: #f4f1e8;                 /* a card face is paper in both themes */
+  border: 2px solid #101010;
+  font-family: var(--font-sans);
+}
+/* The face never inverts, so its suit colours are literals — immune to .on-ink
+   and the dark theme, which would otherwise paint ivory on ivory. */
+.cardstock.text-card-s, .on-ink .cardstock.text-card-s { color: #101010; }
+.cardstock.text-card-h, .on-ink .cardstock.text-card-h { color: #d8232a; }
+.cardstock.text-card-d, .on-ink .cardstock.text-card-d { color: #1746d9; }
+.cardstock.text-card-c, .on-ink .cardstock.text-card-c { color: #128a4a; }
+.cardstock b { font-weight: 900; font-size: .95em; letter-spacing: -.04em; color: inherit; }
+.cardstock i { font-style: normal; font-size: .8em; color: inherit; margin-top: .06em; }
+
+/* ── COMBO TABLE ──────────────────────────────────────────────────────────── */
+.combo-rows { display: grid; grid-template-columns: 64px 52px minmax(0,1fr) auto 66px; column-gap: 8px; align-items: center; }
+@media (min-width: 1900px) {
+  .combo-rows { grid-template-columns: 76px 56px minmax(120px,1fr) repeat(var(--nact, 2), 62px) 74px; }
 }
 
-input[type="text"],
-input[type="number"],
-textarea {
-  background: var(--color-ink);
-  border: 1px solid var(--color-line);
-  border-radius: 4px;
-  padding: 4px 7px;
-  color: var(--color-text);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  width: 100%;
-}
-input:focus,
-textarea:focus {
-  outline: none;
-  border-color: var(--color-accent-dim);
-}
+/* ── SOLVE / TRAIN / HELP SHELLS ──────────────────────────────────────────── */
+.solve-shell { display: grid; flex: 1 1 0; min-height: 0; grid-template-columns: minmax(0,1fr); }
+.solve-shell > * { min-width: 0; min-height: 0; overflow-y: auto; }
+.solve-shell > * + * { border-left: var(--rule) solid var(--color-ink); }
+@media (min-width: 1100px) { .solve-shell { grid-template-columns: 380px minmax(0,1fr); } }
+@media (min-width: 1500px) { .solve-shell { grid-template-columns: 380px minmax(0,1fr) 400px; } }
 
-::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
-}
-::-webkit-scrollbar-thumb {
-  background: #263041;
-  border-radius: 5px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
+.train-shell { display: grid; flex: 1 1 0; min-height: 0; grid-template-columns: minmax(0,1fr); }
+.train-shell > * { min-width: 0; min-height: 0; overflow-y: auto; }
+.train-shell > * + * { border-left: var(--rule) solid var(--color-ink); }
+@media (min-width: 1280px) { .train-shell { grid-template-columns: minmax(0,1fr) 340px; } }
+@media (min-width: 1700px) { .train-shell { grid-template-columns: minmax(0,1fr) 340px 320px; } }
+
+.help-shell { display: grid; flex: 1 1 0; min-height: 0; grid-template-columns: minmax(0,1fr); }
+.help-shell > * { min-width: 0; min-height: 0; overflow-y: auto; }
+@media (min-width: 1100px) { .help-shell { grid-template-columns: minmax(0,1fr) 340px; } }
+@media (max-width: 999px), (max-height: 760px) {
+  .solve-shell > *, .train-shell > *, .help-shell > * { overflow-y: visible; }
 }

@@ -380,7 +380,7 @@ export function buildRunoutHotness(
 // Aggression reds get darker as the sizing grows; passive actions are green
 // (check light, call dark); folding is a cold slate. Consistent everywhere.
 
-const BET_RAMP = ["#e2705c", "#d1462f", "#ad2413", "#83140a", "#570b05"];
+const BET_RAMP = ["#e2705c", "#d1462f", "#b02a16", "#8f1a0d", "#6e1209"];
 const FOLD = "#48566f";
 const CHECK = "#54ad72";
 const CALL = "#2b7c50";
@@ -419,12 +419,12 @@ function rgbToHex(r: number, g: number, b: number): string {
   return `#${h(r)}${h(g)}${h(b)}`;
 }
 
-/** Blends `hex` toward white. `t=1` is the full color, `t=0` is white; clamped to [0,1]. */
+/** Blends `hex` toward paper ivory. `t=1` is the full color, `t=0` is #f4f1e8. */
 export function blendToWhite(hex: string, t: number): string {
   const c = Math.max(0, Math.min(1, t));
   const [r, g, b] = hexToRgb(hex);
-  const mix = (ch: number) => 255 + (ch - 255) * c;
-  return rgbToHex(mix(r), mix(g), mix(b));
+  const P: [number, number, number] = [244, 241, 232]; // #F4F1E8 — never 255
+  return rgbToHex(P[0] + (r - P[0]) * c, P[1] + (g - P[1]) * c, P[2] + (b - P[2]) * c);
 }
 
 /**
@@ -440,11 +440,11 @@ export function evColor(cell: CellEv, colors: string[], maxMargin: number): stri
   return blendToWhite(colors[cell.bestAction], confidence);
 }
 
-// White at zero regret, through amber, to a deep red at the grid's worst regret.
-const REGRET_RAMP = ["#ffffff", "#f6d199", "#e0883d", "#b3401a", "#6e1508"];
+// Ivory at zero regret, through amber, to a deep red at the grid's worst regret.
+const REGRET_RAMP = ["#f4f1e8", "#f6d199", "#e0883d", "#b3401a", "#6e1508"];
 
 /**
- * Color for the "regret" grid mode: white at zero EV lost, ramping to deep red as
+ * Color for the "regret" grid mode: ivory at zero EV lost, ramping to deep red as
  * `regret / maxRegret` (the worst regret anywhere on this grid) approaches 1.
  * `null` when the cell has no regret data.
  */
@@ -472,6 +472,29 @@ export function hotnessColor(deviation: number, maxDeviation: number): string | 
   if (Number.isNaN(deviation)) return null;
   const t = maxDeviation > 0 ? Math.min(1, Math.abs(deviation) / maxDeviation) : 0;
   return blendToWhite(deviation >= 0 ? CALL : BET_RAMP[2], t);
+}
+
+/**
+ * Chips this one combo leaves on the table by mixing instead of always taking its
+ * best action: max_a ev_a − Σ_a strategy_a · ev_a. `NaN` when any action's EV is
+ * undefined for this combo (same rule buildEvGrid applies per cell).
+ */
+export function comboRegret(
+  actionEvs: Float32Array[],
+  strategy: Float32Array,
+  numActions: number,
+  numCombos: number,
+  slot: number,
+): number {
+  let best = -Infinity;
+  let actual = 0;
+  for (let a = 0; a < numActions; a++) {
+    const v = actionEvs[a]?.[slot] ?? NaN;
+    if (Number.isNaN(v)) return NaN;
+    if (v > best) best = v;
+    actual += strategy[a * numCombos + slot] * v;
+  }
+  return numActions > 0 ? best - actual : NaN;
 }
 
 /** Compact button/legend text for an action, e.g. `"bet 10.00"` / `"75% pot"`. */

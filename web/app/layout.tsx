@@ -1,7 +1,13 @@
 import type { Metadata, Viewport } from "next";
+import { Archivo, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-export const viewport: Viewport = { themeColor: "#070a11" };
+// Both are variable fonts on Google Fonts: no `weight` array — the full 100–900
+// axis ships, which is what the 900 posters and the 800 bars need.
+const display = Archivo({ subsets: ["latin"], display: "swap", variable: "--font-archivo" });
+const mono = JetBrains_Mono({ subsets: ["latin"], display: "swap", variable: "--font-jbmono" });
+
+export const viewport: Viewport = { themeColor: "#E9E5DA" };
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://postflop-workbench.vercel.app"),
@@ -28,8 +34,14 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="h-full">
+    <html lang="en" className={`${display.variable} ${mono.variable} h-full`}>
       <body className="min-h-full">
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              'try{var t=localStorage.getItem("pf-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}',
+          }}
+        />
         {children}
         <script
           dangerouslySetInnerHTML={{

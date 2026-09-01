@@ -8,6 +8,7 @@ import {
   buildEvGrid,
   buildGrid,
   buildRunoutHotness,
+  comboRegret,
   evColor,
   hotnessColor,
   regretColor,
@@ -90,7 +91,7 @@ assert.equal(
   const offColor = evColor(off, ["#111111", "#e2705c"], maxMargin);
   assert.equal(aaColor, "#e2705c", "AA is the grid's most decisive cell: full color, no fade");
   assert.notEqual(offColor, "#e2705c", "72o is far less decisive: must not render at full color");
-  assert.notEqual(offColor, "#ffffff", "72o still has a real (if small) margin: not pure white");
+  assert.notEqual(offColor, "#f4f1e8", "72o still has a real (if small) margin: not pure ivory");
 
   const empty = evColor({ actionEvs: [NaN, NaN], bestAction: -1, margin: NaN, regret: NaN }, ["#111"], 1);
   assert.equal(empty, null, "no EV data anywhere in the cell -> nothing to paint");
@@ -98,10 +99,10 @@ assert.equal(
   // regretColor: 0 regret -> white, NaN -> nothing to paint, larger regret -> further
   // from white than a smaller one.
   const maxRegret = Math.max(aa.regret, off.regret);
-  assert.equal(regretColor(aa.regret, maxRegret), "#ffffff", "zero regret must render pure white");
+  assert.equal(regretColor(aa.regret, maxRegret), "#f4f1e8", "zero regret must render paper ivory");
   assert.equal(regretColor(NaN, maxRegret), null, "undefined regret has nothing to paint");
-  const [, g1] = [regretColor(off.regret, maxRegret)];
-  assert.notEqual(g1, "#ffffff", "72o has nonzero regret: must not render pure white");
+  const g1 = regretColor(off.regret, maxRegret);
+  assert.notEqual(g1, "#f4f1e8", "72o has nonzero regret: must not render paper ivory");
 }
 
 // Two combos in the SAME cell, equal reach but different compatible opponent mass (the
@@ -196,16 +197,27 @@ assert.equal(
 
   // hotnessColor: positive deviation -> green, negative -> red, zero -> white, NaN -> null.
   assert.equal(hotnessColor(1, 1), "#2b7c50", "max positive deviation renders full green");
-  assert.equal(hotnessColor(-1, 1), "#ad2413", "max negative deviation renders full red");
-  assert.equal(hotnessColor(0, 1), "#ffffff", "zero deviation renders white");
+  assert.equal(hotnessColor(-1, 1), "#b02a16", "max negative deviation renders full red");
+  assert.equal(hotnessColor(0, 1), "#f4f1e8", "zero deviation renders ivory");
   assert.equal(hotnessColor(NaN, 1), null, "undefined deviation has nothing to paint");
-  assert.equal(hotnessColor(0.5, 0), "#ffffff", "maxDeviation of 0 (a flat grid) never saturates");
+  assert.equal(hotnessColor(0.5, 0), "#f4f1e8", "maxDeviation of 0 (a flat grid) never saturates");
 }
 
-// blendToWhite: t=1 is untouched, t=0 is pure white, and it clamps out-of-range t.
+// blendToWhite: t=1 is untouched, t=0 is paper ivory, and it clamps out-of-range t.
 assert.equal(blendToWhite("#e2705c", 1), "#e2705c");
-assert.equal(blendToWhite("#e2705c", 0), "#ffffff");
+assert.equal(blendToWhite("#e2705c", 0), "#f4f1e8");
 assert.equal(blendToWhite("#e2705c", 1.5), blendToWhite("#e2705c", 1), "t is clamped above 1");
 assert.equal(blendToWhite("#e2705c", -1), blendToWhite("#e2705c", 0), "t is clamped below 0");
+
+// --- comboRegret ---------------------------------------------------------------------
+{
+  const strat = new Float32Array([0.5, 0.5]); // 1 combo, 2 actions
+  const aEvs = [new Float32Array([2]), new Float32Array([0])];
+  assert.equal(comboRegret(aEvs, strat, 2, 1, 0), 1, "mixing 50/50 between EV 2 and EV 0 leaves 1 chip");
+  assert.ok(
+    Number.isNaN(comboRegret([new Float32Array([NaN]), new Float32Array([0])], strat, 2, 1, 0)),
+    "an undefined action EV makes the combo's regret undefined, not zero",
+  );
+}
 
 console.log("PASS: grid.test.ts");

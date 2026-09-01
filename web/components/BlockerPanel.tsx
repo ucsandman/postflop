@@ -18,7 +18,7 @@ interface Props {
   oppPlayer: string;
 }
 
-const TOP_N = 8;
+const TOP_N = 12;
 const pct = (v: number) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
 
 export default function BlockerPanel({
@@ -34,8 +34,15 @@ export default function BlockerPanel({
 
   if (!oppStrategy || oppActions.length === 0) {
     return (
-      <div className="panel flex items-center justify-center px-4 py-6 text-center text-dim">
-        No {oppPlayer} decision is reachable from here to score blockers against.
+      <div className="flex h-full flex-col bg-panel">
+        <div className="bar bar-blockers">Blockers</div>
+        <div className="p-3">
+          <div className="label mb-1.5">No {oppPlayer} decision reachable</div>
+          <p className="num text-[12px] text-muted">
+            every action from this node lands on a chance or terminal node, so there is no{" "}
+            {oppPlayer} strategy here to score removal against.
+          </p>
+        </div>
       </div>
     );
   }
@@ -47,71 +54,91 @@ export default function BlockerPanel({
     .sort((a, b) => b.score.delta[idx] - a.score.delta[idx])
     .slice(0, TOP_N);
 
+  const selRows = cell
+    ? cell.slots.map((slot) => {
+        const combo = combos[slot];
+        return { slot, combo, score: blockerScores(oppCombos, oppStrategy, numActions, combo.cards) };
+      })
+    : [];
+  const maxAbsDelta = Math.max(
+    1e-9,
+    ...selRows.flatMap((r) => r.score.delta.map((d) => Math.abs(d))),
+  );
+
   return (
-    <div className="panel flex flex-col overflow-hidden">
-      <div className="border-b border-line px-3 py-2">
-        <span className="font-semibold">Blockers</span>
-        <span className="ml-2 font-normal text-dim">
-          vs. {oppPlayer}&apos;s next decision
-        </span>
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-panel">
+      <div className="bar bar-blockers">
+        Blockers
+        <span className="meta">vs {oppPlayer} · next decision</span>
       </div>
 
-      {cell ? (
-        <div className="border-b border-line px-3 py-2">
-          <div className="label mb-1">
-            {cell.label} — shift in {oppPlayer}&apos;s frequencies
+      {cell && (
+        <div className="border-b-2 border-ink px-2.5 py-2">
+          <div className="label mb-1.5">
+            {cell.label} — shift in {oppPlayer} frequencies
           </div>
-          {cell.slots.map((slot) => {
-            const combo = combos[slot];
-            const score = blockerScores(oppCombos, oppStrategy, numActions, combo.cards);
-            return (
-              <div key={slot} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-0.5">
-                <ComboCards cards={combo.cards} className="text-[13px]" />
-                {oppActions.map((a, i) => (
-                  <span key={i} className="num text-[11px]" style={{ color: oppColors[i] }} title={a.text}>
-                    {a.label} {pct(score.delta[i])}
-                  </span>
-                ))}
+          {selRows.map(({ slot, combo, score }) => (
+            <div key={slot} className="py-1" style={{ borderBottom: "1px solid rgba(16,16,16,.1)" }}>
+              <ComboCards cards={combo.cards} className="text-[13px]" />
+              <div className="mt-0.5 flex gap-1">
+                {oppActions.map((a, i) => {
+                  const d = score.delta[i];
+                  const mag = Math.min(1, Math.abs(d) / maxAbsDelta);
+                  return (
+                    <span
+                      key={i}
+                      className="relative h-[14px] flex-1 overflow-hidden bg-paper-2"
+                      title={`${a.text}: ${pct(d)}`}
+                    >
+                      <span
+                        className="absolute top-0 h-full"
+                        style={{
+                          left: d >= 0 ? "50%" : `${50 - mag * 50}%`,
+                          width: `${mag * 50}%`,
+                          background: oppColors[i],
+                        }}
+                      />
+                      <span className="num absolute inset-0 flex items-center justify-center text-[10px]">
+                        {pct(d)}
+                      </span>
+                    </span>
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
-      ) : (
-        <p className="border-b border-line px-3 py-2 text-dim">
-          Click a cell in the range grid to see how it shifts {oppPlayer}&apos;s frequencies.
-        </p>
       )}
 
-      <div className="flex items-center gap-2 border-b border-line px-3 py-2">
+      <div className="flex items-center gap-2 border-b-2 border-ink px-2.5 py-2">
         <span className="label">rank by</span>
-        <div className="flex gap-px overflow-hidden rounded border border-line text-[11px]">
+        <span className="seg">
           {oppActions.map((a, i) => (
-            <button
-              key={i}
-              onClick={() => setActionIdx(i)}
-              className={`px-2 py-0.5 ${
-                idx === i ? "bg-accent font-semibold text-ink" : "bg-raised text-muted hover:text-text"
-              }`}
-            >
+            <button key={i} aria-pressed={idx === i} onClick={() => setActionIdx(i)}>
               {a.label}
             </button>
           ))}
-        </div>
+        </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-2">
-        <div className="label mb-1">best {oppActions[idx].label} blockers</div>
-        {ranked.map(({ combo, score }) => (
-          <div key={combo.index} className="flex items-center justify-between py-0.5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2">
+        <div className="label mb-1">
+          best {oppActions[idx].label} blockers{cell ? "" : " · whole range"}
+        </div>
+        {ranked.map(({ combo, score }, ri) => (
+          <div
+            key={combo.index}
+            className={`flex h-[24px] items-center justify-between px-1 ${ri % 2 === 1 ? "bg-paper-2" : ""}`}
+          >
             <ComboCards cards={combo.cards} className="text-[13px]" />
-            <span className="num text-[11px]" style={{ color: oppColors[idx] }}>
+            <span className="num text-[11px] font-bold" style={{ color: oppColors[idx] }}>
               {pct(score.delta[idx])}
             </span>
           </div>
         ))}
       </div>
 
-      <p className="border-t border-line px-3 py-2 text-[11px] text-dim">
+      <p className="border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
         Delta is {oppPlayer}&apos;s reach-weighted action frequency once combos that share a
         card with the hero hand are excluded, minus the frequency over their whole range —
         how much holding those two cards moves that action.
