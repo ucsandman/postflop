@@ -114,6 +114,25 @@ Config also supports: all-in threshold (sizings near a shove collapse into the
 shove), raise cap, rake (percent + cap, default zero), DCFR α/β/γ, and
 `regret_floor`.
 
+### Node locking
+
+Freeze a strategy at any decision node — per-action frequencies or a full
+per-combo distribution — and the solver computes the equilibrium of the rest of
+the tree conditional on that play ("villain never bluffs this river"):
+
+```toml
+[[locks]]
+line = "check,bet:50"      # the node, as an action line from the root
+player = 1                 # whose strategy is frozen (0 = OOP, 1 = IP)
+freqs = [0.0, 1.0]         # one probability per action, or `strategy = [...]`
+                           # for a full per-combo distribution
+```
+
+Locks travel inside the solution file (format v2; lock-free solves still write
+v1), the structure guard holds stored strategies to them, and reported
+exploitability is measured against the locked profile — the locked player
+cannot deviate at locked nodes, the other player best-responds normally.
+
 ### Inspect a solution
 
 ```sh
@@ -142,6 +161,26 @@ you the 13×13 grid with stacked action-frequency bars weighted by live combo
 reach, per-combo drill-down with per-hand EVs, a tree navigator, a 52-card
 runout selector, and JSON export that round-trips through both the browser and
 the CLI. The browser build is single-threaded; the CLI uses every core.
+
+On top of that:
+
+- **EV and regret grid overlays** — color the grid by highest-EV action per
+  hand (fading to white where actions are indifferent) or by the chips lost
+  taking the worse action.
+- **Blocker scores** — how holding your two cards shifts the opponent's action
+  frequencies at this node, plus a ranking of your range by blocker effect.
+- **Runout hotness** — the turn/river card selector colored green/red by how
+  each runout shifts hero EV (range-wide or for one selected combo), with
+  arrow-key stepping between sibling runouts.
+- **Trainer** — deal spots from the loaded solution, answer, and get graded by
+  EV loss (Best → Blunder tiers) with a running session score and a
+  worst-hands-first review list. A "close decisions only" filter serves just
+  the spots where actions are nearly indifferent.
+- **Node locking** — lock the inspected node to its displayed strategy, then
+  re-solve to see the exploit; pending locks are validated against the spot
+  they were captured on.
+- **Deep links** — the tab, node, and selected combo live in the URL, so any
+  view is shareable and survives reload.
 
 ![Runout selector](web/docs/screens/03-runout-selector.png)
 
@@ -197,6 +236,7 @@ cargo run -p engine --release --example solve_flop -- engine/examples/configs/mi
 
 ```sh
 cargo test --release --workspace
+cd web && npm test               # web unit tests (grid/range/trainer/config math)
 # heavyweight, run explicitly:
 cargo test -p engine --release verify_1m -- --ignored --nocapture   # evaluator vs oracle, 1M hands
 cargo test -p engine --release milestone4 -- --ignored --nocapture  # full flop solve (~3 min, ~1.5 GB)
@@ -204,9 +244,9 @@ cargo test -p engine --release milestone4 -- --ignored --nocapture  # full flop 
 
 ## Not yet implemented
 
-Node locking, aggregate reports across the 1,755 canonical flops, and preflop
-solving (which needs bunching effects, heavier abstraction, and disk-backed
-storage — a separate project by design).
+Aggregate reports across the 1,755 canonical flops, and preflop solving (which
+needs bunching effects, heavier abstraction, and disk-backed storage — a
+separate project by design).
 
 ## License
 

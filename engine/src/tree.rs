@@ -23,7 +23,7 @@
 //! formulas, the all-in threshold, and the raise cap.
 
 use crate::cards::{self, Card, NUM_CARDS};
-use crate::config::{SizingKind, SolveConfig};
+use crate::config::{NodeLock, SizingKind, SolveConfig};
 
 pub use crate::config::Street;
 
@@ -49,6 +49,77 @@ pub enum ActionLabel {
     Raise(f64),
     /// All remaining chips. The resulting amounts are visible on the child node.
     AllIn,
+}
+
+impl ActionLabel {
+    /// This action as a line token — the form [`GameTree::resolve_line`] parses.
+    ///
+    /// `bet` and `raise` carry the street total the player has in afterwards, which is
+    /// the number the label itself carries. Amounts sit on the 0.01 chip grid, so the
+    /// shortest round-tripping decimal is exact.
+    pub fn token(self) -> String {
+        match self {
+            ActionLabel::Fold => "fold".to_string(),
+            ActionLabel::Check => "check".to_string(),
+            ActionLabel::Call => "call".to_string(),
+            ActionLabel::AllIn => "allin".to_string(),
+            ActionLabel::Bet(x) => format!("bet:{x}"),
+            ActionLabel::Raise(x) => format!("raise:{x}"),
+        }
+    }
+}
+
+/// One parsed step of a line: an action, with the amount left open when the token
+/// omitted it.
+enum Want {
+    Fold,
+    Check,
+    Call,
+    AllIn,
+    Bet(Option<f64>),
+    Raise(Option<f64>),
+}
+
+impl Want {
+    fn parse(tok: &str) -> Result<Want, String> {
+        let (head, amount) = match tok.split_once(':') {
+            Some((h, a)) => {
+                let v: f64 = a.trim().parse().map_err(|_| {
+                    format!("bad amount {:?} in step {tok:?}", a.trim())
+                })?;
+                (h.trim(), Some(v))
+            }
+            None => (tok, None),
+        };
+        match head.to_ascii_lowercase().as_str() {
+            "bet" => Ok(Want::Bet(amount)),
+            "raise" => Ok(Want::Raise(amount)),
+            other if amount.is_some() => {
+                Err(format!("{other:?} takes no amount, got {tok:?}"))
+            }
+            "fold" => Ok(Want::Fold),
+            "check" => Ok(Want::Check),
+            "call" => Ok(Want::Call),
+            "allin" | "all-in" => Ok(Want::AllIn),
+            other => Err(format!(
+                "unknown action {other:?}; expected fold, check, call, allin, \
+                 bet[:<to>] or raise[:<to>]"
+            )),
+        }
+    }
+
+    fn matches(&self, label: ActionLabel) -> bool {
+        match (self, label) {
+            (Want::Fold, ActionLabel::Fold)
+            | (Want::Check, ActionLabel::Check)
+            | (Want::Call, ActionLabel::Call)
+            | (Want::AllIn, ActionLabel::AllIn) => true,
+            (Want::Bet(want), ActionLabel::Bet(x)) | (Want::Raise(want), ActionLabel::Raise(x)) => {
+                want.is_none_or(|v| (v - x).abs() < EPS)
+            }
+            _ => false,
+        }
+    }
 }
 
 /// One edge out of a decision node.
@@ -228,6 +299,119 @@ impl GameTree {
             .iter()
             .map(|a| a.child)
             .chain(cards.iter().copied().filter(|&c| c != NO_CHILD))
+    }
+
+    /// Resolves a **line** — a path from the root, written the way a human reads a hand
+    /// history — to the node it reaches.
+    ///
+    /// Steps are separated by commas and whitespace around them is ignored. At a
+    /// decision node a step is an action token: `fold`, `check`, `call`, `allin`,
+    /// `bet:<to>` or `raise:<to>`, where `<to>` is the **street total** the acting player
+    /// has in after the action (the number [`ActionLabel::Bet`] carries, and the
+    /// `amount_to` the wasm bindings report). The amount may be dropped when the node
+    /// offers exactly one bet, or exactly one raise; two candidates is an error rather
+    /// than a silent pick. At a chance node a step is the dealt card, e.g. `Ah`. An
+    /// empty line is the root.
+    ///
+    /// ```text
+    /// ""                     the root
+    /// "check,bet:5"          OOP checks, IP bets to 5
+    /// "bet:5,call,Ah,check"  OOP leads 5, IP calls, the Ah comes, OOP checks
+    /// ```
+    ///
+    /// [`ActionLabel::token`] writes a step in exactly this form, so a line can be built
+    /// by walking a path and joining the tokens with commas.
+    pub fn resolve_line(&self, line: &str) -> Result<u32, String> {
+        if line.trim().is_empty() {
+            return Ok(self.root());
+        }
+        let mut node = self.root();
+        for (k, raw) in line.split(',').enumerate() {
+            let tok = raw.trim();
+            if tok.is_empty() {
+                return Err(format!("line {line:?}: step {} is empty", k + 1));
+            }
+            node = self
+                .step(node, tok)
+                .map_err(|e| format!("line {line:?}: step {} ({tok:?}) {e}", k + 1))?;
+        }
+        Ok(node)
+    }
+
+    /// One step of [`GameTree::resolve_line`].
+    fn step(&self, node: u32, tok: &str) -> Result<u32, String> {
+        match &self.nodes[node as usize].kind {
+            NodeKind::Decision { actions, .. } => {
+                let want = Want::parse(tok)?;
+                let mut hit = None;
+                for a in actions {
+                    if !want.matches(a.label) {
+                        continue;
+                    }
+                    if hit.is_some() {
+                        return Err(format!(
+                            "is ambiguous at node {node}; name the amount, one of {}",
+                            self.action_tokens(actions)
+                        ));
+                    }
+                    hit = Some(a.child);
+                }
+                hit.ok_or_else(|| {
+                    format!(
+                        "is not offered at node {node}; available: {}",
+                        self.action_tokens(actions)
+                    )
+                })
+            }
+            NodeKind::Chance { child_for_card, .. } => {
+                let card = cards::parse_card(tok)
+                    .map_err(|e| format!("must be the card dealt at chance node {node}: {e}"))?;
+                match child_for_card[card as usize] {
+                    NO_CHILD => Err(format!(
+                        "cannot be dealt at node {node}; it is already on the board"
+                    )),
+                    child => Ok(child),
+                }
+            }
+            NodeKind::Terminal(_) => Err(format!(
+                "runs past the end of the hand; node {node} is a terminal"
+            )),
+        }
+    }
+
+    fn action_tokens(&self, actions: &[Action]) -> String {
+        actions
+            .iter()
+            .map(|a| a.label.token())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// Resolves one [`NodeLock`] against this tree: the node its `line` names, and how
+    /// many actions that node offers.
+    ///
+    /// Rejects a line that lands anywhere but a decision node, and one whose node the
+    /// *other* player acts at — a lock names its player so a config that drifts out of
+    /// step with the tree fails loudly instead of freezing the wrong range.
+    pub fn resolve_lock(&self, lock: &NodeLock) -> Result<(u32, usize), String> {
+        let node = self.resolve_line(&lock.line)?;
+        match &self.node(node).kind {
+            NodeKind::Decision { player, actions } if *player == lock.player => {
+                Ok((node, actions.len()))
+            }
+            NodeKind::Decision { player, .. } => Err(format!(
+                "line {:?} reaches node {node}, where player {player} acts, not player {}",
+                lock.line, lock.player
+            )),
+            NodeKind::Chance { .. } => Err(format!(
+                "line {:?} reaches node {node}, a chance node; only decision nodes can be locked",
+                lock.line
+            )),
+            NodeKind::Terminal(_) => Err(format!(
+                "line {:?} reaches node {node}, a terminal; only decision nodes can be locked",
+                lock.line
+            )),
+        }
     }
 
     /// Node totals by kind.
@@ -907,6 +1091,103 @@ mod tests {
         // OOP owes its entire stack, so it can only fold or call.
         assert_eq!(labels(&t, shoved), vec![ActionLabel::Fold, ActionLabel::Call]);
         assert_invariants(&t, &cfg);
+    }
+
+    /// A line names a node the way a hand history does, and every token
+    /// [`ActionLabel::token`] writes is a token [`GameTree::resolve_line`] reads back.
+    #[test]
+    fn lines_resolve_to_the_nodes_they_name() {
+        let cfg = river_cfg();
+        let t = tree_of(&cfg);
+
+        let ip = follow(&t, 0, ActionLabel::Check);
+        let facing = follow(&t, ip, ActionLabel::Bet(5.0));
+        for (line, want) in [
+            ("", 0),
+            ("check", ip),
+            ("check,bet:5", facing),
+            ("  check , bet : 5 ", facing),
+            ("CHECK,Bet:5.00", facing),
+            // The amount may be dropped when the node offers exactly one bet.
+            ("check,bet", facing),
+            ("check,bet:5,fold", follow(&t, facing, ActionLabel::Fold)),
+        ] {
+            assert_eq!(t.resolve_line(line).expect(line), want, "line {line:?}");
+        }
+
+        // Round trip: the token form of every action at a node resolves back to it.
+        for label in labels(&t, 0) {
+            let line = label.token();
+            assert_eq!(t.resolve_line(&line).expect(&line), follow(&t, 0, label));
+        }
+        assert_eq!(labels(&t, 0)[1].token(), "bet:5");
+
+        for (line, needle) in [
+            ("shove", "unknown action"),
+            ("check,bet:7", "is not offered"),
+            ("check,check,check", "past the end of the hand"),
+            ("check,Ah", "unknown action"),
+            ("check,,bet:5", "is empty"),
+            ("check:2", "takes no amount"),
+            ("bet:x", "bad amount"),
+        ] {
+            let err = t.resolve_line(line).expect_err(line);
+            assert!(err.contains(needle), "line {line:?}: wanted {needle:?}, got {err}");
+        }
+    }
+
+    /// A chance node consumes the dealt card, so a line can name a node on any runout.
+    #[test]
+    fn lines_step_through_chance_nodes_by_card() {
+        let cfg = SolveConfig {
+            board: "As Kd 7h".to_string(),
+            oop_range: "random".to_string(),
+            ip_range: "random".to_string(),
+            effective_stack: 100.0,
+            starting_pot: 10.0,
+            ..SolveConfig::default()
+        };
+        let t = tree_of(&cfg);
+
+        let turn_chance = follow(&t, follow(&t, 0, ActionLabel::Check), ActionLabel::Check);
+        let node = t.resolve_line("check,check,2c").expect("line resolves");
+        assert_eq!(node, chance_children(&t, turn_chance)[0]);
+        assert_eq!(t.node(node).street, Street::Turn);
+        assert!(t.resolve_line("check,check,2c,check,check,3c").is_ok(), "a line may run to the river");
+
+        // A card already on the board was never dealt here, and a decision node does not
+        // take a card.
+        let err = t.resolve_line("check,check,As").unwrap_err();
+        assert!(err.contains("already on the board"), "{err}");
+        let err = t.resolve_line("check,check,2c,2c").unwrap_err();
+        assert!(err.contains("unknown action"), "{err}");
+    }
+
+    /// A lock names its player, and a line that lands on the other player's node — or on
+    /// no decision node at all — is a config bug, not something to freeze quietly.
+    #[test]
+    fn resolve_lock_cross_checks_the_acting_player() {
+        let cfg = river_cfg();
+        let t = tree_of(&cfg);
+        let lock = |line: &str, player: u8| NodeLock {
+            line: line.to_string(),
+            player,
+            freqs: Some(vec![1.0, 0.0]),
+            strategy: None,
+        };
+
+        assert_eq!(t.resolve_lock(&lock("", 0)).expect("root is OOP's"), (0, 2));
+        let (node, n_act) = t.resolve_lock(&lock("check", 1)).expect("IP acts after a check");
+        assert_eq!((node, n_act), (follow(&t, 0, ActionLabel::Check), 2));
+
+        for (line, player, needle) in [
+            ("", 1, "where player 0 acts, not player 1"),
+            ("check", 0, "where player 1 acts, not player 0"),
+            ("check,check", 0, "a terminal"),
+        ] {
+            let err = t.resolve_lock(&lock(line, player)).expect_err(line);
+            assert!(err.contains(needle), "line {line:?}: wanted {needle:?}, got {err}");
+        }
     }
 
     #[test]

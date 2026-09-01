@@ -415,7 +415,7 @@ footer { border-top: 1px solid var(--line-soft); padding: 48px 0 64px; }
   <div class="wrap">
     <div class="section-head">
       <h2>The workbench runs in your browser.</h2>
-      <p>The same engine, compiled to WebAssembly, running in a Web Worker with a live exploitability curve and a memory preflight. Load a solution produced by the CLI, or solve small spots directly on the page. JSON export round-trips through both the browser and the CLI.</p>
+      <p>The same engine, compiled to WebAssembly, running in a Web Worker with a live exploitability curve and a memory preflight. Load a solution produced by the CLI, or solve small spots directly on the page. JSON export round-trips through both the browser and the CLI — and every view is deep-linkable, so the tab, node, and selected combo live in the URL.</p>
       <div class="hero-ctas" style="margin-top: 28px;">
         <a class="btn btn-gold" href="https://postflop-workbench.vercel.app">Open the workbench</a>
       </div>
@@ -445,8 +445,35 @@ footer { border-top: 1px solid var(--line-soft); padding: 48px 0 64px; }
       <figure class="media-shot crop-top" style="aspect-ratio: 1600 / 620;"><img src="screens/04-solve-progress.png" alt="A solve in progress: the in-browser solve form with a tree-stats preflight and a live exploitability curve falling over 17 reports" width="1600" height="1000" loading="lazy"></figure>
     </div>
 
+    <div class="media-row flip">
+      <div class="media-copy">
+        <h3>See which hands actually care</h3>
+        <p>Beyond frequencies: color the grid by the highest-EV action per hand, or by <em>regret</em> — the chips lost taking the worse action, fading to white where the solver is indifferent. Per-action EVs sit next to every combo's strategy bar, so a 63/37 mix becomes "these six combos are worth real chips, the rest are free."</p>
+      </div>
+      <figure class="media-shot"><img src="screens/07-regret-overlay.png" alt="The regret overlay: the 13 by 13 grid heat-colored by chips lost versus the best action, with per-action EVs beside each JJ combo and a lock-this-node button" width="1600" height="1000" loading="lazy"></figure>
+    </div>
+
+    <div class="media-row">
+      <div class="media-copy">
+        <h3>Train against the solve</h3>
+        <p>Deal a hand from the loaded solution — board, pot, and line, but not the strategy. Pick an action and it is graded on the chips it costs against the solve, Best through Blunder, with the full solver mix and a d100 randomizer revealed after you answer. A running session score and a worst-hands-first review list; a "close decisions only" filter serves just the spots where the top two actions are nearly indifferent.</p>
+      </div>
+      <figure class="media-shot crop-top" style="aspect-ratio: 1600 / 470;"><img src="screens/08-trainer.png" alt="The trainer: holding 5d5h on Qs Jh 2h 8c, the check answer graded Best with EV loss 0.000 chips, the solver mix shown with a d100 randomizer, and a session panel tracking played hands" width="1600" height="1000" loading="lazy"></figure>
+    </div>
+
+    <div class="media-row flip">
+      <div class="media-copy">
+        <h3>Lock a node. Solve the exploit.</h3>
+        <p>Freeze any decision node — the strategy on screen, or hand-written per-action frequencies in the TOML — and re-solve: the rest of the tree becomes the equilibrium counter-strategy to "villain never bluffs here." Locks travel inside the solution file, the structure guard holds stored strategies to them, and reported exploitability is measured against the locked profile. Locks captured on a different spot are refused, never silently re-applied.</p>
+      </div>
+      <figure class="media-shot"><img src="screens/10-node-locks.png" alt="The node locks panel: one pending lock on the root for OOP, flagged stale because the solve form holds a different spot, with remove and clear-all controls" width="356" height="250" loading="lazy"></figure>
+    </div>
+
+    <figure class="media-shot" style="margin-top: 64px;"><img src="screens/09-blockers.png" alt="The blocker panel: holding JJ shifts IP's check frequency by minus 3.4 percent and bet by plus 3.4 percent, with the whole range ranked by blocker effect" width="1583" height="410" loading="lazy"></figure>
+    <figcaption class="shot-caption"><b>Blocker scores.</b> How much holding these two cards moves the opponent's frequencies — and the whole range ranked by it, so the best bluff cards sort to the top.</figcaption>
+
     <figure class="media-shot crop-top" style="margin-top: 64px; aspect-ratio: 1600 / 290;"><img src="screens/03-runout-selector.png" alt="The runout selector: a 52-card panel grouped by suit with dead cards disabled, re-rooting the inspector at any turn or river card" width="1600" height="1000" loading="lazy"></figure>
-    <figcaption class="shot-caption"><b>Every runout.</b> A 52-card selector re-roots the inspector at any turn or river card; dead cards are disabled.</figcaption>
+    <figcaption class="shot-caption"><b>Every runout, colored by consequence.</b> A 52-card selector re-roots the inspector at any turn or river card, heat-colored green-to-red by how each runout shifts hero EV — range-wide or for one selected combo — with arrow-key stepping between sibling cards.</figcaption>
   </div>
 </section>
 

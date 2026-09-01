@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start",
     "deploy": "node scripts/deploy.mjs",
+    "test": "node --experimental-strip-types lib/grid.test.ts && node --experimental-strip-types lib/range.test.ts && node --experimental-strip-types lib/trainer.test.ts && node --experimental-strip-types lib/config.test.ts",
     "lint": "eslint"
   },
   "dependencies": {

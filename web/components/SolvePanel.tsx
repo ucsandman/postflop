@@ -5,11 +5,16 @@ import RangeEditor from "@/components/RangeEditor";
 import {
   DEFAULT_FORM,
   HARD_BYTES,
+  type NodeLock,
   PRESETS,
   SEATS,
   STREETS,
   SolveForm,
   WARN_BYTES,
+  findPresetId,
+  loadForm,
+  saveForm,
+  spotKey,
   toToml,
 } from "@/lib/config";
 import { fmtBytes } from "@/lib/grid";
@@ -24,11 +29,29 @@ interface Report {
 
 type Gate = null | "warn" | "hard";
 
-export default function SolvePanel({ onSolved }: { onSolved: (json: string, wall: number) => void }) {
-  const [form, setForm] = useState<SolveForm>(DEFAULT_FORM);
+interface Props {
+  onSolved: (json: string, wall: number) => void;
+  /** Nodes the inspector asked to freeze; emitted as `[[locks]]` on the next solve. */
+  locks: NodeLock[];
+  onRemoveLock: (line: string) => void;
+  onClearLocks: () => void;
+}
+
+export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks }: Props) {
+  /** The form as the user left it last session, falling back to the first preset. */
+  const [form, setForm] = useState<SolveForm>(() => loadForm() ?? DEFAULT_FORM);
   /** Which preset the form still matches, `""` once anything has been hand-edited. */
-  const [presetId, setPresetId] = useState(PRESETS[0].id);
-  const [stats, setStats] = useState<TreeStats | null>(null);
+  const [presetId, setPresetId] = useState(() => findPresetId(form));
+
+  useEffect(() => saveForm(form), [form]);
+  // The preflight is kept with the lock list it measured. Adding or dropping a lock
+  // doesn't change the memory bill, but it does change whether the config's locks
+  // resolve -- and `stats.locks` is exactly where that shows -- so a report taken under
+  // a different lock list is stale. Derived, not an effect: `locks` is a fresh array
+  // from the Inspector on every change, so identity is the whole test.
+  const [measured, setMeasured] = useState<{ locks: NodeLock[]; stats: TreeStats } | null>(null);
+  const stats = measured && measured.locks === locks ? measured.stats : null;
+  const setStats = (s: TreeStats | null) => setMeasured(s ? { locks, stats: s } : null);
   const [gate, setGate] = useState<Gate>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [busy, setBusy] = useState<"" | "preflight" | "solving">("");
@@ -83,21 +106,18 @@ export default function SolvePanel({ onSolved }: { onSolved: (json: string, wall
     setPresetId(id);
   };
 
-  const preflight = useCallback(
-    async (toml: string) => {
-      const res = await ask({ kind: "stats", toml });
-      const s = JSON.parse(res.stats!) as TreeStats;
-      setStats(s);
-      return s;
-    },
-    [ask],
-  );
+  const preflight = async (toml: string) => {
+    const res = await ask({ kind: "stats", toml });
+    const s = JSON.parse(res.stats!) as TreeStats;
+    setStats(s);
+    return s;
+  };
 
   const run = async (confirmed: boolean) => {
     setError(null);
     let toml: string;
     try {
-      toml = toToml(form);
+      toml = toToml(form, locks);
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
       return;
@@ -143,7 +163,7 @@ export default function SolvePanel({ onSolved }: { onSolved: (json: string, wall
     setError(null);
     try {
       setBusy("preflight");
-      await preflight(toToml(form));
+      await preflight(toToml(form, locks));
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     } finally {
@@ -174,6 +194,15 @@ export default function SolvePanel({ onSolved }: { onSolved: (json: string, wall
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              data-testid="reset-preset"
+              title="Discard the restored/edited form and go back to the first preset"
+              onClick={() => applyPreset(PRESETS[0].id)}
+              className="rounded border border-line bg-raised px-2 py-1 text-[11px] text-muted hover:border-accent-dim hover:text-text"
+            >
+              Reset
+            </button>
           </div>
           <p className="mt-1 text-[11px] text-dim" data-testid="preset-note">
             {PRESETS.find((p) => p.id === presetId)?.note ??
@@ -317,6 +346,7 @@ export default function SolvePanel({ onSolved }: { onSolved: (json: string, wall
       </div>
 
       <div className="flex flex-col gap-3">
+        <LocksPanel locks={locks} spot={spotKey(form)} onRemove={onRemoveLock} onClear={onClearLocks} />
         <StatsPanel stats={stats} gate={gate} onConfirm={() => run(true)} />
         <ProgressPanel reports={reports} busy={busy === "solving"} wall={wall} />
       </div>
@@ -385,6 +415,84 @@ function Field({
   );
 }
 
+function LocksPanel({
+  locks,
+  spot,
+  onRemove,
+  onClear,
+}: {
+  locks: NodeLock[];
+  /** `spotKey` of the form as it stands; a lock from another spot can't be solved with. */
+  spot: string;
+  onRemove: (line: string) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="panel p-3" data-testid="locks">
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="label">node locks</span>
+        {locks.length > 0 && (
+          <button
+            onClick={onClear}
+            className="rounded border border-line bg-raised px-2 py-0.5 text-[11px] text-muted hover:border-accent-dim hover:text-text"
+          >
+            clear all
+          </button>
+        )}
+      </div>
+      {locks.length === 0 ? (
+        <p className="text-dim">
+          None. Walk to a decision node in the Inspector and hit{" "}
+          <span className="num text-muted">🔒 lock this node</span> to freeze its strategy
+          here; the next solve finds the equilibrium of the rest of the tree{" "}
+          <em>given</em> that play, and its exploitability is measured against it.
+        </p>
+      ) : (
+        <>
+          <p className="mb-2 text-[11px] text-dim">
+            A lock names its node by the line walked from the root, so it only means anything
+            against the tree it was read from. Change the board, ranges, stack or pot and the
+            lock below is marked <span className="text-card-h">stale</span> and the solve
+            refuses to run until it is removed — the same line on another board would resolve
+            silently and freeze the wrong strategy.
+          </p>
+          <ul className="flex flex-col gap-1">
+          {locks.map((l) => (
+            <li
+              key={l.line}
+              className={`flex items-center gap-2 rounded border bg-raised px-2 py-1 ${
+                l.spot === spot ? "border-line-soft" : "border-[#7a2b25]"
+              }`}
+            >
+              <span className="shrink-0 text-accent">{l.player === 0 ? "OOP" : "IP"}</span>
+              {l.spot !== spot && (
+                <span
+                  className="shrink-0 text-[10px] text-card-h"
+                  title="Captured on a different board/ranges/stack/pot than the form above"
+                >
+                  stale
+                </span>
+              )}
+              <span className="num min-w-0 flex-1 truncate text-[11px] text-muted" title={l.line || "root"}>
+                {l.label}
+              </span>
+              <span className="num shrink-0 text-[10px] text-dim">{l.strategy.length} vals</span>
+              <button
+                aria-label={`remove lock on ${l.label}`}
+                onClick={() => onRemove(l.line)}
+                className="shrink-0 rounded border border-line px-1.5 text-[11px] text-dim hover:border-[#7a2b25] hover:text-card-h"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
 function StatsPanel({
   stats,
   gate,
@@ -408,6 +516,7 @@ function StatsPanel({
           <Stat k="decision" v={stats.nodes.decision.toLocaleString()} />
           <Stat k="boards" v={stats.boards.toLocaleString()} />
           <Stat k="root combos" v={`${stats.root_combos[0]} / ${stats.root_combos[1]}`} />
+          <Stat k="locks resolved" v={stats.locks.toLocaleString()} />
           <Stat k="strategy entries" v={stats.strategy_entries.toLocaleString()} />
           <Stat k="chance maps" v={fmtBytes(stats.chance_map_bytes)} />
           <Stat k="solver storage" v={fmtBytes(stats.solver_storage_bytes)} strong />

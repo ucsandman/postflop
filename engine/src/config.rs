@@ -199,6 +199,162 @@ impl Rake {
     }
 }
 
+/// How far a locked combo's action probabilities may miss 1 before the lock is
+/// rejected. Loose enough for three-decimal frequencies typed by hand, tight enough
+/// that a genuinely unnormalized row (`0.9`, `1.1`) never slips through.
+pub const LOCK_TOL: f32 = 1e-3;
+
+/// One frozen decision node: the acting player's strategy there is held fixed and the
+/// rest of the tree is solved around it, so the result is an equilibrium **conditional**
+/// on the locked play. See [`crate::game::Game::locked_strategy`] for what the solver
+/// and the best-response walk do with it.
+///
+/// Exactly one of `freqs` and `strategy` must be given.
+///
+/// ```toml
+/// # OOP never bluffs on this river: every combo bets or checks as told.
+/// [[locks]]
+/// line = ""                       # the root; "check,bet:5" walks a path first
+/// player = 0                      # 0 = OOP, 1 = IP; cross-checked against the tree
+/// strategy = [1.0, 1.0, 0.0,      # action 0 (check) for combos 0, 1, 2
+///             0.0, 0.0, 1.0]      # action 1 (bet)   for combos 0, 1, 2
+///
+/// # IP calls a third of the time with everything, facing that bet.
+/// [[locks]]
+/// line = "bet:5"
+/// player = 1
+/// freqs = [0.667, 0.333]          # one per action, applied to every combo
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NodeLock {
+    /// Path from the root to the node being locked; `""` is the root itself. See
+    /// [`crate::tree::GameTree::resolve_line`] for the grammar.
+    pub line: String,
+    /// Acting player at that node: 0 = OOP, 1 = IP.
+    pub player: u8,
+    /// One frequency per action of the node, applied to every combo. Must sum to 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freqs: Option<Vec<f64>>,
+    /// Per-combo distribution, action-major (`strategy[a * combo_count + i]`, length
+    /// `num_actions * combo_count`) — the same layout
+    /// [`crate::cfr::Solver::average_strategy`] returns and the wasm bindings hand out,
+    /// so a strategy read out of a solution can be edited and locked back in unchanged.
+    /// The combo axis is the node's live combos in canonical ascending order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<Vec<f64>>,
+}
+
+impl NodeLock {
+    /// Expands this lock into the action-major distribution the solver freezes into the
+    /// node: `[a * combo_count + i]`, length `num_actions * combo_count`.
+    ///
+    /// `freqs` is broadcast across every combo; `strategy` is taken as given. Either way
+    /// every combo's column must be non-negative and sum to 1 within [`LOCK_TOL`].
+    ///
+    /// The arity checks need the tree (a node's action count) and the board (its live
+    /// combo count), so they land here rather than in [`SolveConfig::validate`], which
+    /// runs before either exists.
+    pub fn expand(&self, num_actions: usize, combo_count: usize) -> Result<Vec<f32>, String> {
+        let out: Vec<f32> = match (&self.freqs, &self.strategy) {
+            (Some(f), None) => {
+                if f.len() != num_actions {
+                    return Err(format!(
+                        "freqs has {} entries but the node offers {num_actions} actions",
+                        f.len()
+                    ));
+                }
+                let mut v = vec![0.0f32; num_actions * combo_count];
+                for (a, &p) in f.iter().enumerate() {
+                    v[a * combo_count..(a + 1) * combo_count].fill(p as f32);
+                }
+                v
+            }
+            (None, Some(s)) => {
+                let want = num_actions * combo_count;
+                if s.len() != want {
+                    return Err(format!(
+                        "strategy has {} entries but the node needs {num_actions} actions * \
+                         {combo_count} combos = {want}",
+                        s.len()
+                    ));
+                }
+                s.iter().map(|&x| x as f32).collect()
+            }
+            _ => return Err("set exactly one of `freqs` and `strategy`".to_string()),
+        };
+
+        for i in 0..combo_count {
+            let mut sum = 0.0f32;
+            for a in 0..num_actions {
+                let v = out[a * combo_count + i];
+                if !v.is_finite() || v < 0.0 {
+                    return Err(format!(
+                        "combo {i} action {a} has probability {v}; must be finite and \
+                         non-negative"
+                    ));
+                }
+                sum += v;
+            }
+            if (sum - 1.0).abs() > LOCK_TOL {
+                return Err(format!(
+                    "combo {i}'s action probabilities sum to {sum}, not 1 (tolerance \
+                     {LOCK_TOL})"
+                ));
+            }
+        }
+        // Renormalize any combo column that is off 1 by more than float noise: a
+        // hand-written lock summing to 1.0009 passes the tolerance above but would
+        // scale every chip figure reported for the solve by up to that factor. The
+        // 1e-6 floor keeps a round-tripped average strategy (off by accumulated f32
+        // ulps only) frozen bit-for-bit, which locking tests pin deliberately.
+        let mut out = out;
+        for i in 0..combo_count {
+            let sum: f32 = (0..num_actions).map(|a| out[a * combo_count + i]).sum();
+            if sum > 0.0 && (sum - 1.0).abs() > 1e-6 {
+                for a in 0..num_actions {
+                    out[a * combo_count + i] /= sum;
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Everything checkable without a tree: which field is set, the player id, and that
+    /// the numbers are probabilities. Arity and per-combo normalization wait for
+    /// [`NodeLock::expand`].
+    fn validate_shape(&self) -> Result<(), String> {
+        if self.player > 1 {
+            return Err(format!("player must be 0 (OOP) or 1 (IP), got {}", self.player));
+        }
+        let values = match (&self.freqs, &self.strategy) {
+            (Some(f), None) => f,
+            (None, Some(s)) => s,
+            (Some(_), Some(_)) => {
+                return Err("set `freqs` or `strategy`, not both".to_string());
+            }
+            (None, None) => return Err("set one of `freqs` or `strategy`".to_string()),
+        };
+        if values.is_empty() {
+            return Err("the locked distribution is empty".to_string());
+        }
+        for &v in values {
+            if !v.is_finite() || !(0.0..=1.0).contains(&v) {
+                return Err(format!("probability {v} is outside [0, 1]"));
+            }
+        }
+        if let Some(f) = &self.freqs {
+            let sum: f64 = f.iter().sum();
+            if (sum - 1.0).abs() > LOCK_TOL as f64 {
+                return Err(format!(
+                    "freqs sum to {sum}, not 1 (tolerance {LOCK_TOL})"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 const fn default_allin_threshold() -> f64 {
     67.0
 }
@@ -297,6 +453,11 @@ pub struct SolveConfig {
     /// Bet sizing tables. Any omitted table means that action is not offered.
     #[serde(default)]
     pub sizings: BetSizings,
+    /// Decision nodes whose strategy is frozen, solved around rather than solved for.
+    /// Default: none, and a solve with none is exactly the solve it always was.
+    /// See [`NodeLock`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub locks: Vec<NodeLock>,
 }
 
 impl Default for SolveConfig {
@@ -318,6 +479,7 @@ impl Default for SolveConfig {
             regret_floor: false,
             rake: Rake::default(),
             sizings: BetSizings::default(),
+            locks: Vec::new(),
         }
     }
 }
@@ -436,6 +598,13 @@ impl SolveConfig {
             if !v.is_finite() {
                 return Err(format!("{name} must be finite, got {v}"));
             }
+        }
+
+        // Locks are checked as far as they can be without a tree; the line, the arity
+        // and the per-combo sums need one, and are checked when the game is built.
+        for (i, lock) in self.locks.iter().enumerate() {
+            lock.validate_shape()
+                .map_err(|e| format!("locks[{i}] (line {:?}): {e}", lock.line))?;
         }
         Ok(())
     }
@@ -626,6 +795,83 @@ starting_pot = 10.0
 
         let out = toml::to_string(&cfg2).expect("serialize");
         assert!(SolveConfig::from_toml_str(&out).expect("reparse").regret_floor);
+    }
+
+    #[test]
+    fn locks_round_trip_through_toml() {
+        let text = format!(
+            "{MINIMAL}\n\
+             [[locks]]\n\
+             line = \"\"\n\
+             player = 0\n\
+             strategy = [1.0, 0.25, 0.0, 0.75]\n\
+             \n\
+             [[locks]]\n\
+             line = \"check,bet:5\"\n\
+             player = 1\n\
+             freqs = [0.667, 0.333]\n"
+        );
+        let cfg = SolveConfig::from_toml_str(&text).expect("parse");
+        assert_eq!(cfg.locks.len(), 2);
+        assert_eq!(cfg.locks[0].line, "");
+        assert_eq!(cfg.locks[0].player, 0);
+        assert_eq!(cfg.locks[0].strategy, Some(vec![1.0, 0.25, 0.0, 0.75]));
+        assert_eq!(cfg.locks[0].freqs, None);
+        assert_eq!(cfg.locks[1].line, "check,bet:5");
+        assert_eq!(cfg.locks[1].freqs, Some(vec![0.667, 0.333]));
+
+        // The whole config, locks included, survives a serialize/parse round trip — the
+        // path a saved solution's embedded config takes.
+        let out = toml::to_string(&cfg).expect("serialize");
+        assert_eq!(SolveConfig::from_toml_str(&out).expect("reparse"), cfg);
+
+        // Two actions, two combos: broadcast and per-combo expand to the same layout.
+        assert_eq!(
+            cfg.locks[0].expand(2, 2).expect("expand"),
+            vec![1.0, 0.25, 0.0, 0.75]
+        );
+        assert_eq!(cfg.locks[1].expand(2, 3).expect("expand"), vec![
+            0.667, 0.667, 0.667, 0.333, 0.333, 0.333
+        ]);
+        // Default: no locks at all, and the key is omitted rather than written empty.
+        let plain = SolveConfig::from_toml_str(MINIMAL).expect("parse");
+        assert!(plain.locks.is_empty());
+        assert!(!toml::to_string(&plain).expect("serialize").contains("locks"));
+    }
+
+    #[test]
+    fn validate_rejects_a_malformed_lock() {
+        let ok = SolveConfig::from_toml_str(MINIMAL).expect("baseline parses");
+        let with = |lock: NodeLock| SolveConfig { locks: vec![lock], ..ok.clone() };
+        let base = NodeLock {
+            line: String::new(),
+            player: 0,
+            freqs: Some(vec![0.5, 0.5]),
+            strategy: None,
+        };
+        let cases: [(NodeLock, &str); 6] = [
+            (NodeLock { player: 2, ..base.clone() }, "player must be 0"),
+            (
+                NodeLock { strategy: Some(vec![1.0, 0.0]), ..base.clone() },
+                "not both",
+            ),
+            (NodeLock { freqs: None, ..base.clone() }, "set one of"),
+            (NodeLock { freqs: Some(vec![]), ..base.clone() }, "is empty"),
+            (NodeLock { freqs: Some(vec![1.5, -0.5]), ..base.clone() }, "outside [0, 1]"),
+            (NodeLock { freqs: Some(vec![0.5, 0.4]), ..base.clone() }, "sum to 0.9"),
+        ];
+        for (lock, needle) in cases {
+            let err = with(lock).validate().expect_err(needle);
+            assert!(err.contains(needle), "wanted {needle:?}, got {err}");
+            assert!(err.starts_with("locks[0]"), "error should name the entry: {err}");
+        }
+
+        // Arity and per-combo sums need the node, so they land in `expand`.
+        assert!(base.expand(3, 1).unwrap_err().contains("offers 3 actions"));
+        let per_combo = NodeLock { freqs: None, strategy: Some(vec![0.5, 0.0, 0.0]), ..base };
+        assert!(per_combo.expand(2, 2).unwrap_err().contains("= 4"));
+        let err = per_combo.expand(3, 1).unwrap_err();
+        assert!(err.contains("sum to 0.5, not 1"), "unnormalized row must be rejected: {err}");
     }
 
     #[test]

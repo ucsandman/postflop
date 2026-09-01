@@ -1,5 +1,22 @@
 //! `solver solve`: build a spot, run Discounted CFR to a stopping condition, report,
 //! and optionally save a [`Solution`].
+//!
+//! # Node locking
+//!
+//! Freezing a decision node is a property of the spot, so it lives in the TOML config as
+//! a `[[locks]]` array rather than behind a flag — a locked strategy is a per-combo
+//! array, which is not something to type at a shell prompt, and it has to travel with the
+//! saved solution anyway:
+//!
+//! ```toml
+//! [[locks]]
+//! line = "check,bet:5"   # "" is the root; see GameTree::resolve_line
+//! player = 1             # 0 = OOP, 1 = IP, cross-checked against the tree
+//! freqs = [0.7, 0.3]     # one per action, applied to every combo
+//! # ...or strategy = [...], per combo, action-major
+//! ```
+//!
+//! Everything else is unchanged, and a config with no locks solves exactly as before.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -155,6 +172,18 @@ fn print_tree_stats(solver: &Solver<NlheGame>) {
         "tree: {} decision, {} chance, {} fold, {} showdown terminals ({} nodes total)",
         counts.decision, counts.chance, counts.fold, counts.showdown, counts.total
     );
+    let locked = game.locked_nodes();
+    if !locked.is_empty() {
+        println!(
+            "locks: {} node(s) frozen; the rest of the tree is solved around them, and \
+             exploitability below is measured against the locked profile",
+            locked.len()
+        );
+        for (node, lock) in locked.iter().zip(&game.config().locks) {
+            let who = if lock.player == 0 { "OOP" } else { "IP " };
+            println!("  node {node:>7}  {who}  line {:?}", lock.line);
+        }
+    }
     println!(
         "strategy storage: {:?}, {} bytes [measured]  (regret + strategy-sum arrays)",
         solver.storage_mode(),

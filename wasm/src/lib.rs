@@ -90,6 +90,11 @@ pub fn load_solution(json: &str) -> Result<SolutionHandle, JsValue> {
 /// }
 /// ```
 ///
+/// `locks` is the number of `[[locks]]` entries in the config that resolved, and is the
+/// cheapest way to find out whether a config's locks are well formed: this call builds
+/// the tree, so a bad line or a mis-shaped distribution is reported here rather than
+/// after a solve has been paid for.
+///
 /// `strategy_entries` is the number of (action, combo) pairs over all decision nodes.
 /// `solver_storage_bytes` is `entries * 2 * 4` — the regret and cumulative-strategy
 /// arrays a solve needs resident. `solution_strategy_bytes` is `entries * 4`, the size
@@ -122,6 +127,7 @@ pub fn tree_stats(config_toml: &str) -> Result<String, JsValue> {
             "total": counts.total,
         },
         "boards": game.num_boards(),
+        "locks": game.locked_nodes().len(),
         "root_combos": [
             game.live_combos(root, 0).len(),
             game.live_combos(root, 1).len(),
@@ -151,6 +157,17 @@ pub fn tree_stats(config_toml: &str) -> Result<String, JsValue> {
 ///
 /// Call [`tree_stats`] first. This allocates `solver_storage_bytes` up front, and a
 /// failed allocation in wasm aborts the module rather than returning an error.
+///
+/// # Node locking
+///
+/// `[[locks]]` entries in the TOML freeze the acting player's strategy at the nodes
+/// their lines name, and the rest of the tree is solved around them — see
+/// [`engine::config::NodeLock`] for the syntax. There is no separate argument: the locks
+/// are part of the spot, they travel in the config the returned handle embeds, and
+/// `to_json()` -> [`load_solution`] reproduces the same constrained game. A locked node's
+/// `strategy(id)` is the frozen distribution exactly, and `meta().locks` says which nodes
+/// they are. Exploitability then means exploitability *given* the locks; see the
+/// `engine::br` module docs.
 #[wasm_bindgen]
 pub fn solve_spot(
     config_toml: &str,
@@ -419,7 +436,13 @@ impl SolutionHandle {
     /// `format_version`, `engine_version`, `iterations`, `wall_seconds`,
     /// `exploitability_chips`, `exploitability_pct_of_pot`, `root_evs`
     /// (both conventions), `node_count`, `board`, `street`, `starting_pot`,
-    /// `effective_stack`, `oop_range`, `ip_range`, `root_combos` (counts per player).
+    /// `effective_stack`, `oop_range`, `ip_range`, `root_combos` (counts per player),
+    /// and `locks`.
+    ///
+    /// `locks` is one `{node, player, line}` per frozen decision node, in config order —
+    /// empty for an ordinary solve. Those nodes' strategies are the locked distributions
+    /// rather than solved ones, which is what a UI badge should say, and
+    /// `exploitability_*` is measured against the locked profile.
     pub fn meta(&self) -> String {
         let m = &self.sol.meta;
         let cfg = &self.sol.config;
@@ -446,6 +469,17 @@ impl SolutionHandle {
                 self.game.live_combos(root, 0).len(),
                 self.game.live_combos(root, 1).len(),
             ],
+            "locks": self
+                .game
+                .locked_nodes()
+                .iter()
+                .zip(&cfg.locks)
+                .map(|(node, lock)| json!({
+                    "node": node,
+                    "player": lock.player,
+                    "line": lock.line,
+                }))
+                .collect::<Vec<Value>>(),
         })
         .to_string()
     }
@@ -466,7 +500,8 @@ impl SolutionHandle {
     /// Always: `id`, `kind` (`"decision"`/`"chance"`/`"terminal"`), `street`, `board`
     /// (card strings known at this node), `pot`, `stacks` `[oop, ip]`.
     ///
-    /// Decision nodes add `player` and `actions`, each
+    /// Decision nodes add `player`, `locked` (true when this node's strategy was frozen
+    /// by a config lock rather than solved), and `actions`, each
     /// `{label, text, amount_to, percent_of_pot, child}` — `label` is one of
     /// `fold`/`check`/`call`/`bet`/`raise`/`allin`; `amount_to` is the street total the
     /// player has in after the action (bet/raise only, else `null`); `percent_of_pot` is
@@ -503,6 +538,7 @@ impl SolutionHandle {
             NodeKind::Decision { player, actions } => {
                 obj.insert("kind".into(), json!("decision"));
                 obj.insert("player".into(), json!(player));
+                obj.insert("locked".into(), json!(self.game.locked_strategy(id).is_some()));
                 let list: Vec<Value> = actions
                     .iter()
                     .map(|a| action_json(tree, id, *player, actions, a))

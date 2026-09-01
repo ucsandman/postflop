@@ -1,31 +1,70 @@
 "use client";
 
-import { Cell, RANKS } from "@/lib/grid";
+import { Cell, CellEv, evColor, fmtChips, regretColor, RANKS } from "@/lib/grid";
+import type { NodeAction } from "@/lib/types";
 
 interface Props {
   cells: Cell[];
   /** One CSS colour per action index, from `actionColors`. */
   colors: string[];
-  /** `strategy`: stacked action-frequency bars. `reach`: range density only. */
-  mode: "strategy" | "reach";
+  /**
+   * `strategy`: stacked action-frequency bars. `reach`: range density only.
+   * `ev`: highest-EV action per hand, faded toward white when near-indifferent.
+   * `regret`: chips lost by not always taking the best action, white to red.
+   */
+  mode: "strategy" | "reach" | "ev" | "regret";
+  /** Required for `ev`/`regret`, same 169-length order as `cells`. */
+  evCells?: CellEv[];
+  /** Required for `ev`, to name the best action in the hover title. */
+  actions?: NodeAction[];
   size: "large" | "small";
   selected?: { row: number; col: number } | null;
   onSelect?: (cell: Cell) => void;
 }
 
-export default function RangeGrid({ cells, colors, mode, size, selected, onSelect }: Props) {
+export default function RangeGrid({
+  cells,
+  colors,
+  mode,
+  evCells,
+  actions,
+  size,
+  selected,
+  onSelect,
+}: Props) {
   const large = size === "large";
   const maxWeight = Math.max(1e-9, ...cells.map((c) => c.weight));
+  const maxMargin = Math.max(
+    1e-9,
+    ...(evCells ?? []).filter((c) => Number.isFinite(c.margin)).map((c) => c.margin),
+  );
+  const maxRegret = Math.max(
+    1e-9,
+    ...(evCells ?? []).map((c) => (Number.isNaN(c.regret) ? 0 : c.regret)),
+  );
 
   return (
     <div
       className="grid gap-px bg-line-soft p-px"
       style={{ gridTemplateColumns: "repeat(13, minmax(0, 1fr))" }}
     >
-      {cells.map((cell) => {
+      {cells.map((cell, idx) => {
         const empty = cell.slots.length === 0;
         const isSel = selected?.row === cell.row && selected?.col === cell.col;
         const density = cell.weight / maxWeight;
+        const cellEv = evCells?.[idx];
+        const evFill = cellEv ? evColor(cellEv, colors, maxMargin) : null;
+        const regretFill = cellEv ? regretColor(cellEv.regret, maxRegret) : null;
+
+        const title = empty
+          ? `${cell.label} — no live combos here`
+          : mode === "ev"
+            ? cellEv && cellEv.bestAction >= 0
+              ? `${cell.label} — best: ${actions?.[cellEv.bestAction]?.text ?? cellEv.bestAction}, margin ${fmtChips(cellEv.margin === Infinity ? 0 : cellEv.margin)} chips`
+              : `${cell.label} — no EV data`
+            : mode === "regret"
+              ? `${cell.label} — EV lost ${Number.isNaN(cellEv?.regret ?? NaN) ? "no data" : fmtChips(cellEv!.regret) + " chips"}`
+              : `${cell.label} — ${cell.slots.length} combo${cell.slots.length > 1 ? "s" : ""}, weight ${cell.weight.toFixed(2)}`;
 
         return (
           <button
@@ -33,11 +72,7 @@ export default function RangeGrid({ cells, colors, mode, size, selected, onSelec
             type="button"
             disabled={empty || !onSelect}
             onClick={() => onSelect?.(cell)}
-            title={
-              empty
-                ? `${cell.label} — no live combos here`
-                : `${cell.label} — ${cell.slots.length} combo${cell.slots.length > 1 ? "s" : ""}, weight ${cell.weight.toFixed(2)}`
-            }
+            title={title}
             data-cell={cell.label}
             className={[
               "relative aspect-square overflow-hidden transition-[outline-color]",
@@ -68,10 +103,20 @@ export default function RangeGrid({ cells, colors, mode, size, selected, onSelec
                 ))}
               </span>
             )}
+            {!empty && mode === "ev" && evFill && (
+              <span className="absolute inset-0" style={{ background: evFill }} />
+            )}
+            {!empty && mode === "regret" && regretFill && (
+              <span className="absolute inset-0" style={{ background: regretFill }} />
+            )}
             <span
               className={[
                 "num relative z-[1] flex h-full w-full items-center justify-center font-semibold",
-                empty ? "text-[#2c3442]" : "text-white/95 [text-shadow:0_1px_2px_rgba(0,0,0,.75)]",
+                empty
+                  ? "text-[#2c3442]"
+                  : mode === "ev" || mode === "regret"
+                    ? "text-[#141a24] [text-shadow:0_1px_1px_rgba(255,255,255,.55)]"
+                    : "text-white/95 [text-shadow:0_1px_2px_rgba(0,0,0,.75)]",
               ].join(" ")}
             >
               {large || cell.row === cell.col ? cell.label : ""}

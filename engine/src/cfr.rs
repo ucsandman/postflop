@@ -82,14 +82,13 @@ impl Default for DcfrParams {
 }
 
 impl DcfrParams {
-    /// Reads `alpha`/`beta`/`gamma` off a [`SolveConfig`]. The regret floor is not a
-    /// config field and stays off.
+    /// Reads `alpha`/`beta`/`gamma`/`regret_floor` off a [`SolveConfig`].
     pub fn from_config(cfg: &SolveConfig) -> Self {
         DcfrParams {
             alpha: cfg.alpha,
             beta: cfg.beta,
             gamma: cfg.gamma,
-            floor_regrets_at_zero: false,
+            floor_regrets_at_zero: cfg.regret_floor,
         }
     }
 }
@@ -456,6 +455,26 @@ pub(crate) fn regret_matching(regrets: &[f32], n_act: usize, n_combo: usize, out
     }
 }
 
+/// The frozen strategy at `node` ([`Game::locked_strategy`]), checked against the region
+/// size the traversal derived for it.
+///
+/// Takes `&G` rather than `&self` so the borrow rides the traversal's own `&'a G` and
+/// does not collide with the mutable borrow of the scratch arena it is copied into.
+/// The length check is what stops a `Game` with a malformed lock from silently freezing
+/// a node to the wrong shape; one compare per locked node visit.
+#[inline]
+fn lock_of<G: Game>(g: &G, node: u32, size: usize) -> Option<&[f32]> {
+    let lock = g.locked_strategy(node)?;
+    assert!(
+        lock.len() == size,
+        "node {node}: locked strategy has {} entries but this node's region is {size}; a \
+         lock must be num_actions * combo_count(node, acting player) — see \
+         Game::locked_strategy",
+        lock.len()
+    );
+    Some(lock)
+}
+
 /// Arena offsets [`accumulate`] reads, bundled so the signature stays readable.
 #[derive(Clone, Copy)]
 struct Slots {
@@ -467,6 +486,24 @@ struct Slots {
     out: usize,
     /// Hero's reach vector.
     h_off: usize,
+}
+
+/// The node's own counterfactual value under the strategy in `buf[sig..]`:
+/// `out[i] = sum over a of sigma(a, i) * ev(a, i)`.
+///
+/// Split out of [`accumulate`] because a **locked** node needs exactly this and nothing
+/// else — the value still has to reach the parent so the opponent's regrets stay right,
+/// while the locking player's own regrets and strategy sum stay frozen.
+#[inline]
+fn node_value(buf: &mut [f32], s: Slots, hn: usize, n_act: usize) {
+    let Slots { sig, evs, out, .. } = s;
+    buf[out..out + hn].fill(0.0);
+    for a in 0..n_act {
+        for i in 0..hn {
+            let v = buf[sig + a * hn + i] * buf[evs + a * hn + i];
+            buf[out + i] += v;
+        }
+    }
 }
 
 /// The hero-decision update: node value into `buf[out..]`, then instantaneous regret
@@ -486,13 +523,7 @@ fn accumulate(
     floor: bool,
 ) {
     let Slots { sig, evs, out, h_off } = s;
-    buf[out..out + hn].fill(0.0);
-    for a in 0..n_act {
-        for i in 0..hn {
-            let v = buf[sig + a * hn + i] * buf[evs + a * hn + i];
-            buf[out + i] += v;
-        }
-    }
+    node_value(buf, s, hn, n_act);
     for a in 0..n_act {
         for i in 0..hn {
             let regret = buf[evs + a * hn + i] - buf[out + i];
@@ -716,6 +747,11 @@ impl<G: Game> Solver<G> {
     ///
     /// A combo that never reached `node` with positive probability has a zero
     /// cumulative strategy there and is reported as **uniform** over the actions.
+    ///
+    /// At a **locked** node ([`crate::game::Game::locked_strategy`]) this is the frozen
+    /// distribution itself, bit for bit: the cumulative strategy there is deliberately
+    /// never accumulated, and a reach-weighted average of a constant would only
+    /// reproduce it up to rounding anyway.
     pub fn average_strategy(&self, node: u32) -> Vec<f32> {
         let size = self.sizes[node as usize] as usize;
         let mut out = vec![0.0; size];
@@ -729,6 +765,11 @@ impl<G: Game> Solver<G> {
             panic!("average_strategy on a non-decision node {node}");
         };
         let n_combo = self.game.combo_count(node, player);
+        let size = num_actions * n_combo;
+        if let Some(lock) = lock_of(&self.game, node, size) {
+            out[..size].copy_from_slice(lock);
+            return;
+        }
         let off = self.offsets[node as usize] as usize;
         // Materialize the region into `out` (a copy in `f32` mode, a decode when
         // compressed) and normalize it in place.
@@ -931,32 +972,38 @@ impl<G: Game + Sync> Cfr<'_, G> {
                 let store = self.store;
                 let off = self.offsets[node as usize] as usize;
                 let size = self.region(node, num_actions * hn);
+                let locked = lock_of(g, node, size);
                 let base = self.scratch.top;
                 let sig = self.scratch.alloc(size);
                 let evs = self.scratch.alloc(size);
-                // SAFETY: `off..off + size` is exactly this node's own region, and this
-                // task is the only one that reaches this node (see `Store`).
-                match unsafe { store.regrets(off, size) } {
-                    Some(regrets) => regret_matching(
-                        regrets,
-                        num_actions,
-                        hn,
-                        &mut self.scratch.buf[sig..sig + size],
-                    ),
-                    None => {
-                        let dec = &mut *self.dec;
-                        if dec.len() < size {
-                            dec.resize(size, 0.0);
-                        }
-                        // SAFETY: as above.
-                        unsafe { store.regrets.load(node, off, &mut dec[..size]) };
-                        regret_matching(
-                            &dec[..size],
+                match locked {
+                    // A locked node plays the frozen distribution instead of regret
+                    // matching, and skips the regret / strategy-sum update below.
+                    Some(lock) => self.scratch.buf[sig..sig + size].copy_from_slice(lock),
+                    // SAFETY: `off..off + size` is exactly this node's own region, and
+                    // this task is the only one that reaches this node (see `Store`).
+                    None => match unsafe { store.regrets(off, size) } {
+                        Some(regrets) => regret_matching(
+                            regrets,
                             num_actions,
                             hn,
                             &mut self.scratch.buf[sig..sig + size],
-                        );
-                    }
+                        ),
+                        None => {
+                            let dec = &mut *self.dec;
+                            if dec.len() < size {
+                                dec.resize(size, 0.0);
+                            }
+                            // SAFETY: as above.
+                            unsafe { store.regrets.load(node, off, &mut dec[..size]) };
+                            regret_matching(
+                                &dec[..size],
+                                num_actions,
+                                hn,
+                                &mut self.scratch.buf[sig..sig + size],
+                            );
+                        }
+                    },
                 }
                 for a in 0..num_actions {
                     let save = self.scratch.top;
@@ -967,6 +1014,21 @@ impl<G: Game + Sync> Cfr<'_, G> {
                     }
                     self.walk(g.child(node, a), hero, ch, hn, o_off, on, evs + a * hn);
                     self.scratch.top = save;
+                }
+                if locked.is_some() {
+                    // Value only. Freezing the regret and strategy-sum updates is the
+                    // whole point: leave them running and the next iteration's regret
+                    // matching pulls straight back off the lock, and the reported average
+                    // would be a blend of the two. `Solver::average_strategy` reports the
+                    // lock itself, so nothing is lost by leaving the sums at zero.
+                    node_value(
+                        &mut self.scratch.buf,
+                        Slots { sig, evs, out, h_off },
+                        hn,
+                        num_actions,
+                    );
+                    self.scratch.top = base;
+                    return;
                 }
                 // SAFETY: as above — this node's own region, reached by this task only.
                 match unsafe { (store.regrets(off, size), store.strat(off, size)) } {
@@ -1017,29 +1079,35 @@ impl<G: Game + Sync> Cfr<'_, G> {
                 let size = self.region(node, num_actions * on);
                 let base = self.scratch.top;
                 let sig = self.scratch.alloc(size);
-                // SAFETY: read-only use of this node's own region; see `Store`.
-                match unsafe { self.store.regrets(off, size) } {
-                    Some(regrets) => regret_matching(
-                        regrets,
-                        num_actions,
-                        on,
-                        &mut self.scratch.buf[sig..sig + size],
-                    ),
-                    None => {
-                        let store = self.store;
-                        let dec = &mut *self.dec;
-                        if dec.len() < size {
-                            dec.resize(size, 0.0);
-                        }
-                        // SAFETY: as above.
-                        unsafe { store.regrets.load(node, off, &mut dec[..size]) };
-                        regret_matching(
-                            &dec[..size],
+                match lock_of(g, node, size) {
+                    // The opponent is locked here: hero's counterfactual values must be
+                    // computed against the frozen distribution, not the regret-matched
+                    // one. Nothing is written back either way on this branch.
+                    Some(lock) => self.scratch.buf[sig..sig + size].copy_from_slice(lock),
+                    // SAFETY: read-only use of this node's own region; see `Store`.
+                    None => match unsafe { self.store.regrets(off, size) } {
+                        Some(regrets) => regret_matching(
+                            regrets,
                             num_actions,
                             on,
                             &mut self.scratch.buf[sig..sig + size],
-                        );
-                    }
+                        ),
+                        None => {
+                            let store = self.store;
+                            let dec = &mut *self.dec;
+                            if dec.len() < size {
+                                dec.resize(size, 0.0);
+                            }
+                            // SAFETY: as above.
+                            unsafe { store.regrets.load(node, off, &mut dec[..size]) };
+                            regret_matching(
+                                &dec[..size],
+                                num_actions,
+                                on,
+                                &mut self.scratch.buf[sig..sig + size],
+                            );
+                        }
+                    },
                 }
                 self.scratch.zero(out, hn);
                 for a in 0..num_actions {

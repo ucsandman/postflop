@@ -148,6 +148,11 @@ pub struct NlheGame {
     maps: HashMap<u32, Vec<CardMap>>,
     root_weights: [Vec<f32>; 2],
     normalizer: f32,
+    /// Node id -> index into `locks`, or [`NONE`]. **Empty** when the config locks
+    /// nothing, which is what keeps an unlocked solve free of a per-node table.
+    lock_at: Vec<u32>,
+    /// `(node, frozen strategy)` per `cfg.locks` entry, in config order.
+    locks: Vec<(u32, Vec<f32>)>,
 }
 
 /// `"random"` (any case) means the full 1326-combo range; anything else is standard
@@ -346,6 +351,31 @@ impl NlheGame {
             .sum();
         let normalizer = joint as f32;
 
+        // --- node locks ------------------------------------------------------------
+        // Resolved here rather than in `SolveConfig::validate` because a line only means
+        // something against a built tree, and the combo axis only against the boards.
+        let mut lock_at = Vec::new();
+        let mut locks: Vec<(u32, Vec<f32>)> = Vec::new();
+        if !cfg.locks.is_empty() {
+            lock_at = vec![NONE; n];
+            for (i, lock) in cfg.locks.iter().enumerate() {
+                let tag = format!("locks[{i}] (line {:?})", lock.line);
+                let (node, num_actions) =
+                    tree.resolve_lock(lock).map_err(|e| format!("{tag}: {e}"))?;
+                if lock_at[node as usize] != NONE {
+                    return Err(format!("{tag}: node {node} is already locked by an earlier entry"));
+                }
+                let combos = boards[node_board[node as usize] as usize].hands
+                    [lock.player as usize]
+                    .len();
+                let strategy = lock
+                    .expand(num_actions, combos)
+                    .map_err(|e| format!("{tag}: {e}"))?;
+                lock_at[node as usize] = locks.len() as u32;
+                locks.push((node, strategy));
+            }
+        }
+
         Ok(NlheGame {
             cfg: cfg.clone(),
             tree,
@@ -358,6 +388,8 @@ impl NlheGame {
             maps,
             root_weights,
             normalizer,
+            lock_at,
+            locks,
         })
     }
 
@@ -414,6 +446,11 @@ impl NlheGame {
     /// The canonical 1326-combo index of each entry of [`NlheGame::live_combos`].
     pub fn combo_indices(&self, node: u32, player: u8) -> &[u32] {
         &self.boards[self.node_board[node as usize] as usize].indices[player as usize]
+    }
+
+    /// The node each `[[locks]]` entry of the config resolved to, in config order.
+    pub fn locked_nodes(&self) -> Vec<u32> {
+        self.locks.iter().map(|&(node, _)| node).collect()
     }
 
     /// Number of distinct boards the tree reaches (`1 + 49 + 49*48` for a flop).
@@ -552,6 +589,15 @@ impl Game for NlheGame {
 
     fn root_pot(&self) -> f32 {
         self.cfg.starting_pot as f32
+    }
+
+    fn locked_strategy(&self, node: u32) -> Option<&[f32]> {
+        // `lock_at` is empty unless the config locks something, so an unlocked solve
+        // pays one bounds check per decision-node visit and nothing else.
+        match *self.lock_at.get(node as usize)? {
+            NONE => None,
+            i => Some(&self.locks[i as usize].1),
+        }
     }
 }
 

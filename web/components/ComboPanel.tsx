@@ -9,12 +9,23 @@ interface Props {
   combos: Combo[];
   strategy: Float32Array;
   evs: Float32Array;
+  /** Per-action combo_evs(), one Float32Array per action, same slot order as `combos`. */
+  actionEvs: Float32Array[];
   actions: NodeAction[];
   colors: string[];
   player: string;
 }
 
-export default function ComboPanel({ cell, combos, strategy, evs, actions, colors, player }: Props) {
+export default function ComboPanel({
+  cell,
+  combos,
+  strategy,
+  evs,
+  actionEvs,
+  actions,
+  colors,
+  player,
+}: Props) {
   if (!cell) {
     return (
       <div className="panel flex h-full min-h-[180px] items-center justify-center px-4 text-center text-dim">
@@ -50,10 +61,11 @@ export default function ComboPanel({ cell, combos, strategy, evs, actions, color
         </p>
       )}
 
-      <div className="grid grid-cols-[64px_52px_1fr_66px] gap-x-2 border-b border-line-soft px-3 py-1">
+      <div className="grid grid-cols-[64px_52px_1fr_auto_66px] gap-x-2 border-b border-line-soft px-3 py-1">
         <span className="label">hand</span>
         <span className="label text-right">weight</span>
         <span className="label">strategy</span>
+        <span className="label">action EV</span>
         <span className="label text-right">EV (chips)</span>
       </div>
 
@@ -61,7 +73,7 @@ export default function ComboPanel({ cell, combos, strategy, evs, actions, color
         {rows.map(({ slot, combo, freqs, ev }) => (
           <div
             key={slot}
-            className="grid grid-cols-[64px_52px_1fr_66px] items-center gap-x-2 border-b border-line-soft/60 px-3 py-1 hover:bg-raised"
+            className="grid grid-cols-[64px_52px_1fr_auto_66px] items-center gap-x-2 border-b border-line-soft/60 px-3 py-1 hover:bg-raised"
           >
             <ComboCards cards={combo.cards} className="text-[13px]" />
             <span className="num text-right text-muted">{combo.weight.toFixed(3)}</span>
@@ -73,6 +85,21 @@ export default function ComboPanel({ cell, combos, strategy, evs, actions, color
                   title={`${actions[a].text}: ${(f * 100).toFixed(1)}%`}
                 />
               ))}
+            </span>
+            <span className="flex items-center gap-1.5">
+              {actions.map((a, i) => {
+                const v = actionEvs[i]?.[slot] ?? NaN;
+                return (
+                  <span
+                    key={i}
+                    className="num text-[10px]"
+                    style={{ color: colors[i] }}
+                    title={`${a.text} EV: ${Number.isNaN(v) ? "no defined EV" : v.toFixed(3)}`}
+                  >
+                    {Number.isNaN(v) ? "—" : v.toFixed(2)}
+                  </span>
+                );
+              })}
             </span>
             <span
               className={`num text-right ${

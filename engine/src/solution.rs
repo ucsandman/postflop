@@ -23,7 +23,12 @@
 //! (`strategy[a * combo_count + i]`), exactly the layout
 //! [`crate::cfr::Solver::average_strategy`] returns, so `from_solver` is a direct
 //! copy with no repacking.
+//!
+//! Node locks need no storage of their own: they live in [`SolveConfig::locks`], which
+//! is embedded, so a reload rebuilds the same constrained game. A locked node's stored
+//! strategy is the frozen distribution itself, and the structure guard checks it.
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -42,7 +47,15 @@ use crate::tree::{ActionLabel, GameTree, NodeKind};
 /// [`Solution::load`] refuses a file whose `format_version` is *greater* than this
 /// (a future format this build doesn't understand yet); it does not attempt to
 /// migrate an older one.
-pub const FORMAT_VERSION: u32 = 1;
+///
+/// * `1` — the original layout.
+/// * `2` — [`SolveConfig::locks`] joined the embedded config. A version-1 file has no
+///   `locks` key, which deserializes to "nothing locked", so v1 files still load
+///   unchanged; a v2 file with locks in it is refused by a v1 build, which is the point
+///   of the bump — it would rebuild the tree and silently solve a different game.
+///   A lock-free solve is layout-identical to v1, so [`Solution::from_solver`] stamps
+///   it `1` and only a file that actually carries locks gets the refusing version.
+pub const FORMAT_VERSION: u32 = 2;
 
 /// One player's root combo: enough to label a strategy slot without rebuilding a
 /// [`crate::range::Range`].
@@ -174,7 +187,10 @@ impl Solution {
         });
 
         Solution {
-            format_version: FORMAT_VERSION,
+            // A lock-free solve is layout-identical to a v1 file, so stamp v1 and keep
+            // it readable by older builds; only a file that actually carries locks
+            // needs the v2 refusal.
+            format_version: if game.config().locks.is_empty() { 1 } else { FORMAT_VERSION },
             config: game.config().clone(),
             meta: SolveMeta {
                 iterations: solver.iterations(),
@@ -232,6 +248,12 @@ impl Solution {
     /// per stored decision node its acting player, action count, and strategy array
     /// length. Fails loudly rather than loading strategies against a tree that no
     /// longer matches.
+    ///
+    /// Then, for every `[[locks]]` entry in the embedded config, that its line still
+    /// resolves to a decision node of the stated player and that the stored strategy at
+    /// that node **is** the locked distribution. A solution and the locks it was solved
+    /// under travel in one file; a file where they disagree is not a solve of the spot it
+    /// describes.
     fn validate_structure(&self) -> Result<(), String> {
         let board = self
             .config
@@ -294,6 +316,28 @@ impl Solution {
                 ));
             }
         }
+
+        let by_node: HashMap<u32, &NodeStrategy> =
+            self.nodes.iter().map(|ns| (ns.node, ns)).collect();
+        for (i, lock) in self.config.locks.iter().enumerate() {
+            let tag = format!("locks[{i}] (line {:?})", lock.line);
+            let (node, num_actions) = tree
+                .resolve_lock(lock)
+                .map_err(|e| format!("structure guard failed: {tag}: {e}"))?;
+            let ns = by_node.get(&node).ok_or_else(|| {
+                format!("structure guard failed: {tag}: node {node} has no stored strategy")
+            })?;
+            let want = lock
+                .expand(num_actions, ns.combo_count as usize)
+                .map_err(|e| format!("structure guard failed: {tag}: {e}"))?;
+            if ns.strategy != want {
+                return Err(format!(
+                    "structure guard failed: {tag}: the stored strategy at node {node} is \
+                     not the locked distribution, so this file is not a solve of the spot \
+                     its config describes"
+                ));
+            }
+        }
         Ok(())
     }
 }
@@ -302,7 +346,7 @@ impl Solution {
 mod tests {
     use super::*;
     use crate::cfr::DcfrParams;
-    use crate::config::Sizings;
+    use crate::config::{NodeLock, Sizings};
 
     // Same tiny river spot as `nlhe`'s milestone-3 test: 3 decision nodes, hand
     // solvable, and (per the ground truth measured on this machine) fast — 20k
@@ -333,7 +377,7 @@ mod tests {
     fn round_trip_is_bit_identical() {
         let solver = solved();
         let sol = Solution::from_solver(&solver, 0.0123);
-        assert_eq!(sol.format_version, FORMAT_VERSION);
+        assert_eq!(sol.format_version, 1, "a lock-free solve stays readable by v1 builds");
         assert!(!sol.nodes.is_empty());
 
         let dir = std::env::temp_dir();
@@ -372,6 +416,73 @@ mod tests {
         std::fs::remove_file(&path).ok();
 
         assert!(err.contains("action count mismatch"), "unexpected error: {err}");
+    }
+
+    /// A lock is part of the spot, so it travels in the embedded config and the guard
+    /// holds the stored strategies to it. Nothing lock-shaped is stored separately: a
+    /// reload rebuilds the same constrained game from the config alone.
+    #[test]
+    fn a_lock_travels_with_the_solution_and_the_guard_holds_it() {
+        let mut cfg = small_cfg();
+        cfg.locks = vec![NodeLock {
+            // Stack 10 into a pot of 10 makes the pot-size bet a shove, so this is also
+            // the `allin` token's round trip through a line.
+            line: "allin".to_string(),
+            player: 1,
+            freqs: Some(vec![0.4, 0.6]),
+            strategy: None,
+        }];
+        let game = NlheGame::new(&cfg).expect("game builds");
+        let node = game.tree().resolve_line("allin").expect("line resolves");
+        let mut solver = Solver::new(game);
+        solver.run(500, &DcfrParams::default(), 0, |_, _, _| {});
+
+        let sol = Solution::from_solver(&solver, 0.0);
+        assert_eq!(sol.format_version, 2, "locks arrived in format version 2");
+        assert_eq!(sol.config.locks, cfg.locks, "the lock is embedded, not dropped");
+        let stored = sol.nodes.iter().find(|n| n.node == node).expect("locked node stored");
+        let n = stored.combo_count as usize;
+        assert_eq!(
+            stored.strategy,
+            [vec![0.4f32; n], vec![0.6f32; n]].concat(),
+            "a locked node stores the frozen distribution, not an average"
+        );
+
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("solution_locked_{}.json", std::process::id()));
+        sol.save(&path).expect("save");
+        let loaded = Solution::load(&path).expect("a locked solution reloads");
+        assert_eq!(loaded, sol);
+
+        // Tamper: the stored strategy drifts off the lock it claims to have been solved
+        // under. That file is not a solve of the spot its config describes.
+        let mut bad = sol.clone();
+        let ns = bad.nodes.iter_mut().find(|n| n.node == node).expect("locked node");
+        ns.strategy[0] = 0.9;
+        bad.save(&path).expect("save");
+        let err = Solution::load(&path).expect_err("a drifted lock must not load");
+        std::fs::remove_file(&path).ok();
+        assert!(err.contains("not the locked distribution"), "unexpected error: {err}");
+    }
+
+    /// A version-1 file has no `locks` key at all, which is exactly what an unlocked
+    /// config serializes to — so the bump costs nothing for files already on disk.
+    #[test]
+    fn a_version_one_file_still_loads() {
+        let solver = solved();
+        let mut sol = Solution::from_solver(&solver, 0.0);
+        sol.format_version = 1;
+
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("solution_v1_{}.json", std::process::id()));
+        sol.save(&path).expect("save");
+        let text = std::fs::read_to_string(&path).expect("read back");
+        let loaded = Solution::load(&path).expect("an older format version still loads");
+        std::fs::remove_file(&path).ok();
+
+        assert!(!text.contains("locks"), "an unlocked config writes no locks key");
+        assert_eq!(loaded.format_version, 1);
+        assert!(loaded.config.locks.is_empty());
     }
 
     #[test]

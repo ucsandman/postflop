@@ -2,6 +2,7 @@
 // Only keys the form exposes are emitted; everything else keeps the engine's own
 // documented defaults (allin_threshold, raise_cap, DCFR alpha/beta/gamma, rake).
 import { canonicalRange, topWeights } from "./range.ts";
+import type { NodeAction, PathStep } from "./types.ts";
 
 export const STREETS = ["flop", "turn", "river"] as const;
 export const SEATS = ["oop", "ip"] as const;
@@ -210,7 +211,99 @@ const num = (name: string, raw: string): number => {
 
 const quote = (s: string) => JSON.stringify(s);
 
-export function toToml(form: SolveForm): string {
+// --- Node locks ---------------------------------------------------------------------
+// A lock freezes one decision node's strategy and the engine solves the rest of the tree
+// around it, so the result is an equilibrium *conditional* on that play. The engine reads
+// them as `[[locks]]` tables; see `NodeLock` in engine/src/config.rs.
+
+/** One step of a line as `GameTree::resolve_line` parses it: `"bet:10"`, `"check"`. */
+export function actionToken(a: NodeAction): string {
+  return a.amount_to == null ? a.label : `${a.label}:${a.amount_to}`;
+}
+
+/** A walked path as a lock `line` — `""` is the root, which is what the engine wants. */
+export function lineOf(path: PathStep[]): string {
+  return path.map((s) => s.token).join(",");
+}
+
+/**
+ * The spot a lock was captured against, normalized so the same spot written differently
+ * (`"QsJh2h8c"` vs `"Qs Jh 2h 8c"`) still matches: board, both ranges, stack and pot.
+ *
+ * A lock names its node only by the line walked from the root, and the engine's own
+ * checks — `GameTree::resolve_lock` (player) and `NodeLock::expand` (action count, combo
+ * count) — all pass just as happily on a *different* board of the same shape, which is
+ * the common "same spot, new runout" edit. So the lock carries the spot it was read from
+ * and `toToml` refuses to emit it against another one.
+ *
+ * Takes either a `SolveForm` or a solution's `meta()` (numbers or strings). Sizings are
+ * not in `meta()` and so are not in the key; a changed bet size renames the line's own
+ * `bet:<amount>` token, which makes the lock fail to resolve in the engine instead.
+ */
+export function spotKey(spot: {
+  board: string;
+  oop_range: string;
+  ip_range: string;
+  effective_stack: number | string;
+  starting_pot: number | string;
+}): string {
+  const cards = (v: string) => v.replace(/[\s,]+/g, "").toLowerCase();
+  return [
+    cards(spot.board),
+    cards(spot.oop_range),
+    cards(spot.ip_range),
+    Number(spot.effective_stack),
+    Number(spot.starting_pot),
+  ].join("|");
+}
+
+/** One pending lock: the node, and the distribution to freeze it at. */
+export interface NodeLock {
+  /** Path from the root; `""` is the root itself. */
+  line: string;
+  /** `spotKey` of the solution this strategy was read out of. */
+  spot: string;
+  /** Acting player at that node: 0 = OOP, 1 = IP. Cross-checked against the tree. */
+  player: 0 | 1;
+  /**
+   * Action-major (`strategy[a * comboCount + i]`, length `numActions * comboCount`) —
+   * exactly what `SolutionHandle.strategy(id)` hands out, so a strategy read out of a
+   * solution locks back in unchanged.
+   */
+  strategy: number[];
+  /** Human breadcrumb for the pending-lock list; the engine never sees it. */
+  label: string;
+}
+
+/**
+ * `[[locks]]` tables for the engine.
+ *
+ * Every probability is written with a decimal point: TOML types `0` as an integer and
+ * serde then refuses it for the `Vec<f64>`. Six places keeps each combo's column inside
+ * the engine's `LOCK_TOL` (1e-3) sum check with room to spare.
+ */
+function lockLines(locks: NodeLock[], spot: string): string[] {
+  const out: string[] = [];
+  for (const lock of locks) {
+    if (lock.strategy.length === 0) throw new Error(`lock on "${lock.label}" has no strategy`);
+    if (lock.spot !== spot) {
+      throw new Error(
+        `the lock on "${lock.label}" was captured on a different spot (board/ranges/stack/pot ` +
+          `have changed since). Remove it, or restore the spot it came from, then solve.`,
+      );
+    }
+    out.push(
+      ``,
+      `[[locks]]`,
+      `line = ${quote(lock.line)}`,
+      `player = ${lock.player}`,
+      `strategy = [${lock.strategy.map((p) => p.toFixed(6)).join(", ")}]`,
+    );
+  }
+  return out;
+}
+
+export function toToml(form: SolveForm, locks: NodeLock[] = []): string {
   if (!form.board.trim()) throw new Error("board is required");
   if (!form.oop_range.trim() || !form.ip_range.trim()) throw new Error("both ranges are required");
 
@@ -241,8 +334,61 @@ export function toToml(form: SolveForm): string {
         );
     }
   }
+  lines.push(...lockLines(locks, spotKey(form)));
   return lines.join("\n") + "\n";
 }
 
 export const WARN_BYTES = 300 * 1024 * 1024;
 export const HARD_BYTES = 1024 * 1024 * 1024;
+
+// --- Solve-form session persistence -------------------------------------------------
+// The form itself, not the solution it produces: rehydrating a multi-megabyte solution
+// blob from localStorage on every page load is wasteful and the samples/export button
+// already cover "get a solution back". Reload just needs the form as the user left it.
+
+const FORM_STORAGE_KEY = "solver-web.solveForm";
+
+/** Structural check, not a full schema validator -- catches a stale/corrupted blob from
+ *  an older build without crashing the form on a missing sizing cell. */
+function isSolveForm(v: unknown): v is SolveForm {
+  if (!v || typeof v !== "object") return false;
+  const f = v as Record<string, unknown>;
+  if (typeof f.board !== "string" || typeof f.oop_range !== "string" || typeof f.ip_range !== "string") {
+    return false;
+  }
+  const sizings = f.sizings as SizingGrid | undefined;
+  if (!sizings || typeof sizings !== "object") return false;
+  return SEATS.every((seat) =>
+    STREETS.every((street) => {
+      const cell = sizings[seat]?.[street];
+      return !!cell && typeof cell.bet === "string" && typeof cell.raise === "string";
+    }),
+  );
+}
+
+/** Best-effort: private browsing, disabled storage, or a full quota must never break the form. */
+export function saveForm(form: SolveForm): void {
+  try {
+    localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(form));
+  } catch {
+    // storage unavailable -- the form still works, it just won't survive a reload.
+  }
+}
+
+/** The last form the user left the Solve tab in, or null if there's nothing usable. */
+export function loadForm(): SolveForm | null {
+  try {
+    const raw = localStorage.getItem(FORM_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return isSolveForm(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Which preset (if any) a form is still identical to -- "" once it's been hand-edited. */
+export function findPresetId(form: SolveForm): string {
+  const json = JSON.stringify(form);
+  return PRESETS.find((p) => JSON.stringify(p.form) === json)?.id ?? "";
+}

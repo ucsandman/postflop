@@ -25,6 +25,24 @@
 //! In a raked game the two terminal utilities sum to minus the rake instead of zero, so
 //! the sum is offset by the expected rake and no longer bottoms out at 0. Compare it
 //! against the raked game's own floor, or solve rake-free to check convergence.
+//!
+//! # Exploitability under a node lock
+//!
+//! A locked node ([`crate::game::Game::locked_strategy`]) is not a decision the best
+//! responder gets to make: the walk follows the frozen distribution there instead of
+//! taking the per-combo maximum. So with locks in play the number above is
+//! exploitability **of and against the locked profile**:
+//!
+//! * The unlocked player best-responds normally, over the whole tree.
+//! * The locked player best-responds only where it is still free; at a locked node it
+//!   must keep playing the frozen distribution.
+//!
+//! The locked game is still zero-sum and still has a value, so the sum is still
+//! non-negative and still reaches **0 exactly at an equilibrium of the constrained
+//! game** — which is the thing the solver is now solving for. It is *not* comparable
+//! with the unlocked spot's exploitability: a profile that is unexploitable given the
+//! lock is generally very exploitable without it, and that gap is the cost of the lock,
+//! not a convergence failure.
 
 use crate::cfr::{read_write, Scratch};
 use crate::game::{Game, NodeInfo};
@@ -143,6 +161,28 @@ struct Br<'a, G: Game, P: StrategyProfile> {
 }
 
 impl<G: Game, P: StrategyProfile> Br<'_, G, P> {
+    /// Fills `scratch[sig .. sig + size]` with the acting player's strategy at `node`:
+    /// the lock when the node is locked, `profile`'s answer otherwise.
+    ///
+    /// The lock wins over the profile because it belongs to the *game*, not the profile —
+    /// so `exploitability` is well defined for any profile handed in, including one that
+    /// knows nothing about locking.
+    fn fill_strategy(&mut self, lock: Option<&[f32]>, node: u32, sig: usize, size: usize) {
+        let dst = &mut self.scratch.buf[sig..sig + size];
+        match lock {
+            Some(lock) => {
+                assert!(
+                    lock.len() == size,
+                    "node {node}: locked strategy has {} entries, expected {size} — see \
+                     Game::locked_strategy",
+                    lock.len()
+                );
+                dst.copy_from_slice(lock);
+            }
+            None => self.profile.strategy_into(node, dst),
+        }
+    }
+
     /// Writes hero's counterfactual value vector for the subtree at `node` into
     /// `scratch[out .. out + hn]`. Hero's own reach is never needed: at hero's nodes we
     /// either maximize per combo or weight by hero's own strategy.
@@ -183,7 +223,10 @@ impl<G: Game, P: StrategyProfile> Br<'_, G, P> {
                     self.walk(g.child(node, a), hero, o_off, on, evs + a * hn, hn);
                     self.scratch.top = save;
                 }
-                if self.maximize {
+                // A locked node is not hero's to choose at, even when best-responding —
+                // see `Game::locked_strategy` for what that makes exploitability mean.
+                let lock = g.locked_strategy(node);
+                if self.maximize && lock.is_none() {
                     for i in 0..hn {
                         let mut best = self.scratch.buf[evs + i];
                         for a in 1..num_actions {
@@ -196,8 +239,7 @@ impl<G: Game, P: StrategyProfile> Br<'_, G, P> {
                     }
                 } else {
                     let sig = self.scratch.alloc(size);
-                    self.profile
-                        .strategy_into(node, &mut self.scratch.buf[sig..sig + size]);
+                    self.fill_strategy(lock, node, sig, size);
                     self.scratch.zero(out, hn);
                     for a in 0..num_actions {
                         for i in 0..hn {
@@ -213,8 +255,7 @@ impl<G: Game, P: StrategyProfile> Br<'_, G, P> {
                 let size = num_actions * on;
                 let base = self.scratch.top;
                 let sig = self.scratch.alloc(size);
-                self.profile
-                    .strategy_into(node, &mut self.scratch.buf[sig..sig + size]);
+                self.fill_strategy(g.locked_strategy(node), node, sig, size);
                 self.scratch.zero(out, hn);
                 for a in 0..num_actions {
                     let save = self.scratch.top;

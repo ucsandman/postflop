@@ -34,6 +34,8 @@ export interface NodeInfo {
   stacks: [number, number];
   /** decision only */
   player?: 0 | 1;
+  /** decision only: this node's strategy was frozen by a config lock, not solved. */
+  locked?: boolean;
   /** decision only */
   actions?: NodeAction[];
   /** chance only */
@@ -56,6 +58,13 @@ export interface RootEvs {
   pot_share: [number, number];
 }
 
+/** One node the solve froze, as `meta().locks` reports it. */
+export interface LockInfo {
+  node: number;
+  player: 0 | 1;
+  line: string;
+}
+
 export interface Meta {
   format_version: number;
   engine_version: string;
@@ -72,6 +81,8 @@ export interface Meta {
   oop_range: string;
   ip_range: string;
   root_combos: [number, number];
+  /** One entry per frozen decision node, in config order; empty for an ordinary solve. */
+  locks: LockInfo[];
 }
 
 export interface TreeStats {
@@ -89,6 +100,8 @@ export interface TreeStats {
   solution_strategy_bytes: number;
   chance_map_bytes: number;
   total_bytes: number;
+  /** `[[locks]]` entries that resolved against the tree — the cheapest lock validation. */
+  locks: number;
 }
 
 /** One step of the line walked from the root. */
@@ -99,6 +112,8 @@ export interface PathStep {
   to: number;
   /** Short label for the breadcrumb, e.g. `"OOP bet 10.00"` or `"turn 8h"`. */
   label: string;
+  /** This step as `GameTree::resolve_line` parses it: `"bet:10"`, `"check"`, `"8h"`. */
+  token: string;
   kind: "action" | "chance";
 }
 

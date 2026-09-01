@@ -21,6 +21,14 @@
 //!
 //! Dead combos are *filtered out*, never zero-padded. A slot that exists is live.
 //!
+//! # Node locking
+//!
+//! [`Game::locked_strategy`] freezes the acting player's play at chosen decision nodes.
+//! The rest of the tree is solved around the frozen play, so the answer is an
+//! equilibrium **conditional** on it. Locking is a property of the *game*, not of a
+//! strategy profile: both [`crate::cfr`] and [`crate::br`] read it, so a locked player
+//! cannot deviate at a locked node even when best-responding. See the method docs.
+//!
 //! # Utility convention (zero-sum, net chips)
 //!
 //! [`Game::terminal_utility`] returns, for each live hero combo, the hero's
@@ -160,4 +168,31 @@ pub trait Game {
     /// percent-of-pot exploitability figure, so it should be the same pot a human
     /// means when they say "0.3% of pot".
     fn root_pot(&self) -> f32;
+
+    /// The frozen strategy at a **locked** decision node, or `None` when `node` is free
+    /// to be solved. The default is a game with nothing locked.
+    ///
+    /// Action-major (`[a * combo_count(node, acting_player) + i]`), length
+    /// `num_actions * combo_count(node, acting_player)`, every entry in `[0, 1]` and
+    /// every combo's entries summing to 1 — the same shape and layout
+    /// [`crate::cfr::Solver::average_strategy`] returns. Only ever called on
+    /// [`NodeInfo::Decision`] nodes.
+    ///
+    /// # What a lock does
+    ///
+    /// * [`crate::cfr`] substitutes this distribution for regret matching at the node,
+    ///   and stops updating the acting player's cumulative regret and cumulative
+    ///   strategy there — otherwise regrets would fight the lock every iteration. The
+    ///   node's counterfactual value is still computed and propagated, so the *other*
+    ///   player's regrets stay correct. `average_strategy` reports the lock verbatim.
+    /// * [`crate::br`] follows this distribution instead of maximizing, so the locked
+    ///   player cannot deviate at a locked node. Exploitability is therefore measured
+    ///   against the locked profile: the free player best-responds normally, the locked
+    ///   player best-responds only where it is still free, and the sum still bottoms out
+    ///   at 0 — at an equilibrium of the *constrained* game.
+    ///
+    /// Locks are fixed for the life of the `Game`; there is no unlock.
+    fn locked_strategy(&self, _node: u32) -> Option<&[f32]> {
+        None
+    }
 }

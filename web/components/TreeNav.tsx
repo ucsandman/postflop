@@ -1,7 +1,8 @@
 "use client";
 
 import Card, { Cards } from "@/components/Card";
-import { RANKS, SUITS, SUIT_CLASS, SUIT_GLYPH } from "@/lib/grid";
+import { actionToken } from "@/lib/config";
+import { hotnessColor, RANKS, SUITS, SUIT_CLASS, SUIT_GLYPH, type RunoutHotness } from "@/lib/grid";
 import type { NodeInfo, PathStep } from "@/lib/types";
 import { PLAYER_NAMES } from "@/lib/types";
 
@@ -13,9 +14,11 @@ interface Props {
   colors: string[];
   onStep: (step: PathStep) => void;
   onJump: (depth: number) => void;
+  /** How each runout shifts hero EV, for the chance-node card grid. Absent elsewhere. */
+  hotness?: RunoutHotness | null;
 }
 
-export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: Props) {
+export default function TreeNav({ node, path, freqs, colors, onStep, onJump, hotness }: Props) {
   return (
     <div className="panel flex flex-col">
       {/* Breadcrumb */}
@@ -48,9 +51,20 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
       <div className="px-3 py-2">
         {node.kind === "decision" && node.actions && (
           <>
-            <div className="label mb-1.5">
-              {PLAYER_NAMES[node.player ?? 0]} to act — {node.actions.length} action
-              {node.actions.length === 1 ? "" : "s"}
+            <div className="label mb-1.5 flex items-center gap-2">
+              <span>
+                {PLAYER_NAMES[node.player ?? 0]} to act — {node.actions.length} action
+                {node.actions.length === 1 ? "" : "s"}
+              </span>
+              {node.locked && (
+                <span
+                  data-testid="locked-badge"
+                  title="This node's strategy was frozen by a [[locks]] entry — the rest of the tree was solved around it."
+                  className="rounded border border-accent-dim bg-[#1c1608] px-1.5 py-0.5 text-[10px] font-semibold tracking-normal text-accent"
+                >
+                  🔒 locked
+                </span>
+              )}
             </div>
             <div className="flex flex-wrap gap-1.5">
               {node.actions.map((a, i) => (
@@ -62,6 +76,7 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
                       to: a.child,
                       kind: "action",
                       label: `${PLAYER_NAMES[node.player ?? 0]} ${a.text}`,
+                      token: actionToken(a),
                     })
                   }
                   className="group relative overflow-hidden rounded border border-line bg-raised px-2.5 py-1.5 text-left hover:border-accent-dim"
@@ -90,7 +105,7 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
         )}
 
         {node.kind === "chance" && node.valid_cards && (
-          <RunoutSelector node={node} onStep={onStep} />
+          <RunoutSelector node={node} onStep={onStep} hotness={hotness} />
         )}
 
         {node.kind === "terminal" && node.terminal && (
@@ -113,7 +128,15 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
   );
 }
 
-function RunoutSelector({ node, onStep }: { node: NodeInfo; onStep: (s: PathStep) => void }) {
+function RunoutSelector({
+  node,
+  onStep,
+  hotness,
+}: {
+  node: NodeInfo;
+  onStep: (s: PathStep) => void;
+  hotness?: RunoutHotness | null;
+}) {
   const valid = new Map(node.valid_cards!.map((v) => [v.card, v.child]));
   const onBoard = new Set(node.board);
   const nextStreet = node.board.length === 3 ? "turn" : "river";
@@ -125,6 +148,9 @@ function RunoutSelector({ node, onStep }: { node: NodeInfo; onStep: (s: PathStep
         <span className="num text-dim">
           {valid.size} of 52 available · {onBoard.size} on board
         </span>
+        {hotness && hotness.maxDeviation > 0 && (
+          <span className="text-[11px] text-dim">— shaded by hero EV vs. the runout average</span>
+        )}
       </div>
       <div className="inline-flex flex-col gap-px rounded border border-line-soft bg-line-soft p-px">
         {SUITS.split("").map((suit) => (
@@ -138,21 +164,38 @@ function RunoutSelector({ node, onStep }: { node: NodeInfo; onStep: (s: PathStep
               const card = rank + suit;
               const child = valid.get(card);
               const dead = onBoard.has(card);
+              const deviation = child !== undefined ? hotness?.deviationByChild.get(child) : undefined;
+              const tint =
+                deviation !== undefined ? hotnessColor(deviation, hotness!.maxDeviation) : null;
+              const ev = child !== undefined ? hotness?.evByChild.get(child) : undefined;
               return (
                 <button
                   key={card}
                   disabled={child === undefined}
                   onClick={() =>
-                    onStep({ from: node.id, to: child!, kind: "chance", label: `${nextStreet} ${card}` })
+                    onStep({
+                      from: node.id,
+                      to: child!,
+                      kind: "chance",
+                      label: `${nextStreet} ${card}`,
+                      token: card,
+                    })
                   }
-                  title={dead ? `${card} is already on the board` : `deal ${card}`}
+                  title={
+                    dead
+                      ? `${card} is already on the board`
+                      : ev !== undefined && !Number.isNaN(ev)
+                        ? `deal ${card} — hero EV ${ev.toFixed(3)}`
+                        : `deal ${card}`
+                  }
+                  style={tint ? { background: tint } : undefined}
                   className={[
                     "num h-6 w-7 text-[11px] font-semibold transition-colors",
                     child === undefined
                       ? dead
                         ? "cursor-not-allowed bg-[#241214] text-[#6b3238] line-through"
                         : "cursor-not-allowed bg-[#0b0f16] text-[#2c3442]"
-                      : `cursor-pointer bg-raised hover:bg-accent hover:text-ink ${SUIT_CLASS[suit]}`,
+                      : `cursor-pointer hover:bg-accent hover:text-ink ${tint ? "" : "bg-raised"} ${SUIT_CLASS[suit]}`,
                   ].join(" ")}
                 >
                   {rank}
