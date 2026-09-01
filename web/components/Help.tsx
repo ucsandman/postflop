@@ -137,7 +137,7 @@ export default function Help() {
         </div>
       </article>
 
-      <aside className="rule-l bg-panel">
+      <aside className="rule-l bg-panel" data-tour="help-legends">
         <h2 className="bar">
           Action colors
           <span className="meta">{ACTION_COLORS.length} inks</span>

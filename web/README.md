@@ -58,6 +58,7 @@ components/
   SolvePanel.tsx solve form, preset picker, preflight gate, progress curve
   RangeEditor.tsx paintable 13x13 range grid, one per seat
   Help.tsx      about / how to read the grid
+  Tour.tsx      guided-tour overlay: scrim slabs, magenta spotlight ring, step card
   Card.tsx      card and combo rendering
 lib/
   wasm.ts       async module loader

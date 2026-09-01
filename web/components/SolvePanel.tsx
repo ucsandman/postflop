@@ -182,7 +182,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
 
   return (
     <div className="solve-shell">
-      <section className="col-spot pb-2">
+      <section className="col-spot pb-2" data-tour="solve-spot">
         <div className="bar">
           spot
           <span className="right" style={{ flex: 1, minWidth: 0 }}>

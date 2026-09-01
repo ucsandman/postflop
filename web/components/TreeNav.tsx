@@ -27,6 +27,7 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
       {/* Breadcrumb */}
       <nav
         aria-label="Line walked from the root"
+        data-tour="line"
         className="flex min-w-0 flex-1 basis-[420px] flex-wrap items-center gap-1.5 px-3 py-2.5"
       >
         <span className="label mr-1">line</span>
@@ -61,7 +62,10 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
 
       {/* Available moves */}
       {node.kind === "decision" && node.actions && (
-        <div className="flex min-w-0 flex-1 basis-[420px] flex-wrap rule-l max-[999px]:border-l-0 max-[999px]:rule-t">
+        <div
+          data-tour="actions"
+          className="flex min-w-0 flex-1 basis-[420px] flex-wrap rule-l max-[999px]:border-l-0 max-[999px]:rule-t"
+        >
           {node.actions.map((a, i) => (
             <button
               key={i}

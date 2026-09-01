@@ -455,7 +455,7 @@ export default function TrainPanel({
   return (
     <div className="train-shell">
       {/* ── Drill column ───────────────────────────────────────────────────────── */}
-      <section className="flex min-h-0 flex-col bg-panel">
+      <section className="flex min-h-0 flex-col bg-panel" data-tour="train-drill">
         <div className="bar">
           Train
           <span className="meta">
@@ -479,7 +479,10 @@ export default function TrainPanel({
           )}
         </div>
 
-        <div className="rule-b flex flex-wrap items-center gap-x-4 gap-y-2 bg-paper-2 px-3 py-2">
+        <div
+          data-tour="train-filters"
+          className="rule-b flex flex-wrap items-center gap-x-4 gap-y-2 bg-paper-2 px-3 py-2"
+        >
           <span className="flex items-center gap-2">
             <span className="label">hero</span>
             <span className="seg">
@@ -755,6 +758,7 @@ export default function TrainPanel({
             </div>
 
             <div
+              data-tour="train-actions"
               className="flex flex-wrap gap-1.5 p-3"
               style={
                 result === null

@@ -154,9 +154,12 @@ wasm-pack build wasm --target web --out-dir pkg
 cd web && npm install && npm run dev    # http://localhost:3000
 ```
 
-Load a solution produced by the CLI (or one of the bundled sample spots), or
-solve small spots directly in the browser — the engine runs in a Web Worker
-with a live exploitability curve and a memory preflight. The inspector gives
+The workbench opens with a solved turn spot already loaded, and a **guided
+tour** (the Tour button in the rail, or [`?tour=1`](https://postflop-workbench.vercel.app/?tour=1))
+walks every panel in about two minutes — first visits get offered it
+automatically. Load a solution produced by the CLI (or one of the bundled
+sample spots), or solve small spots directly in the browser — the engine runs
+in a Web Worker with a live exploitability curve and a memory preflight. The inspector gives
 you the 13×13 grid with stacked action-frequency bars weighted by live combo
 reach, per-combo drill-down with per-hand EVs, a tree navigator, a 52-card
 runout selector, and JSON export that round-trips through both the browser and

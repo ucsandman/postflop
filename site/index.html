@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>postflop: a heads-up NLHE GTO solver that measures its own convergence</title>
-<meta name="description" content="Open-source postflop GTO solver: Rust Discounted CFR engine with a best-response exploitability calculator, CLI, WebAssembly build, and a browser workbench. Every reported number is measured, never asserted.">
+<meta name="description" content="Study postflop decisions in heads-up no-limit hold'em: what to bet, which hands do it, and what it costs to get it wrong. Open-source Rust Discounted CFR engine with a best-response exploitability calculator, CLI, WebAssembly build, and a browser workbench. Every reported number is measured, never asserted.">
 <meta property="og:title" content="postflop">
 <meta property="og:description" content="A heads-up NLHE postflop GTO solver in Rust. Exploitability measured, never asserted.">
 <meta property="og:image" content="https://postflop.vercel.app/og.png">
@@ -26,7 +26,7 @@
   "name": "postflop",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Windows, macOS, Linux, Web",
-  "description": "Open-source heads-up no-limit hold'em postflop GTO solver: Rust Discounted CFR engine with a best-response exploitability calculator, CLI, WebAssembly build, and a browser workbench.",
+  "description": "Study postflop decisions in heads-up no-limit hold'em: what to bet, which hands do it, and what it costs to get it wrong. Open-source Rust Discounted CFR engine with a best-response exploitability calculator, CLI, WebAssembly build, and a browser workbench.",
   "url": "https://postflop.vercel.app/",
   "license": "https://github.com/ucsandman/postflop/blob/master/LICENSE",
   "codeRepository": "https://github.com/ucsandman/postflop",
@@ -160,6 +160,23 @@ section+section{border-top:var(--rule) solid var(--ink)}
 .section-head p{margin-top:20px;color:var(--muted);font-size:17px;max-width:74ch}
 .section-head p strong{color:var(--text);font-weight:700}
 
+/* ---------- start here ---------- */
+.start-cols{display:grid;grid-template-columns:minmax(0,1fr);border-top:var(--rule) solid var(--ink)}
+.start-cols>*+*{border-top:var(--rule) solid var(--ink)}
+@media (min-width:1100px){
+  .start-cols{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .start-cols>*+*{border-left:var(--rule) solid var(--ink);border-top:0}
+}
+.start-col{padding:var(--gutter);display:flex;flex-direction:column}
+.start-col h3{font:900 24px/1.05 var(--font-display);letter-spacing:-.03em;text-transform:uppercase}
+.start-col p{margin-top:16px;color:var(--muted);font-size:15px}
+.start-col dl{margin-top:6px}
+.start-col dt{margin-top:18px;font:800 13px/1.3 var(--font-display);letter-spacing:.06em;text-transform:uppercase;color:var(--text)}
+.start-col dd{margin-top:6px;color:var(--muted);font-size:15px}
+.start-cta{padding-top:26px}
+.start-cta .hero-ctas{margin-top:0}
+.start-sub{margin-top:14px;font-size:15px;color:var(--muted)}
+
 /* ---------- engine ---------- */
 #engine{background:var(--paper-2)}
 .shot-frame{border:var(--rule) solid var(--ink);display:block;background:var(--paper-3)}
@@ -181,6 +198,7 @@ section+section{border-top:var(--rule) solid var(--ink)}
 .engine-row h3{font:800 20px/1.25 var(--font-display);padding:18px 24px 18px 20px}
 .engine-row p{color:var(--muted);font-size:15px;padding:18px var(--gutter) 24px 0}
 .engine-row p code{font-size:13px;color:var(--text);background:var(--paper-3);border:1px solid var(--ink);padding:1px 6px}
+.engine-row p strong{color:var(--text);font-weight:700}
 
 /* ---------- measured numbers ---------- */
 .bench{overflow-x:auto}
@@ -211,7 +229,14 @@ section+section{border-top:var(--rule) solid var(--ink)}
 .bench-note code{background:var(--paper-3);border:1px solid var(--ink);padding:2px 6px;color:var(--text)}
 
 /* ---------- workbench ---------- */
-.media-row{display:grid;grid-template-columns:minmax(0,1fr);border-top:var(--rule) solid var(--ink)}
+.jump{display:flex;flex-wrap:wrap;margin-top:28px}
+.jump a{
+  border:var(--rule-thin) solid var(--ink);color:var(--text);text-decoration:none;
+  font:800 10px/1 var(--font-display);letter-spacing:.14em;text-transform:uppercase;
+  padding:10px 12px;margin:0 0 -2px -2px;
+}
+.jump a:hover,.jump a:focus-visible{background:var(--hi);color:var(--ink)}
+.media-row{display:grid;grid-template-columns:minmax(0,1fr);border-top:var(--rule) solid var(--ink);scroll-margin-top:56px}
 @media (min-width:1000px){
   .media-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
   .media-row.flip{direction:rtl}
@@ -219,12 +244,15 @@ section+section{border-top:var(--rule) solid var(--ink)}
   .media-row>*+*{border-inline-start:var(--rule) solid var(--ink)}
 }
 @media (max-width:999px){.media-row>*+*{border-top:var(--rule) solid var(--ink)}}
-.media-copy{padding:var(--gutter)}
+.media-copy{padding:var(--gutter);scroll-margin-top:56px}
 .media-copy h3{font:900 26px/1.05 var(--font-display);letter-spacing:-.03em;text-transform:uppercase}
 .media-copy p{margin-top:16px;color:var(--muted);font-size:15px;max-width:64ch}
 .media-copy p code{font-size:13px;color:var(--text);background:var(--paper-3);border:1px solid var(--ink);padding:1px 6px}
 .media-shot{background:var(--paper-3);overflow:hidden;display:block}
 .media-shot img{display:block;width:100%;height:auto}
+/* a narrower detail frame stacked under a wide one; capped at its own pixel
+   width so it is never upscaled, and sized before it loads so nothing shifts */
+.media-shot img+img{max-width:484px;border-top:var(--rule) solid var(--ink)}
 .media-shot.crop-top img{object-fit:cover;object-position:top;height:100%}
 .shot-full{border-top:var(--rule) solid var(--ink);display:block}
 .shot-full .frame{border:var(--rule) solid var(--ink);margin:var(--gutter) var(--gutter) 0;display:block;overflow:hidden;background:var(--paper-3)}
@@ -278,6 +306,12 @@ pre.code .p{color:var(--dim-inv)}
 .qs-step p{margin-top:10px;font-size:15px}
 .qs-step pre.code{padding:14px 0 0;font-size:14px;flex:1}
 .qs-step .copy{align-self:flex-start;margin-top:16px}
+.flags{display:grid;grid-template-columns:minmax(0,1fr);padding:6px var(--gutter) clamp(24px,3vw,40px)}
+@media (min-width:900px){.flags{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:var(--gutter)}}
+.flags>div{padding-top:18px}
+.flags dt{font:700 14px/1.4 var(--font-mono);color:var(--text-inv);overflow-wrap:anywhere}
+.flags dd{margin-top:5px;font-size:14px;line-height:1.5;color:var(--dim-inv)}
+.flags dd code{color:var(--text-inv)}
 
 /* ---------- footer ---------- */
 footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid var(--ink)}
@@ -308,7 +342,8 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
 .skip:focus{left:0}
 .statusbar .sep{color:var(--ink-3);padding:0 10px}
 
-@media (max-width:1000px){
+/* six section links plus two CTA blocks stop fitting on one row below this */
+@media (max-width:1200px){
   .nav-links a.hide-sm{display:none}
 }
 @media (max-width:880px){
@@ -334,10 +369,12 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
   <div class="nav">
     <a class="wordmark" href="#">postflop<span class="tick" aria-hidden="true"></span></a>
     <nav class="nav-links" aria-label="Sections">
+      <a class="hide-sm" href="#start">Start</a>
       <a class="hide-sm" href="#engine">Engine</a>
       <a class="hide-sm" href="#numbers">Numbers</a>
       <a class="hide-sm" href="#workbench">Workbench</a>
       <a class="hide-sm" href="#correctness">Correctness</a>
+      <a class="hide-sm" href="#quickstart">Quickstart</a>
     </nav>
     <div class="nav-cta">
       <a class="nav-ghost" href="https://github.com/ucsandman/postflop">View on GitHub</a>
@@ -351,7 +388,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
 <section class="hero" aria-label="Introduction">
   <div class="hero-head">
     <h1>Convergence is <span class="measured">measured</span>, never asserted.</h1>
-    <p class="lede">postflop is an open-source heads-up no-limit hold'em GTO solver: a Rust Discounted CFR engine with a full best-response exploitability calculator, a native CLI, WebAssembly bindings, and a browser workbench. <strong>Every exploitability and EV figure it prints comes straight out of the best-response calculator.</strong></p>
+    <p class="lede">postflop is a study tool for postflop decisions in heads-up no-limit hold'em: what to bet on a given board, which hands should do it, and what it costs you to get it wrong. Underneath is an open-source Rust Discounted CFR engine with a full best-response exploitability calculator, a native CLI, WebAssembly bindings, and a browser workbench. <strong>Every exploitability and EV figure it prints comes straight out of the best-response calculator.</strong></p>
     <div class="hero-ctas">
       <a class="cta-hi" href="https://postflop-workbench.vercel.app">Open the workbench</a>
       <a class="cta-flat" href="https://github.com/ucsandman/postflop">Read the source</a>
@@ -370,6 +407,47 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
   </div>
 </section>
 
+<section id="start" aria-label="Start here">
+  <div class="section-head wrap">
+    <h2>Start here.</h2>
+    <p>Three ways in, depending on how much of this you have seen before. Nothing needs installing to take the first one.</p>
+  </div>
+  <div class="start-cols">
+
+    <div class="start-col">
+      <h3>Take the tour</h3>
+      <p>The workbench loads a solved turn spot the moment it opens, so there is nothing to set up. A guided tour then walks every panel in order: the strategy grid, the drill-down behind a single cell, the EV and regret views, blocker scores, the runout selector, the trainer, and how to solve a spot of your own.</p>
+      <div class="start-cta">
+        <div class="hero-ctas"><a class="cta-hi" href="https://postflop-workbench.vercel.app/?tour=1">Start the guided tour</a></div>
+        <p class="start-sub">Or <a href="https://postflop-workbench.vercel.app">open the workbench</a> and find your own way around.</p>
+      </div>
+    </div>
+
+    <div class="start-col">
+      <h3>Five terms first</h3>
+      <dl>
+        <dt>Spot</dt>
+        <dd>One postflop situation, fully specified: the board, what each player can be holding, how deep the stacks are, and how much is already in the middle.</dd>
+        <dt>Range</dt>
+        <dd>Not one hand but every hand a player could have here, each with a weight. A solver reasons about all of them at once, which is why its answer is a mix rather than a single move.</dd>
+        <dt>Exploitability</dt>
+        <dd>How much a perfect opponent could win against this strategy, printed as a percentage of the pot. Zero would be unbeatable. postflop measures it with a separate best-response calculator rather than asserting the solve has converged, because a solver grading its own homework can be confidently wrong.</dd>
+        <dt>Blocker</dt>
+        <dd>A card in your hand is a card the opponent cannot have. Holding the ace of hearts removes every one of their hands that needed it, which is why the same bluff is worth more with some cards than others.</dd>
+        <dt>Node lock</dt>
+        <dd>Freezing one decision to a fixed strategy and solving the rest of the tree around it. It is how you ask what beats a player who never bluffs this river, instead of what beats a perfect one.</dd>
+      </dl>
+    </div>
+
+    <div class="start-col">
+      <h3>If you know PioSOLVER or GTO&nbsp;Wizard</h3>
+      <p>The 13×13 range grid, the EV and regret views, and node locking all do what you already expect them to do. The naming and the notation carry over: ranges parse in PioSOLVER format, weighted combos included.</p>
+      <p>Three things are different, and they are the reasons to look. Exploitability is not a claim the solver makes about itself: a best-response calculator, separate from the solve, measures it and reports it in chips and as a percentage of the pot at every interval. The whole thing is MIT-licensed source, so the algorithm, the tests, and the numbers on this page can all be read and re-run. And one solution file round-trips: solve a large tree with the CLI on a real machine, open that same JSON in a browser anywhere, export it back out identically.</p>
+    </div>
+
+  </div>
+</section>
+
 <section id="engine" aria-label="What it does">
   <div class="section-head wrap">
     <h2>Give it a spot. Walk the whole tree.</h2>
@@ -384,22 +462,32 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
     <div class="engine-row">
       <span class="suit-sq" aria-hidden="true"><span class="s-spade">♠</span></span>
       <h3>Discounted CFR, full vector traversal</h3>
-      <p>Brown &amp; Sandholm's DCFR with alternating updates (α=1.5, β=0, γ=2, all configurable), a γ-weighted average strategy, and an optional CFR+-style regret floor. Every hand combo is traversed on every iteration. No sampling in the solve path.</p>
+      <p>Brown &amp; Sandholm's DCFR with alternating updates (α=1.5, β=0, γ=2, all configurable), a γ-weighted average strategy, and an optional CFR+-style regret floor. Every hand combo is traversed on every iteration. No sampling in the solve path. <strong>Why it matters at the table:</strong> the mix you see is computed for every single combo, not smeared across whichever hands happened to get sampled.</p>
     </div>
     <div class="engine-row">
       <span class="suit-sq" aria-hidden="true"><span class="s-heart">♥</span></span>
       <h3>Exact card removal everywhere</h3>
-      <p>Fold and showdown evaluation run O(N+M) sweeps with per-card weight sums and inclusion–exclusion; ties are handled as distinct rank groups. Blocked combos are filtered out of the working vectors, never zero-weighted: 1176 live combos on a flop, 1128 on the turn, 1081 on the river.</p>
+      <p>Fold and showdown evaluation run O(N+M) sweeps with per-card weight sums and inclusion–exclusion; ties are handled as distinct rank groups. Blocked combos are filtered out of the working vectors, never zero-weighted: 1176 live combos on a flop, 1128 on the turn, 1081 on the river. <strong>Why it matters at the table:</strong> the two cards in your hand change what the opponent can hold, so a hand that blocks their value gets its own answer instead of being averaged in with a hand that blocks nothing.</p>
     </div>
     <div class="engine-row">
       <span class="suit-sq" aria-hidden="true"><span class="s-diamond">♦</span></span>
       <h3>Deterministic parallelism</h3>
-      <p>The traversal fans out across chance-node runouts with rayon using a parallel-map, sequential-reduce design. Solved strategies are bit-identical for every thread count: 1 thread and 24 threads produce the same file.</p>
+      <p>The traversal fans out across chance-node runouts with rayon using a parallel-map, sequential-reduce design. Solved strategies are bit-identical for every thread count: 1 thread and 24 threads produce the same file. <strong>Why it matters at the table:</strong> a frequency you quote from a solve is checkable, because the same spot on someone else's machine returns the same answer rather than a nearby one.</p>
     </div>
     <div class="engine-row">
       <span class="suit-sq" aria-hidden="true"><span class="s-club">♣</span></span>
       <h3>Memory-conscious by construction</h3>
-      <p>Flat arena game tree with no pointer chasing, chance tables shared across betting lines by board, and an optional <code>i16</code> storage mode with per-node scale factors that roughly halves peak memory and documents its quantization floor.</p>
+      <p>Flat arena game tree with no pointer chasing, chance tables shared across betting lines by board, and an optional <code>i16</code> storage mode with per-node scale factors that roughly halves peak memory and documents its quantization floor. <strong>Why it matters at the table:</strong> it is the difference between a tree you can actually solve on the laptop in front of you and one you have to go and rent a machine for.</p>
+    </div>
+    <div class="engine-row">
+      <span class="suit-sq" aria-hidden="true"><span class="s-spade">♠</span></span>
+      <h3>Suit isomorphism, exhaustively verified</h3>
+      <p>Suits only matter relative to one another, so the 22,100 distinct flops collapse to 1,755 canonical classes. That mapping is not spot-checked: it is verified over every one of the 22,100. <strong>Why it matters at the table:</strong> Ah 7h 2c and Ad 7d 2c are the same problem, and the isomorphism map that says so is verified exhaustively, not spot-checked.</p>
+    </div>
+    <div class="engine-row">
+      <span class="suit-sq" aria-hidden="true"><span class="s-heart">♥</span></span>
+      <h3>The spot file carries the whole rulebook</h3>
+      <p>Rake as a percent with an optional chip cap, off by default. A raise cap, counted per street. An all-in threshold, so any sizing close enough to a shove collapses into the shove instead of cluttering the tree with a near-shove. All of it sits in the same TOML as the board. <strong>Why it matters at the table:</strong> the tree you solve can be the game you actually sit in, rake included, rather than a rake-free version of it.</p>
     </div>
   </div>
 </section>
@@ -442,13 +530,23 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
 <section id="workbench" aria-label="Browser workbench">
   <div class="section-head wrap">
     <h2>The workbench runs in your browser.</h2>
-    <p>The same engine, compiled to WebAssembly, running in a Web Worker with a live exploitability curve and a memory preflight. Load a solution produced by the CLI, or solve small spots directly on the page. JSON export round-trips through both the browser and the CLI, and every view is deep-linkable, so the tab, node, and selected combo live in the URL.</p>
+    <p>The same engine, compiled to WebAssembly. It opens with a solved spot already on screen: the Qs Jh 2h 8c turn, BTN vs BB single-raised, 100bb. That is one of two bundled sample solutions, alongside a Ks 7d 2c 8h 3d river polarisation drill, and a guided tour walks every panel from there. Load a solution produced by the CLI instead, or solve small spots directly on the page.</p>
     <div class="hero-ctas" style="margin-top:28px;">
       <a class="cta-hi" href="https://postflop-workbench.vercel.app">Open the workbench</a>
     </div>
+    <nav class="jump" aria-label="Workbench panels">
+      <a href="#workbench-combos">Combo drill-down</a>
+      <a href="#workbench-ranges">Range editor</a>
+      <a href="#workbench-convergence">Convergence</a>
+      <a href="#workbench-links">Deep links</a>
+      <a href="#workbench-preflight">Preflight</a>
+      <a href="#workbench-regret">EV and regret</a>
+      <a href="#workbench-trainer">Trainer</a>
+      <a href="#workbench-locks">Node locks</a>
+    </nav>
   </div>
 
-  <div class="media-row">
+  <div class="media-row" id="workbench-combos">
     <div class="media-copy">
       <h3>Drill into any combo</h3>
       <p>Click a cell and see every combo behind it: per-combo weights, the full action mix, and per-hand EVs in zero-sum chips. The IP range panel alongside shows reach-weighted density at the same node.</p>
@@ -456,15 +554,18 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
     <figure class="media-shot"><img src="screens/02-combo-breakdown.png" alt="Combo drill-down: the KTs cell expanded into its combos, each with weight, a stacked strategy bar, per-action EVs, and its EV in chips, next to the reach-weighted IP range and blocker panel" width="1434" height="1255" loading="lazy"></figure>
   </div>
 
-  <div class="media-row flip">
+  <div class="media-row flip" id="workbench-ranges">
     <div class="media-copy">
       <h3>Paint ranges by hand or by weight</h3>
-      <p>An interactive range editor with paintable grids, a weight brush, a top-X% slider, and preset spots. Ranges accept standard and PioSOLVER notation, weighted combos included, over all 1326 combos.</p>
+      <p>An interactive range editor with paintable grids, a weight brush, a top-X% slider, and preset spots. Ranges accept standard and PioSOLVER notation, weighted combos included, over all 1326 combos. The detail frame under the editor is the weight brush at work: a hand can sit at any fraction of a full combo, so a range that plays 22 half the time is written as exactly that, and the notation carries the weight back out with it.</p>
     </div>
-    <figure class="media-shot"><img src="screens/05-range-editor.png" alt="The range editor: two paintable 13 by 13 grids with per-hand weights, a weight brush, and a top-percent slider" width="2040" height="1320" loading="lazy"></figure>
+    <figure class="media-shot">
+      <img src="screens/05-range-editor.png" alt="The range editor: two paintable 13 by 13 grids with per-hand weights, a weight brush, and a top-percent slider" width="2040" height="1320" loading="lazy">
+      <img src="screens/06-range-editor-weighted.png" alt="A detail of the same grid showing weighted combos: cells partly filled to the fraction of the time that hand is in the range, the weight brush set to 50 percent, and the range string reading 22 plus colon 0.5" width="484" height="601" loading="lazy">
+    </figure>
   </div>
 
-  <div class="media-row">
+  <div class="media-row" id="workbench-convergence">
     <div class="media-copy">
       <h3>Watch it converge, live</h3>
       <p>Solves report exploitability at every interval while they run. The curve you watch is the best-response calculator's own output, in chips and as a percentage of the pot, recomputed at every report.</p>
@@ -472,7 +573,18 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
     <figure class="media-shot"><img src="screens/04-solve-progress.png" alt="A finished solve: the in-browser solve form with a tree-stats preflight and a live exploitability curve falling over 17 reports" width="3600" height="2000" loading="lazy"></figure>
   </div>
 
-  <div class="media-row flip">
+  <div class="media-row">
+    <div class="media-copy" id="workbench-links">
+      <h3>One URL. One file.</h3>
+      <p>Every view is a link. The tab, the node you are standing on, and the combo you have selected all live in the URL, so a line you want a second opinion on is a paste, not a set of instructions. The solution file travels the same way: solve a big tree with the CLI on a real machine, open that JSON in the browser anywhere, export it back out identically. The CLI uses every core; the browser build is single-threaded, and the file does not care which one made it.</p>
+    </div>
+    <div class="media-copy" id="workbench-preflight">
+      <h3>Priced before it runs</h3>
+      <p>The solve panel above builds the tree, prices the solver's memory bill before the solve commits to it, and prints the tree stats it measured. A large spot gets a warning; one that would take the tab down with it gets a hard red gate instead of an optimistic start. The solve itself runs in a Web Worker, so the page keeps scrolling, keeps drawing the curve, and keeps answering while the engine works.</p>
+    </div>
+  </div>
+
+  <div class="media-row flip" id="workbench-regret">
     <div class="media-copy">
       <h3>See which hands actually care</h3>
       <p>Beyond frequencies: color the grid by the highest-EV action per hand, or by <em>regret</em>, the chips lost taking the worse action, fading to paper where the solver is indifferent. Per-action EVs sit next to every combo's strategy bar, so a 63/37 mix becomes "these six combos are worth real chips, the rest are free."</p>
@@ -480,7 +592,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
     <figure class="media-shot"><img src="screens/07-regret-overlay.png" alt="The strategy grid beside its regret surface: the 13 by 13 heat-colored by chips lost versus the best action, fading to paper where the solver is indifferent" width="2160" height="1455" loading="lazy"></figure>
   </div>
 
-  <div class="media-row">
+  <div class="media-row" id="workbench-trainer">
     <div class="media-copy">
       <h3>Train against the solve</h3>
       <p>Self-contained: pick a sample spot or set up any board, ranges and stacks right in the trainer, and it deals the first hand the moment the solve converges: board, pot, and line, but not the strategy. Pick an action and it is graded on the chips it costs, Best through Blunder, with the full solver mix and a d100 randomizer revealed after you answer. Every spot carries its table context: positions, starting stacks, the preflop action, live range widths, and the VPIP/PFR profile each range models. A running session score, a worst-hands-first review list, a "close decisions only" filter, and type an exact hand like AhKd to drill that combo on every deal.</p>
@@ -488,7 +600,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
     <figure class="media-shot"><img src="screens/08-trainer.png" alt="The trainer: a dealt hand on Qs Jh 2h 8c graded against the solve in chips, the solver mix revealed after answering, and a session scorecard with hand history" width="3600" height="1900" loading="lazy"></figure>
   </div>
 
-  <div class="media-row flip">
+  <div class="media-row flip" id="workbench-locks">
     <div class="media-copy">
       <h3>Lock a node. Solve the exploit.</h3>
       <p>Freeze any decision node, the strategy on screen or hand-written per-action frequencies in the TOML, and re-solve: the rest of the tree becomes the equilibrium counter-strategy to "villain never bluffs here." Locks travel inside the solution file, the structure guard holds stored strategies to them, and reported exploitability is measured against the locked profile. Locks captured on a different spot are refused, never silently re-applied.</p>
@@ -516,29 +628,29 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
     <div class="gate">
       <div class="gate-body">
         <div class="gate-head"><h3>Kuhn poker</h3><span class="gate-status">Passed</span></div>
-        <p>Converges to the known analytic equilibrium family: exploitability 0.002% of pot, K-bet equal to 3× J-bet, game value −1/18.</p>
+        <p>Converges to the known analytic equilibrium family: exploitability 0.002% of pot, K-bet equal to 3× J-bet, game value −1/18. A failure here would have meant the solving core itself was wrong, before any poker was involved, on a toy game whose exact answer was already written down.</p>
       </div>
     </div>
     <div class="gate">
       <div class="gate-body">
         <div class="gate-head"><h3>AKQ half-street game</h3><span class="gate-status">Passed</span></div>
-        <p>Matches the closed-form equilibrium derived from the indifference conditions, including the boundary case B ≥ P where the Nash set is a segment rather than a point.</p>
+        <p>Matches the closed-form equilibrium derived from the indifference conditions, including the boundary case B ≥ P where the Nash set is a segment rather than a point. A failure here would have meant the solver could not recover an answer handed to it in closed form, and would have been quietly picking one point where a whole family is correct.</p>
       </div>
     </div>
     <div class="gate">
       <div class="gate-body">
         <div class="gate-head"><h3>River spot</h3><span class="gate-status">Passed</span></div>
-        <p>Indifference conditions verified against hand algebra for named combos (bluff EV equals check EV, call EV equals fold EV within 1e-3). Bluff ratio 1/3 and minimum defense frequency 1/2 recovered on a blocker-free construction.</p>
+        <p>Indifference conditions verified against hand algebra for named combos (bluff EV equals check EV, call EV equals fold EV within 1e-3). Bluff ratio 1/3 and minimum defense frequency 1/2 recovered on a blocker-free construction. A failure here would have meant the bluffing and calling frequencies it prints do not actually leave the opponent indifferent, which is the only reason to play them.</p>
       </div>
     </div>
     <div class="gate">
       <div class="gate-body">
         <div class="gate-head"><h3>Full flop spot</h3><span class="gate-status">Passed</span></div>
-        <p>An 830k-node tree whose exploitability falls monotonically from 16.5% to 0.22% of pot, zero-sum error at 7e-7, bit-identical across 1, 8, and 24-thread pools.</p>
+        <p>An 830k-node tree whose exploitability falls monotonically from 16.5% to 0.22% of pot, zero-sum error at 7e-7, bit-identical across 1, 8, and 24-thread pools. A failure here would have meant everything above worked on toys and broke on a real board, which is exactly where a solver is worth having.</p>
       </div>
     </div>
   </div>
-  <p class="beyond">Beyond the milestones: the 7-card evaluator is checked against a slow reference on <span class="mono-stat">1,000,000</span> random hands and exhaustively on all <span class="mono-stat">2,598,960</span> five-card hands with zero mismatches. Terminal sweeps are property-tested against naive O(N·M) oracles at full 1081-combo width. Suit isomorphism is exhaustively verified over all <span class="mono-stat">22,100</span> flops. And where the engine approximates, it says so: the CLI refuses the turn-sampling flag until an exact-labeled sampling mode exists. The solver never silently approximates.</p>
+  <p class="beyond">Beyond the milestones: the 7-card evaluator is checked against a slow reference on <span class="mono-stat">1,000,000</span> random hands and exhaustively on all <span class="mono-stat">2,598,960</span> five-card hands with zero mismatches. Terminal sweeps are property-tested against naive O(N·M) oracles at full 1081-combo width. The suit isomorphism collapse described above is checked the same way, exhaustively rather than by sample. And where the engine approximates, it says so: the CLI refuses the turn-sampling flag until an exact-labeled sampling mode exists. The solver never silently approximates.</p>
 </section>
 
 <section id="quickstart" aria-label="Quick start">
@@ -552,15 +664,15 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
       <button class="copy" type="button" data-copy="qs-toml">Copy</button>
     </div>
     <pre class="code" id="qs-toml" aria-label="Example spot configuration in TOML"><span class="c"># spot.toml</span>
-<span class="k">board</span> = <span class="s">"Qs Jh 2h"</span>
+<span class="k">board</span> = <span class="s">"Qs Jh 2h"</span>            <span class="c"># 3, 4 or 5 cards: flop, turn or river</span>
 <span class="k">oop_range</span> = <span class="s">"22+,ATs+,KTs+,QTs+,JTs,T9s,98s,ATo+,KJo+"</span>
 <span class="k">ip_range</span> = <span class="s">"66+,A9s+,KTs+,QTs+,JTs,ATo+,KQo"</span>
-<span class="k">effective_stack</span> = 40.0
-<span class="k">starting_pot</span> = 6.0
-<span class="k">max_iterations</span> = 600
+<span class="k">effective_stack</span> = 40.0        <span class="c"># chips behind, per player, at the root</span>
+<span class="k">starting_pot</span> = 6.0            <span class="c"># chips already in the middle</span>
+<span class="k">max_iterations</span> = 600          <span class="c"># hard iteration ceiling</span>
 <span class="k">target_exploitability</span> = 0.5  <span class="c"># stop at 0.5% of pot</span>
 
-[<span class="k">sizings.oop.flop</span>]
+[<span class="k">sizings.oop.flop</span>]            <span class="c"># per street, per player, bet / raise / donk</span>
 <span class="k">bet</span> = { percents = [50.0], allin = false }
 [<span class="k">sizings.ip.flop</span>]
 <span class="k">bet</span> = { percents = [50.0], allin = false }
@@ -583,10 +695,39 @@ solver solve --config spot.toml \
     </div>
     <div class="qs-step">
       <h3>3 · Or skip all of that</h3>
-      <p>Solve small spots with nothing installed at <a href="https://postflop-workbench.vercel.app">the hosted workbench</a>, or run it locally: one command builds whatever is missing and opens it.</p>
+      <p>The easiest local on-ramp: one command builds the Rust engine, the wasm package and the web dependencies, whichever of them are missing, starts the workbench and opens it in your browser. Or install nothing at all and use <a href="https://postflop-workbench.vercel.app">the hosted workbench</a>.</p>
       <pre class="code" id="qs-3">python launch.py</pre>
       <button class="copy" type="button" data-copy="qs-3">Copy</button>
     </div>
+  </div>
+  <div class="qs-toml on-ink">
+    <div class="qs-head">
+      <span class="label">the rest of the dials · cli flags and toml fields</span>
+    </div>
+    <dl class="flags">
+      <div><dt>--storage f32|i16</dt>
+      <dd>Half-precision strategy storage. Roughly halves peak memory, and documents its quantization floor rather than hiding it.</dd></div>
+      <div><dt>--threads</dt>
+      <dd>How many cores the solve uses. The file it writes is bit-identical whichever number you pick.</dd></div>
+      <div><dt>--target-exploitability</dt>
+      <dd>Stop as soon as the measured bound falls under this percent of the pot.</dd></div>
+      <div><dt>--report-every</dt>
+      <dd>How often the best-response calculator runs and prints. Every reported figure costs a real best-response pass.</dd></div>
+      <div><dt>--board, --oop-range, --ip-range, --stack, --pot, --max-iterations, --out</dt>
+      <dd>Override the matching TOML field for a single run, without editing the spot file.</dd></div>
+      <div><dt>[rake] percent, cap</dt>
+      <dd>Rake taken at every terminal, as a percent with an optional chip ceiling. Zero by default.</dd></div>
+      <div><dt>raise_cap</dt>
+      <dd>Maximum raises per street, not counting the opening bet.</dd></div>
+      <div><dt>allin_threshold</dt>
+      <dd>Percent at which a sizing close enough to a shove collapses into the shove itself.</dd></div>
+      <div><dt>alpha, beta, gamma</dt>
+      <dd>The Discounted CFR exponents: positive regret, negative regret, strategy averaging. Defaults α=1.5, β=0, γ=2.</dd></div>
+      <div><dt>regret_floor</dt>
+      <dd>CFR+ style: clamp cumulative regret at zero after every update, so a negative regret never has to be climbed back out of. Off by default.</dd></div>
+      <div><dt>[[locks]] line, player, freqs</dt>
+      <dd>Freeze a decision node, addressed as an action line from the root, and solve the rest of the tree around it. Use <code>strategy</code> in place of <code>freqs</code> for a full per-combo distribution.</dd></div>
+    </dl>
   </div>
 </section>
 
@@ -600,6 +741,7 @@ solver solve --config spot.toml \
     </div>
     <nav aria-label="Footer">
       <a href="https://postflop-workbench.vercel.app">Workbench</a>
+      <a href="https://postflop-workbench.vercel.app/?tour=1">Guided tour</a>
       <a href="https://github.com/ucsandman/postflop">GitHub repository</a>
       <a href="https://github.com/ucsandman/postflop#quick-start">Documentation</a>
       <a href="https://github.com/ucsandman/postflop/blob/master/LICENSE">License</a>

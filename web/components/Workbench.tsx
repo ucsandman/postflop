@@ -9,6 +9,7 @@ import TrainPanel from "@/components/TrainPanel";
 import TreeNav, { BoardStrip, RunoutSelector } from "@/components/TreeNav";
 import Card, { Cards } from "@/components/Card";
 import Help from "@/components/Help";
+import Tour, { type TourStep } from "@/components/Tour";
 import {
   Cell,
   CellEv,
@@ -20,7 +21,7 @@ import {
   cellLabel,
   rangeFreqs,
 } from "@/lib/grid";
-import { PRESETS, lineOf, spotKey, type NodeLock, type SpotContext } from "@/lib/config";
+import { PRESETS, actionToken, lineOf, spotKey, type NodeLock, type SpotContext } from "@/lib/config";
 import type { Combo, Meta, NodeAction, NodeInfo, PathStep, RootEvs } from "@/lib/types";
 import { PLAYER_NAMES } from "@/lib/types";
 import { loadWasm, type SolutionHandle } from "@/lib/wasm";
@@ -145,7 +146,11 @@ export default function Workbench() {
   // adopt() even though that effect will have already replaced the address bar by then.
   const initialParams = useRef<URLSearchParams | null>(null);
   useEffect(() => {
-    initialParams.current = new URLSearchParams(window.location.search);
+    // Guarded: a StrictMode remount re-runs this AFTER the sync effect already
+    // rewrote the address bar, and re-capturing then would lose ?node/?tour.
+    if (!initialParams.current) {
+      initialParams.current = new URLSearchParams(window.location.search);
+    }
   }, []);
 
   const setThemeAndPersist = (t: "light" | "dark") => {
@@ -437,10 +442,264 @@ export default function Workbench() {
 
   const loaded = !!(handle && view && meta && rootEvs);
 
+  // ── Guided tour ──────────────────────────────────────────────────────────
+  /** Current tour step index; null while the tour is closed. */
+  const [tour, setTour] = useState<number | null>(null);
+  const tourOffered = useRef(false);
+
+  // Offer the tour once per browser (localStorage), or on demand via ?tour=1.
+  // Never hijack a deep link into a specific node, combo, or non-default tab —
+  // and node=0 doesn't count as one, because the URL-sync effect writes it into
+  // every visitor's address bar seconds after boot.
+  useEffect(() => {
+    if (tourOffered.current || !booted) return;
+    // Arm on boot even if the fixture failed: a tour that pops open minutes
+    // later, when the user loads their own file, would steal the tab.
+    tourOffered.current = true;
+    if (!handle) return;
+    const params = initialParams.current;
+    const want = params?.get("tour") === "1";
+    let seen = false;
+    try {
+      seen = localStorage.getItem("pf-tour-done") === "1";
+    } catch {}
+    const node = params?.get("node");
+    const deepLinked = !!(
+      (node && node !== "0") ||
+      params?.get("combo") ||
+      (params?.get("tab") && params.get("tab") !== "inspect")
+    );
+    // Auto-offer only where the full inspector layout has room; an explicit
+    // ?tour=1 request is honored at any width.
+    const roomy = window.innerWidth >= 1000;
+    if (want || (roomy && !seen && !deepLinked)) setTour(0);
+  }, [booted, handle]);
+
+  const goRoot = useCallback(() => {
+    setPath([]);
+    setNodeId(0);
+  }, []);
+
+  /** Walk from the root down non-fold actions to the first chance node (the
+   *  runout selector), building the same path `step()` would have. */
+  const goToRunouts = useCallback(() => {
+    if (!handle) return;
+    let node = JSON.parse(handle.node(0)) as NodeInfo;
+    const steps: PathStep[] = [];
+    let guard = 0;
+    while (node.kind === "decision" && node.actions?.length && guard++ < 16) {
+      const a = node.actions.find((x) => !/fold/i.test(x.text)) ?? node.actions[0];
+      steps.push({
+        from: node.id,
+        to: a.child,
+        kind: "action",
+        label: `${PLAYER_NAMES[node.player ?? 0]} ${a.text}`,
+        token: actionToken(a),
+      });
+      node = JSON.parse(handle.node(a.child)) as NodeInfo;
+    }
+    if (node.kind !== "chance") return; // river spot: no runout to show, card centers itself
+    setPath(steps);
+    setNodeId(node.id);
+    setSelected(null);
+  }, [handle]);
+
+  const closeTour = useCallback(
+    (finished: boolean) => {
+      setTour(null);
+      try {
+        localStorage.setItem("pf-tour-done", "1");
+      } catch {}
+      if (finished) {
+        setTab("inspect");
+        goRoot();
+        setSelected(null);
+        setGridMode("strategy");
+      }
+    },
+    [goRoot],
+  );
+
+  /** Facts about the loaded solution the tour copy must not lie about: the root
+   *  board, and whether a chance node is reachable (a river spot has none, so
+   *  the runouts step is dropped rather than shown over the wrong screen). */
+  const tourFacts = useMemo(() => {
+    if (!handle) return null;
+    const root = JSON.parse(handle.node(0)) as NodeInfo;
+    let n = root;
+    let guard = 0;
+    while (n.kind === "decision" && n.actions?.length && guard++ < 16) {
+      const a = n.actions.find((x) => !/fold/i.test(x.text)) ?? n.actions[0];
+      n = JSON.parse(handle.node(a.child)) as NodeInfo;
+    }
+    return { board: root.board.join(" "), street: root.street, hasChance: n.kind === "chance" };
+  }, [handle]);
+
+  /** The cell the combo step opens: the root-node hand class with the most live
+   *  combos, so the panel is never empty whatever solution is loaded. */
+  const tourCell = useMemo(() => {
+    if (view?.kind !== "decision") return { row: 0, col: 1, label: "A hand class" };
+    const best = view.cells.reduce((b, c) => (c.slots.length > b.slots.length ? c : b));
+    return { row: best.row, col: best.col, label: best.label };
+  }, [view]);
+
+  const tourSteps: TourStep[] = [
+    {
+      id: "welcome",
+      target: null,
+      title: "A solved spot is already open",
+      body: `This workbench opens with a real solved spot loaded: ${tourFacts ? `${tourFacts.board}, a ${tourFacts.street} spot` : "a bundled sample"}. The tour walks every panel in about two minutes. Leave any time with Escape and restart from the Tour button in the rail.`,
+      prepare: () => setTab("inspect"),
+    },
+    {
+      id: "rail",
+      target: '[data-tour="rail"]',
+      title: "Four tabs, one page",
+      body: "Inspect the loaded solve, train against it, run a new one, or read the reference. Solutions come from the bundled samples, a file off disk, or a solve run right here. Switching tabs never loses your place.",
+      prepare: () => setTab("inspect"),
+    },
+    {
+      id: "stats",
+      target: '[data-tour="statband"]',
+      title: "The spot's vitals",
+      body: "Board, pot, stacks, and each player's EV at the root. The yellow figure is exploitability, measured by a separate best-response calculator at every report, never estimated from regret.",
+      prepare: () => {
+        setTab("inspect");
+        goRoot();
+      },
+    },
+    {
+      id: "line",
+      target: '[data-tour="line"]',
+      title: "The line you walked",
+      body: "The path from the root to the node on screen. Every chip is clickable and takes you back up the line.",
+      prepare: () => {
+        setTab("inspect");
+        goRoot();
+      },
+    },
+    {
+      id: "actions",
+      target: '[data-tour="actions"]',
+      title: "Actions, pre-shaded",
+      body: "The legal actions at this node. Each block is already filled to the frequency the solver takes it across the whole range, so you can read the strategy before you click anything.",
+      prepare: () => {
+        setTab("inspect");
+        goRoot();
+      },
+    },
+    {
+      id: "grid",
+      target: '[data-tour="grid-strategy"]',
+      title: "169 hand classes",
+      body: "Each cell splits by action: slate folds, green checks and calls, red bets, darker red for bigger sizings. Faded cells have no reach at this node; dark cells have no live combos on this board.",
+      prepare: () => {
+        setTab("inspect");
+        goRoot();
+      },
+    },
+    {
+      id: "combo",
+      target: '[data-tour="combo-panel"]',
+      title: "Inside one cell",
+      body: `${tourCell.label}, opened. A hand class is an average; underneath it every combo has its own mix and its own EV in big blinds, down to the exact two cards.`,
+      prepare: () => {
+        setTab("inspect");
+        goRoot();
+        setSelected({ row: tourCell.row, col: tourCell.col });
+      },
+    },
+    {
+      id: "modes",
+      target: '[data-tour="grid-mode"]',
+      title: "Three lenses on the same grid",
+      body: "Beyond strategy, two more lenses: EV of the best action, and regret, the big blinds a hand gives up by mixing instead of always taking its best action. Regret shows where a mistake is cheap and where it is expensive.",
+      prepare: () => {
+        setTab("inspect");
+        goRoot();
+        setGridMode("regret");
+      },
+    },
+    {
+      id: "side",
+      target: '[data-tour="side"]',
+      title: "The other seat",
+      body: "The opponent's range at the same node, weighted by how often each hand actually gets here. Below it, blockers: how much holding your two cards shifts the opponent's next decision, ranked across your whole range.",
+      prepare: () => {
+        setTab("inspect");
+        goRoot();
+      },
+    },
+    {
+      id: "lock",
+      target: '[data-testid="lock-node"]',
+      title: "Freeze a node",
+      body: "Lock this node at the strategy on screen, then re-solve on the Solve tab: the rest of the tree becomes the counter-strategy to the locked line. Locks captured on a different spot are refused, never silently re-applied.",
+      prepare: () => {
+        setTab("inspect");
+        goRoot();
+      },
+    },
+    ...(tourFacts?.hasChance
+      ? [
+          {
+            id: "runouts",
+            target: '[data-tour="runouts"]',
+            title: "Every runout, priced",
+            body: "A chance node. Dealt cards are struck out and every live card is shaded by how much it moves hero's EV. The table ranks all runouts by consequence; pick a card, and the arrow keys then step between its sibling runouts.",
+            prepare: () => {
+              setTab("inspect");
+              goToRunouts();
+            },
+          } satisfies TourStep,
+        ]
+      : []),
+    {
+      id: "train",
+      target: '[data-tour="train-drill"]',
+      title: "Train against the solve",
+      body: "The trainer deals you hands out of a solved spot. Pick an action and it is graded on the big blinds it costs against the solve; the full solver mix and a d100 roll are revealed after you answer. Random spot solves a fresh board right here first.",
+      prepare: () => {
+        goRoot();
+        setSelected(null);
+        setGridMode("strategy");
+        setTab("train");
+      },
+    },
+    {
+      id: "train-filters",
+      target: '[data-tour="train-filters"]',
+      title: "Drill exactly what you want",
+      body: "Filter to one seat, close decisions only, or one exact combo like AhKd on every deal. Same board redeals on the tree that is already solved, so it costs nothing.",
+      prepare: () => setTab("train"),
+    },
+    {
+      id: "solve",
+      target: '[data-tour="solve-spot"]',
+      title: "Your own spot",
+      body: "Start from a preset, then set the board, both ranges, stacks, pot and the bet-sizing tree. Ranges can be painted by hand, typed as range strings, or cut to a top percentage.",
+      prepare: () => setTab("solve"),
+    },
+    {
+      id: "preflight",
+      target: '[data-testid="preflight"]',
+      title: "Priced before it runs",
+      body: "The preflight builds the tree and prices the solver's memory bill before the solve commits to it, blocking one that would crash the tab. The solve itself runs in a worker with a live exploitability curve, so the page never freezes.",
+      prepare: () => setTab("solve"),
+    },
+    {
+      id: "help",
+      target: '[data-tour="help-legends"]',
+      title: "Everything is written down",
+      body: "Every color, grid mode and shortcut is defined on this tab. The URL carries your inspector view, tab, node and selected combo, so the spot you are studying is a shareable link. Restart this tour any time from the rail.",
+      prepare: () => setTab("help"),
+    },
+  ];
+
   return (
     <div className="app">
       {/* ── RAIL ─────────────────────────────────────────────────────────── */}
-      <aside className="rail">
+      <aside className="rail" data-tour="rail">
         <a
           href="https://postflop.vercel.app"
           className="block border-b-2 border-[#2a2a26] px-3 py-3.5 max-[999px]:flex max-[999px]:items-center max-[999px]:border-b-0 max-[999px]:py-0"
@@ -484,6 +743,18 @@ export default function Workbench() {
               </span>
             </button>
           ))}
+          {/* Mobile tour entry: the rail's bottom button group is display:none
+              below 1000px, so the tour keeps a seat in the tab strip there. */}
+          <button
+            data-testid="tour-button-mobile"
+            disabled={!handle}
+            onClick={() => setTour(0)}
+            aria-label="Start the guided tour"
+            className="hidden h-11 w-12 flex-none bg-[#101010] text-center text-dim-inv hover:bg-[#2a2a26] hover:text-text-inv disabled:opacity-40 max-[999px]:block"
+            style={{ font: "800 14px/2.8 var(--font-sans)" }}
+          >
+            ➤
+          </button>
         </nav>
 
         <div className="border-b-2 border-[#2a2a26] max-[999px]:hidden min-[1000px]:max-[1399px]:hidden">
@@ -531,6 +802,18 @@ export default function Workbench() {
         </div>
 
         <div className="mt-auto max-[999px]:mt-0 max-[999px]:hidden">
+          <button
+            data-testid="tour-button"
+            disabled={!handle}
+            onClick={() => setTour(0)}
+            aria-label="Start the guided tour"
+            title="A two-minute walk through every panel of this workbench"
+            className="btn-inv block h-[34px] w-full border-0 border-t-2 border-[#2a2a26] uppercase"
+            style={{ font: "800 11px/1 var(--font-sans)", letterSpacing: ".06em" }}
+          >
+            <span aria-hidden className="min-[1000px]:max-[1399px]:hidden">Guided tour</span>
+            <span aria-hidden className="hidden min-[1000px]:max-[1399px]:inline">➤</span>
+          </button>
           <button
             onClick={() => fileInput.current?.click()}
             aria-label="Open a solution file"
@@ -685,7 +968,7 @@ export default function Workbench() {
           ) : view.kind === "decision" ? (
             <div className="inspector rule-t">
               {/* Column 1 — strategy grid */}
-              <section className="flex flex-col bg-panel">
+              <section className="flex flex-col bg-panel" data-tour="grid-strategy">
                 <div className="bar bar-strategy">
                   {PLAYER_NAMES[view.player]} strategy
                   <span className="meta">
@@ -711,7 +994,7 @@ export default function Workbench() {
                       {lockedHere ? "lock updated" : "lock node"}
                     </button>
                     {!wide && (
-                      <span className="seg">
+                      <span className="seg" data-tour="grid-mode">
                         {(["strategy", "ev", "regret"] as const).map((m) => (
                           <button key={m} aria-pressed={gridMode === m} onClick={() => setGridMode(m)}>
                             {m}
@@ -747,7 +1030,7 @@ export default function Workbench() {
                   {gridMode === "regret" ? "Regret surface" : "EV surface"}
                   <span className="meta">same node · same selection</span>
                   <span className="right">
-                    <span className="seg">
+                    <span className="seg" data-tour="grid-mode">
                       {(["ev", "regret"] as const).map((m) => (
                         <button key={m} aria-pressed={(gridMode === "regret" ? "regret" : "ev") === m} onClick={() => setGridMode(m)}>
                           {m}
@@ -776,7 +1059,7 @@ export default function Workbench() {
               </section>
 
               {/* Column 3 — combo breakdown */}
-              <section className="flex flex-col bg-panel">
+              <section className="flex flex-col bg-panel" data-tour="combo-panel">
                 <ComboPanel
                   cell={selectedCell}
                   combos={view.combos}
@@ -792,7 +1075,7 @@ export default function Workbench() {
               </section>
 
               {/* Side column — opponent range + blockers */}
-              <div className="col-side flex flex-col">
+              <div className="col-side flex flex-col" data-tour="side">
                 <section className="flex flex-col bg-panel">
                   <div className="bar bar-opp">
                     {PLAYER_NAMES[1 - view.player]} range
@@ -855,6 +1138,10 @@ export default function Workbench() {
           LINE <span className="text-text-inv">{path.length ? "root › " + path.map((s) => s.label).join(" › ") : "root"}</span>
         </span>
       </footer>
+
+      {tour !== null && loaded && (
+        <Tour steps={tourSteps} index={tour} onIndex={setTour} onClose={closeTour} />
+      )}
     </div>
   );
 }
@@ -897,7 +1184,7 @@ function StatBand({
   node: NodeInfo;
 }) {
   return (
-    <section className="on-ink rule-b flex flex-wrap">
+    <section className="on-ink rule-b flex flex-wrap" data-tour="statband">
       <StatTile label="BOARD" first wide>
         <BoardStrip board={node.board} size={20} variant="stock" />
       </StatTile>
@@ -984,7 +1271,7 @@ function ChanceView({
 
   return (
     <div className="rule-t grid min-h-0 flex-1 grid-cols-1 min-[1100px]:grid-cols-[minmax(0,1fr)_420px]">
-      <section className="flex min-h-0 flex-col overflow-y-auto bg-panel">
+      <section className="flex min-h-0 flex-col overflow-y-auto bg-panel" data-tour="runouts">
         <h2 className="bar">
           Deal the {nextStreet}
           <span className="meta">
