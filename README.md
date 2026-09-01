@@ -55,6 +55,15 @@ web/      Next.js browser workbench
 
 Requires Rust (stable). For the web UI: Node 20+, `wasm-pack`.
 
+The fastest way in — builds whatever is missing, starts the workbench, and
+opens your browser:
+
+```sh
+python launch.py
+```
+
+Or by hand:
+
 ```sh
 cargo build --release
 ```
