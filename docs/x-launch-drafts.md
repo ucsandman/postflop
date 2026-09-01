@@ -32,8 +32,12 @@ Same engine runs in the browser. Nothing to install.
 
 First reply (your own, right after posting):
 
-Solve a spot in the browser, no signup: https://postflop.vercel.app
+Solve a spot in the browser, no signup: https://postflop.vercel.app?utm_source=x&utm_medium=video&utm_campaign=postflop
 Source, MIT: https://github.com/ucsandman/postflop
+
+Attach: web/public/marketing/postkit/x/social-16x9.mp4 (10s, silent, no disclosure
+needed). If you attach the launch film instead (VO is text-to-speech), add one line
+such as "Narration is TTS." per postkit/DISCLOSURE.md.
 
 ## Option B: three-post thread (more room for receipts)
 
