@@ -1,218 +1,198 @@
-# solver
+# postflop
 
-A heads-up no-limit hold'em postflop GTO solver, targeting PioSOLVER-level
-correctness. Two crates:
+A heads-up no-limit hold'em **postflop GTO solver**: a Rust engine implementing
+vector-form Discounted CFR with a full best-response exploitability calculator,
+a native CLI, WebAssembly bindings, and a browser workbench for inspecting
+solutions.
 
-- `engine/` — the solving library: card/range/tree primitives, a vector-form
-  Discounted CFR implementation (`cfr::Solver`), a full best-response /
-  exploitability calculator (`br`), the concrete NLHE game (`nlhe::NlheGame`),
-  and the solution file format (`solution::Solution`).
-- `cli/` — a binary crate, `solver`, with two subcommands: `solve` (run a
-  solve, optionally save it) and `show` (inspect a saved solution without
-  re-solving).
+![Inspector — 13x13 strategy grid with per-combo breakdown](web/docs/screens/01-inspector-grid.png)
 
-## Workspace layout
+## What it does
 
-```
-engine/src/
-  cards.rs      card primitives (rank/suit, parsing)
-  config.rs     SolveConfig: the TOML spec for one solve
-  range.rs      1326-combo range parsing and canonical ordering
-  evaluator.rs  7-card hand evaluation
-  tree.rs       GameTree: the public betting/chance tree
-  iso.rs        canonical flop isomorphism (1755 distinct flops)
-  terminal.rs   showdown/fold payoff tables
-  game.rs       the abstract Game trait the CFR core runs on
-  cfr.rs        Solver<G>: alternating Discounted CFR
-  br.rs         best-response value and exploitability
-  nlhe.rs       NlheGame: Game impl over a GameTree + two ranges
-  solution.rs   Solution: the persisted solve output (this milestone)
-  games/        toy games (Kuhn, AKQ) used to validate the CFR core
-cli/src/
-  main.rs       subcommand dispatch
-  solve.rs      `solver solve`
-  show.rs       `solver show`
-cli/tests/
-  cli.rs        real-binary integration test (spawns the built `solver` exe)
-  fixtures/     tiny TOML configs for that test
-wasm/           the engine compiled to WebAssembly (see wasm/src/lib.rs)
-web/            the browser UI (Next.js) — see "Web UI" below
-```
+Give it a flop, turn, or river spot — board, both ranges, stacks, pot, bet
+sizings — and it computes an approximate Nash equilibrium with a **measured
+exploitability bound**, then lets you walk the game tree: per-hand strategies,
+per-hand EVs, action frequencies, and every runout.
 
-## Build
+- **Discounted CFR** (Brown & Sandholm 2019): alternating updates, α=1.5 β=0
+  γ=2 (configurable), γ-weighted average strategy, optional CFR+-style regret
+  floor. Full vector traversal over all hand combos — no sampling in the solve
+  path.
+- **Exact card removal everywhere.** Fold and showdown evaluation run O(N+M)
+  sweeps with per-card weight sums and inclusion–exclusion; ties are handled as
+  distinct rank groups. Blocked combos are filtered out of the working vectors
+  (1176 live on a flop, 1128 turn, 1081 river), never zero-weighted.
+- **Convergence is measured, never asserted.** A best-response calculator,
+  separate from the CFR traversal, reports exploitability (both players'
+  best-response gains) in chips and as % of pot at every report interval.
+  Regret magnitude is never used as a convergence signal.
+- **Deterministic parallelism.** The traversal fans out across chance-node
+  runouts with rayon using a parallel-map / sequential-reduce design, so solved
+  strategies are **bit-identical for every thread count**.
+- **Memory-conscious.** Flat arena game tree (no pointer chasing), chance
+  tables shared across betting lines by board, and an optional `i16` storage
+  mode with per-node scale factors that roughly halves peak memory.
+
+## Workspace
 
 ```
+engine/   the solving library
+  cards, range     1326-combo weighted ranges, standard + PioSOLVER notation
+  evaluator        7-card hand evaluation (77M evals/sec measured, oracle-verified)
+  tree, config     TOML solve spec -> arena betting/chance tree
+  terminal         O(N+M) fold/showdown sweeps with exact blocker handling
+  game, cfr, br    Game trait, DCFR solver, best-response exploitability
+  nlhe             the concrete NLHE game
+  iso              suit isomorphism: 22,100 flops -> 1,755 canonical classes
+  solution         versioned solution file format with a structure guard
+  games/           Kuhn poker + AKQ toy games used to validate the CFR core
+cli/      `solver` binary: solve + show
+wasm/     the engine compiled to WebAssembly
+web/      Next.js browser workbench
+```
+
+## Quick start
+
+Requires Rust (stable). For the web UI: Node 20+, `wasm-pack`.
+
+```sh
 cargo build --release
 ```
 
-## Solve a spot
+### Solve a spot
 
-`solve` reads a base TOML config and applies any CLI overrides, builds the
-tree, runs Discounted CFR in `--report-every`-sized chunks, and stops at
-`target_exploitability` or `max_iterations`, whichever comes first.
-
-Sample config (`cli/tests/fixtures/river.toml`):
+A spot is a TOML file plus optional CLI overrides:
 
 ```toml
-board = "Ks 7d 2c 8h 3d"
-oop_range = "KK,A4s,A5s"
-ip_range = "TT,JJ"
-effective_stack = 20.0
-starting_pot = 10.0
-raise_cap = 1
-max_iterations = 200
-target_exploitability = 0.01
+board = "Qs Jh 2h"
+oop_range = "22+,ATs+,KTs+,QTs+,JTs,T9s,98s,ATo+,KJo+"
+ip_range = "66+,A9s+,KTs+,QTs+,JTs,ATo+,KQo"
+effective_stack = 40.0
+starting_pot = 6.0
+max_iterations = 600
+target_exploitability = 0.5   # stop at 0.5% of pot
 
-[sizings.oop.river]
-bet = { percents = [100.0] }
+[sizings.oop.flop]
+bet = { percents = [50.0], allin = false }
+[sizings.ip.flop]
+bet = { percents = [50.0], allin = false }
+raise = { percents = [60.0], allin = false }
+# ... per street, per player, separately for bet / raise / donk
+```
 
-[sizings.ip.river]
-bet = { percents = [100.0] }
-raise = { percents = [100.0] }
+```sh
+solver solve --config spot.toml --report-every 100 --out solution.json
 ```
 
 ```
-cargo run --release -p solver-cli -- solve \
-  --config cli/tests/fixtures/river.toml \
-  --report-every 50 \
-  --out solution.json
+iter      100  exploitability 0.024258 chips  0.4043% of pot  [measured]
+iter      200  exploitability 0.007256 chips  0.1209% of pot  [measured]
+=== final report ===
+OOP EV: zero-sum -0.3006  pot-share 2.6994  [measured]
+IP  EV: zero-sum 0.3006  pot-share 3.3006  [measured]
 ```
 
-Overrides available on the command line: `--board`, `--oop-range`,
-`--ip-range`, `--stack`, `--pot`, `--max-iterations`,
-`--target-exploitability`, `--report-every` (default 100), `--threads`
-(rayon pool size; default all logical CPUs), `--storage f32|i16` (i16 roughly
-halves peak memory at the cost of a quantization floor on exploitability),
-`--out`.
+Flags: `--board`, `--oop-range`, `--ip-range`, `--stack`, `--pot`,
+`--max-iterations`, `--target-exploitability`, `--report-every`, `--threads`,
+`--storage f32|i16`, `--out`. Every printed exploitability and EV figure comes
+straight out of the best-response calculator against the current average
+strategy — the `[measured]` tag is literal.
 
-Config-only extras: `regret_floor = true` enables the CFR+-style floor at
-zero on cumulative regrets (default off, plain DCFR discounting).
+Config also supports: all-in threshold (sizings near a shove collapse into the
+shove), raise cap, rake (percent + cap, default zero), DCFR α/β/γ, and
+`regret_floor`.
 
-If `turn_chance_sampling` is set in the config, `solve` refuses to run rather
-than silently approximating: exact search (full enumeration) is the only
-solve mode implemented so far. The flag exists in `SolveConfig` for a future
-sampling-based speed mode.
+### Inspect a solution
 
-Every exploitability and EV figure `solve` prints is tagged `[measured]` —
-it comes straight out of `br::exploitability` against the current average
-strategy, never an estimate.
-
-**`--threads`**: the CFR traversal parallelizes across chance-node outcomes
-with rayon (parallel map, sequential reduce), so solved strategies and
-exploitability are bit-identical for every thread count. Measured on the
-milestone-4 flop spot (830k nodes, 24 logical CPUs): 2524 ms/iter at 1
-thread, 370 ms/iter at 24 (6.8×).
-
-## Inspect a saved solution
-
-`show` loads a `Solution` file (which internally rebuilds the tree from the
-embedded config and checks node count / per-node action counts against what
-the file claims, failing loudly on any mismatch) and never re-solves.
-
-```
-cargo run --release -p solver-cli -- show --solution solution.json \
-  --line "check,bet:100"
-
-cargo run --release -p solver-cli -- show --solution solution.json \
-  --line "check,bet:100" --combo KcKd
+```sh
+solver show --solution solution.json --line "check,bet:50,call"
+solver show --solution solution.json --line "check,bet:50" --combo AhKh
 ```
 
-`--line` is a comma-separated action path from the root: `fold`/`check`/
-`call`/`allin` match literally, `bet:PCT`/`raise:PCT` match the sizing whose
-percent-of-pot rounds to `PCT` (raise percent is computed against the pot as
-it would be after calling, matching `SolveConfig`'s own raise-sizing
-formula). Omit `--line` to show the root node.
+`show` never re-solves: it rebuilds the deterministic tree from the embedded
+config, validates the file against it, and renders a 13×13 rank grid (or one
+combo's full action distribution).
 
-With no `--combo`, `show` prints a 13x13 rank grid: each cell is the live
-combos in that bucket's dominant action and its frequency, averaged uniformly
-per combo (weight 1 each — the same convention the engine's own tests use).
-With `--combo AhKh`, it prints that exact combo's full action distribution
-instead.
+### Browser workbench
 
-## Web UI
-
-`web/` is a Next.js (App Router, TypeScript, Tailwind) front end for the same
-engine, compiled to WebAssembly. It loads and inspects saved solutions, and can
-run small solves in the browser.
-
-### Run it
-
-```
+```sh
 wasm-pack build wasm --target web --out-dir pkg
-cd web
-npm install
-npm run dev            # http://localhost:3000
+cd web && npm install && npm run dev    # http://localhost:3000
 ```
 
-`npm run dev` and `npm run build` both run `scripts/sync-wasm.mjs` first, which
-copies the wasm-pack output into `web/vendor/solver-wasm/` (glue + types, for
-the bundler) and `web/public/wasm/` (glue + binary, served over HTTP for the
-solve worker), and copies `fixture-turn.json` / `fixture-river.json` into
-`web/public/fixtures/` for the sample buttons. All three directories are
-generated and gitignored. If `wasm/pkg` is missing the script fails loudly with
-the `wasm-pack` command to run.
+Load a solution produced by the CLI (or one of the bundled sample spots), or
+solve small spots directly in the browser — the engine runs in a Web Worker
+with a live exploitability curve and a memory preflight. The inspector gives
+you the 13×13 grid with stacked action-frequency bars weighted by live combo
+reach, per-combo drill-down with per-hand EVs, a tree navigator, a 52-card
+runout selector, and JSON export that round-trips through both the browser and
+the CLI. The browser build is single-threaded; the CLI uses every core.
 
-### What it does
+![Runout selector](web/docs/screens/03-runout-selector.png)
 
-- **Load** a solution written by `solver solve`, or exported from the page.
-  Loading rebuilds the tree structure and reads the stored strategies; it never
-  re-solves. Bad files surface the engine's own error text.
-- **Inspect.** A 13x13 grid for the acting player, each cell a stacked bar of
-  action frequencies weighted by live combo reach; click a cell for the
-  per-combo action distribution and per-hand EV. A tree navigator walks the
-  action line, and chance nodes offer a 52-card runout selector with dead cards
-  disabled. The opponent's reach-weighted range is shown alongside.
-- **Solve.** A form builds the same TOML the CLI reads, runs `tree_stats` as a
-  preflight (warning above ~300 MB predicted storage, hard confirm above 1 GB),
-  then solves with a live exploitability curve. Results open in the inspector.
-- **Export** the loaded or freshly solved solution back to JSON. That file
-  reloads here and reads in the CLI.
+## Correctness
 
-### Threading
+The engine was validated through four gated milestones, in order, each with
+its committed test evidence:
 
-The browser build is **single-threaded**. `engine`'s rayon parallelism is behind
-the default-on `parallel` feature; `solver-wasm` depends on the engine with
-`default-features = false` because rayon cannot spawn threads on
-`wasm32-unknown-unknown`. The CLI uses every core, the browser uses one. Solving
-runs in a Web Worker (`web/public/solve-worker.js`) because `solve_spot` blocks
-its thread for the whole run — that is what keeps the progress curve live rather
-than arriving in one lump after the solve finishes.
+1. **Kuhn poker** — converges to the known analytic equilibrium family
+   (exploitability 0.002% of pot; K-bet = 3× J-bet; game value −1/18).
+2. **AKQ half-street game** — matches the closed-form equilibrium derived from
+   the indifference conditions, including the boundary case B ≥ P where the
+   Nash set is a segment rather than a point.
+3. **River spot** — indifference conditions verified against hand algebra for
+   named combos (bluff EV = check EV, call EV = fold EV within 1e-3), bluff
+   ratio 1/3 and MDF 1/2 recovered on a blocker-free construction.
+4. **Full flop spot** — 830k-node tree, exploitability falls monotonically
+   (decade envelope) from 16.5% to 0.22% of pot, zero-sum to 7e-7,
+   bit-identical across 1/8/24-thread pools.
 
-Screenshots of the running UI: `web/docs/screens/`.
+Beyond the milestones: the 7-card evaluator is verified against a slow
+reference on 1,000,000 random hands *and* exhaustively on all 2,598,960
+five-card hands (zero mismatches); the terminal sweeps are property-tested
+against naive O(N·M) oracles at full 1081-combo width; suit isomorphism is
+exhaustively checked over all 22,100 flops; and a fixed-point regression pins
+chance-edge weighting to per-pair conditional probabilities (a spot holding an
+unbeatable royal flush solves to exactly +half-pot at flop, turn, and river
+starts).
+
+Approximations are labeled as approximations: `i16` storage documents its
+quantization floor, and the config's `turn_chance_sampling` flag is
+**refused** by the CLI until an exact-labeled sampling mode exists — the
+solver never silently approximates.
+
+## Measured performance
+
+All numbers measured on a 24-logical-core Windows machine (see the benchmark
+harnesses in `engine/examples/`; nothing here is estimated):
+
+| Workload | Result |
+| --- | --- |
+| 7-card evaluation | 77M evals/sec (10M-hand pool, best of 3 passes) |
+| Full flop solve (830k nodes, 305v196 combos) | 2524 ms/iter @ 1 thread → 370 ms/iter @ 24 (6.8×) |
+| Peak memory, same spot | 1513 MB (f32 storage; ~0.52× with `--storage i16`) |
+| Turn spot (1,881 nodes) to 0.12% of pot | 0.2 s |
+| Toy river spot, 20k iterations + 200 BR reports | 32 ms |
+
+```sh
+cargo run -p engine --release --example solve_flop -- engine/examples/configs/milestone4.toml 400
+```
 
 ## Tests
 
-```
+```sh
 cargo test --release --workspace
-```
-
-Two heavyweight verifications are `#[ignore]`d and run explicitly:
-
-```
+# heavyweight, run explicitly:
 cargo test -p engine --release verify_1m -- --ignored --nocapture   # evaluator vs oracle, 1M hands
 cargo test -p engine --release milestone4 -- --ignored --nocapture  # full flop solve (~3 min, ~1.5 GB)
 ```
 
-`cli`'s test is a real-binary integration test: it spawns the actual built
-`solver` executable via `std::process::Command` (using
-`CARGO_BIN_EXE_solver`), running `solve` then `show` against
-`cli/tests/fixtures/river.toml`, and asserts on real exit codes and stdout —
-not in-process function calls.
+## Not yet implemented
 
-## Status
+Node locking, aggregate reports across the 1,755 canonical flops, and preflop
+solving (which needs bunching effects, heavier abstraction, and disk-backed
+storage — a separate project by design).
 
-- **Milestones 1-3: passed and committed.** Kuhn poker (0.002% of pot
-  exploitability), AKQ (closed-form match), and a hand-verified NLHE river
-  spot (0.0018% of pot, indifference verified by hand) — see
-  `engine/src/games/` and the `nlhe` module's milestone-3 test for the
-  worked math.
-- **This milestone (solution file format + CLI): done.** `solution.rs`
-  round-trips a solved strategy through JSON and rejects a tampered file;
-  the `solver` binary solves and inspects spots end to end.
-- **Not started yet:** milestone 4 proper (whatever it turns out to cover)
-  and the WASM/web UI. `Solution` is deliberately designed as the product
-  contract those will read.
+## License
 
-No performance claims beyond what's been directly measured on this machine
-appear anywhere in this repo. Everything printed by `solve` and `show` is
-computed from a real run, not estimated.
+MIT

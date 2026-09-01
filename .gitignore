@@ -6,3 +6,5 @@ node_modules/
 # wasm-pack output (each dir also gets its own catch-all .gitignore from wasm-pack)
 wasm/pkg/
 wasm/pkg-node/
+web/AGENTS.md
+web/CLAUDE.md
