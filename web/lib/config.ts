@@ -179,32 +179,31 @@ export const PRESETS: Preset[] = [
   },
   {
     id: "turn-fixture",
-    label: "Turn fixture — larger tree",
-    note: "The spot in web-fixture.toml. Hand-written ranges, useful for exercising the preflight.",
+    label: "Turn fixture — the bundled sample, 100bb",
+    note: "The spot in web-fixture.toml: BTN opens 2.5bb, BB calls, and the flop goes check-check. Same ranges as the BTN-vs-BB preset.",
     form: {
       board: "Qs Jh 2h 8c",
-      oop_range: "22+,ATs+,KTs+,QTs+,JTs,T9s,98s,ATo+,KJo+",
-      ip_range: "66+,A9s+,KTs+,QTs+,JTs,ATo+,KQo",
-      effective_stack: "40",
-      starting_pot: "6",
+      oop_range: top(33),
+      ip_range: top(45),
+      effective_stack: "97.5",
+      starting_pot: "5.5",
       max_iterations: "600",
       target_pct: "0.5",
       report_every: "50",
       sizings: (() => {
         const s = emptySizings();
-        s.oop.flop.bet = "50";
         s.oop.turn.bet = "75";
         s.oop.river.bet = "75+";
-        s.ip.flop.bet = "50";
-        s.ip.flop.raise = "60";
         s.ip.turn.bet = "75";
+        s.ip.turn.raise = "60";
         s.ip.river.bet = "75+";
+        s.ip.river.raise = "60";
         return s;
       })(),
       context: {
-        oop: { pos: "OOP", vpip: "", pfr: "" },
-        ip: { pos: "IP", vpip: "", pfr: "" },
-        preflop: "Hand-written study ranges — no preflop story",
+        ip: { pos: "BTN", vpip: "24", pfr: "19" },
+        oop: { pos: "BB", vpip: "28", pfr: "13" },
+        preflop: "BTN opens 2.5bb, BB calls; flop checks through",
       },
     },
   },

@@ -84,7 +84,7 @@ const SAMPLES = [
   {
     file: "fixture-turn.json",
     name: "Turn spot",
-    detail: "Qs Jh 2h 8c · 772 decision nodes",
+    detail: "Qs Jh 2h 8c · BTN vs BB single-raised · 100bb",
     board: ["Qs", "Jh", "2h", "8c"],
     // The bundled fixtures were solved from these presets, so the presets' table
     // context (positions, modeled profiles) is the fixtures' context too.
@@ -93,7 +93,7 @@ const SAMPLES = [
   {
     file: "fixture-river.json",
     name: "River spot",
-    detail: "Ks 7d 2c 8h 3d · 5 decision nodes",
+    detail: "Ks 7d 2c 8h 3d · polarisation drill · 5 decision nodes",
     board: ["Ks", "7d", "2c", "8h", "3d"],
     context: PRESETS.find((p) => p.id === "river-drill")?.form.context ?? null,
   },
@@ -901,10 +901,10 @@ function StatBand({
       <StatTile label="BOARD" first wide>
         <BoardStrip board={node.board} size={20} variant="stock" />
       </StatTile>
-      <StatTile label="POT">
+      <StatTile label="POT · BB">
         <span className="fig fig-2">{node.pot.toFixed(2)}</span>
       </StatTile>
-      <StatTile label="STACKS">
+      <StatTile label="STACKS · BB">
         <span className="num text-[15px] text-text-inv">
           {node.stacks[0].toFixed(2)} / {node.stacks[1].toFixed(2)}
         </span>
@@ -914,10 +914,10 @@ function StatBand({
           <span className="fig fig-1">{meta.exploitability_pct_of_pot.toFixed(4)}%</span>
         </span>
         <span className="num mt-1 block text-[11px] text-dim-inv">
-          {meta.exploitability_chips.toFixed(6)} chips
+          {meta.exploitability_chips.toFixed(6)} bb
         </span>
       </StatTile>
-      <StatTile label="ROOT EV · ZERO-SUM">
+      <StatTile label="ROOT EV · ZERO-SUM · BB">
         <span className="fig fig-2">{rootEvs.zero_sum[0].toFixed(4)}</span>
         <span className="num text-dim-inv"> / {rootEvs.zero_sum[1].toFixed(4)}</span>
       </StatTile>
@@ -999,7 +999,7 @@ function ChanceView({
         <h2 className="bar bar-ev">
           Runout EV
           <span className="meta">
-            {rows.length} runouts · max |Δ| {maxDev.toFixed(3)} chips
+            {rows.length} runouts · max |Δ| {maxDev.toFixed(3)} bb
           </span>
         </h2>
         <div className="grid grid-cols-[64px_1fr_1fr] border-b-2 border-ink bg-paper-2 px-2.5 py-1.5">
@@ -1053,7 +1053,7 @@ function TerminalView({
       >
         {t?.kind === "fold" ? `${PLAYER_NAMES[t.folder]} folds` : "Showdown"}
       </div>
-      <div className="label mt-6">POT</div>
+      <div className="label mt-6">POT · BB</div>
       <div className="fig fig-1">{t?.pot.toFixed(2)}</div>
       <p className="num mt-6 text-muted">
         no strategy here. step back up the line to keep inspecting
@@ -1075,7 +1075,7 @@ function TerminalView({
 const LEGEND_CAPTION: Record<"strategy" | "ev" | "regret", string> = {
   strategy: "cells weighted by live combo reach · faded = zero reach · dark = no live combos",
   ev: "color = highest-EV action · ivory = near-indifferent · dark = no EV data",
-  regret: "color = chips lost vs. the best action · ivory = no regret · dark = no EV data",
+  regret: "color = bb lost vs. the best action · ivory = no regret · dark = no EV data",
 };
 
 function Legend({

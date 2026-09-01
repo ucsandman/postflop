@@ -118,8 +118,8 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
           <span className="label">terminal</span>
           <span className="num">
             {node.terminal.kind === "fold"
-              ? `${PLAYER_NAMES[node.terminal.folder]} folds · pot ${node.terminal.pot.toFixed(2)}`
-              : `showdown · pot ${node.terminal.pot.toFixed(2)}`}
+              ? `${PLAYER_NAMES[node.terminal.folder]} folds · pot ${node.terminal.pot.toFixed(2)} bb`
+              : `showdown · pot ${node.terminal.pot.toFixed(2)} bb`}
           </span>
         </div>
       )}

@@ -143,7 +143,7 @@ export default function ComboPanel({
       </div>
 
       <div className="border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
-        EV is zero-sum net chips from the start of the solve, both players on the solved
+        EV is zero-sum net big blinds from the start of the solve, both players on the solved
         average strategy. “—” means the EV is undefined here, not zero.
       </div>
     </div>
@@ -251,7 +251,7 @@ function NodeOverview({
       </div>
 
       <div className="border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
-        Regret is the chips a combo leaves on the table by mixing instead of always taking
+        Regret is the big blinds a combo leaves on the table by mixing instead of always taking
         its best action. Click a row to open that hand class in the grid.
       </div>
     </div>

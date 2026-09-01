@@ -168,13 +168,18 @@ export function classWeights(comboWeights: ArrayLike<number>, map: Int16Array): 
   return Array.from(sum, (s, i) => (seen[i] > 0 ? s / seen[i] : 0));
 }
 
-/** A random valid 3-card flop, e.g. `"Qs Jh 2h"`. Three distinct cards, nothing more. */
-export function randomFlop(): string {
+/** `n` distinct random cards as a board string, e.g. `randomBoard(4)` -> `"Qs Jh 2h 8c"`. */
+export function randomBoard(n: number, rng: () => number = Math.random): string {
   const deck: string[] = [];
   for (const r of RANKS) for (const s of "shdc") deck.push(r + s);
   for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     [deck[i], deck[j]] = [deck[j], deck[i]];
   }
-  return deck.slice(0, 3).join(" ");
+  return deck.slice(0, n).join(" ");
+}
+
+/** A random valid 3-card flop, e.g. `"Qs Jh 2h"`. Three distinct cards, nothing more. */
+export function randomFlop(): string {
+  return randomBoard(3);
 }

@@ -24,7 +24,8 @@ import {
   type Rng,
   type Tier,
 } from "@/lib/trainer";
-import type { SpotContext } from "@/lib/config";
+import { EMPTY_CONTEXT, PRESETS, toToml, WARN_BYTES, type SpotContext } from "@/lib/config";
+import { randomBoard } from "@/lib/range";
 import type { Combo, Meta, NodeAction, NodeInfo } from "@/lib/types";
 import { PLAYER_NAMES } from "@/lib/types";
 import type { SolutionHandle } from "@/lib/wasm";
@@ -107,8 +108,8 @@ function walkToHero(
         history: trail,
         text:
           t?.kind === "fold"
-            ? `${PLAYER_NAMES[t.folder]} folds, pot ${t.pot.toFixed(2)}`
-            : `showdown, pot ${(t?.pot ?? node.pot).toFixed(2)}`,
+            ? `${PLAYER_NAMES[t.folder]} folds, pot ${t.pot.toFixed(2)} bb`
+            : `showdown, pot ${(t?.pot ?? node.pot).toFixed(2)} bb`,
       };
     }
 
@@ -240,6 +241,16 @@ export default function TrainPanel({
   const [result, setResult] = useState<{ chosen: number; grade: Grade; roll: number } | null>(null);
   const [rows, setRows] = useState<HandRecord[]>(loadHistory);
   const [sortWorst, setSortWorst] = useState(true);
+  /** A random-board solve in flight: what is being solved and how far along it is. */
+  const [randoming, setRandoming] = useState<null | {
+    board: string;
+    story: string;
+    iter: number;
+    pct: number | null;
+  }>(null);
+  const solveWorker = useRef<Worker | null>(null);
+  const solveId = useRef(1);
+  useEffect(() => () => solveWorker.current?.terminate(), []);
 
   const current = dealt && dealt.handle === handle ? dealt : null;
   const spot = current?.spot ?? null;
@@ -291,6 +302,87 @@ export default function TrainPanel({
       deal();
     }
   }, [handle, deal]);
+
+  /** One request/response round trip against the trainer's own solve worker. */
+  const ask = useCallback(
+    (payload: Record<string, unknown>, onProgress?: (iter: number, pct: number) => void) =>
+      new Promise<{ stats?: string; json?: string; wall?: number }>((resolve, reject) => {
+        if (!solveWorker.current) {
+          solveWorker.current = new Worker("/solve-worker.js", { type: "module" });
+        }
+        const w = solveWorker.current;
+        const id = solveId.current++;
+        const handler = (e: MessageEvent) => {
+          const m = e.data;
+          if (m.id !== id) return;
+          if (m.kind === "progress") return onProgress?.(m.iter, m.pct);
+          w.removeEventListener("message", handler);
+          if (m.kind === "error") reject(new Error(m.message));
+          else resolve(m);
+        };
+        w.addEventListener("message", handler);
+        w.addEventListener("error", (e) => reject(new Error(e.message || "worker failed")), {
+          once: true,
+        });
+        w.postMessage({ id, ...payload });
+      }),
+    [],
+  );
+
+  /**
+   * A fresh random spot: a random 100bb preflop scenario from the story presets, a
+   * random turn board, solved right here, then dealt the moment it converges. Boards
+   * whose tree busts the memory guard are redrawn rather than solved.
+   */
+  const randomSpot = useCallback(async () => {
+    if (randoming) return;
+    const pool = PRESETS.filter((p) => ["btn-bb", "co-btn", "sb-bb", "bb-3bet"].includes(p.id));
+    const preset = pool[Math.floor(rng() * pool.length)] ?? pool[0];
+    try {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const board = randomBoard(4, rng);
+        const form = { ...structuredClone(preset.form), board };
+        const toml = toToml(form);
+        setRandoming({
+          board,
+          story: form.context?.preflop ?? "",
+          iter: 0,
+          pct: null,
+        });
+        const stats = JSON.parse((await ask({ kind: "stats", toml })).stats!) as {
+          total_bytes: number;
+        };
+        if (stats.total_bytes > WARN_BYTES) continue;
+        const res = await ask(
+          {
+            kind: "solve",
+            toml,
+            maxIterations: Math.max(1, Number(form.max_iterations)),
+            targetPct: Number(form.target_pct),
+            reportEvery: Math.max(1, Number(form.report_every)),
+          },
+          (iter, pct) => setRandoming((s) => (s ? { ...s, iter, pct } : s)),
+        );
+        autoDeal.current = true;
+        setRandoming(null);
+        onSolved(res.json!, res.wall ?? 0, form.context ?? EMPTY_CONTEXT);
+        return;
+      }
+      setRandoming(null);
+      setDealt({
+        handle: handle!,
+        spot: null,
+        note: "Three random boards in a row busted the solver's memory guard. Try again.",
+      });
+    } catch (e) {
+      setRandoming(null);
+      setDealt({
+        handle: handle!,
+        spot: null,
+        note: `Random spot failed to solve: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
+  }, [randoming, rng, ask, onSolved, handle]);
 
   const answer = (chosen: number) => {
     if (!spot || result) return;
@@ -368,7 +460,7 @@ export default function TrainPanel({
           Train
           <span className="meta">
             {spot
-              ? `node ${spot.node.id} · ${spot.node.street} · pot ${spot.node.pot.toFixed(2)}`
+              ? `node ${spot.node.id} · ${spot.node.street} · pot ${spot.node.pot.toFixed(2)} bb`
               : spotInfo
                 ? `${spotInfo.meta.node_count.toLocaleString()} nodes loaded · ${stats.hands} graded`
                 : "no spot loaded"}
@@ -432,16 +524,46 @@ export default function TrainPanel({
             )}
           </label>
 
-          <button
-            data-testid="train-deal"
-            disabled={!handle || fixedHand === false}
-            onClick={deal}
-            className="btn btn-primary ml-auto"
-            style={{ height: 44, fontSize: 14, padding: "0 16px" }}
-          >
-            {spot ? "Deal another" : "Deal a hand"}
-          </button>
+          <span className="ml-auto flex items-center gap-2">
+            <button
+              data-testid="train-deal"
+              disabled={!handle || fixedHand === false || !!randoming}
+              onClick={deal}
+              className="btn"
+              style={{ height: 44, fontSize: 12, padding: "0 12px" }}
+              title="Deal another hand on the board that is already solved"
+            >
+              Same board
+            </button>
+            <button
+              data-testid="train-random"
+              disabled={fixedHand === false || !!randoming}
+              onClick={() => void randomSpot()}
+              className="btn btn-primary"
+              style={{ height: 44, fontSize: 14, padding: "0 16px" }}
+              title="Solve a fresh random board in a random 100bb scenario, then deal"
+            >
+              {randoming ? "Solving…" : "Random spot →"}
+            </button>
+          </span>
         </div>
+
+        {randoming && (
+          <div
+            className="rule-b on-ink relative flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2"
+            role="status"
+          >
+            <span className="label">solving</span>
+            <Cards cards={randoming.board.split(" ")} className="text-[14px] font-semibold" />
+            <span className="num text-[12px] text-dim-inv">{randoming.story}</span>
+            <span className="num ml-auto text-[12px] text-text-inv">
+              {randoming.pct == null
+                ? "building tree…"
+                : `iter ${randoming.iter} · ${randoming.pct.toFixed(2)}% of pot`}
+            </span>
+            <span className="slide-rule" />
+          </div>
+        )}
 
         {(!handle || setupOpen) && (
           <div className="rule-b">
@@ -510,8 +632,8 @@ export default function TrainPanel({
             <div className="rule-b flex flex-wrap">
               {(
                 [
-                  ["starting pot", spotInfo.meta.starting_pot.toFixed(2)],
-                  ["effective stack", spotInfo.meta.effective_stack.toFixed(2)],
+                  ["starting pot", `${spotInfo.meta.starting_pot.toFixed(1)} bb`],
+                  ["effective stack", `${spotInfo.meta.effective_stack.toFixed(1)} bb`],
                   ["OOP range", `${(spotInfo.widths[0] * 100).toFixed(0)}%`],
                   ["IP range", `${(spotInfo.widths[1] * 100).toFixed(0)}%`],
                   ["decision nodes", spotInfo.meta.node_count.toLocaleString()],
@@ -524,26 +646,32 @@ export default function TrainPanel({
               ))}
             </div>
             {/* Pre-deal poster: the drill area is never blank ground (Law 1/5). */}
-            <button
-              onClick={deal}
-              disabled={fixedHand === false}
-              className="on-ink flex min-h-0 flex-1 flex-col items-start justify-center gap-4 text-left"
-              style={{ padding: "clamp(24px,3vw,56px)" }}
-            >
-              <span
-                className="uppercase text-text-inv"
+            <div className="on-ink flex min-h-0 flex-1 flex-col items-start justify-center gap-4 text-left" style={{ padding: "clamp(24px,3vw,56px)" }}>
+              <button
+                onClick={() => void randomSpot()}
+                disabled={fixedHand === false || !!randoming}
+                className="text-left uppercase text-text-inv"
                 style={{ font: "900 clamp(40px,5vw,96px)/0.92 var(--font-sans)", letterSpacing: "-.045em" }}
               >
-                Deal a hand{" "}
+                {randoming ? "Solving…" : "Random spot"}{" "}
                 <span className="bg-accent text-[#101010]" style={{ padding: "0 .12em" }}>
                   →
                 </span>
-              </span>
+              </button>
               <span className="num text-[13px] text-dim-inv">
-                you get a random combo at a random decision node on the solved tree · pick an
-                action · graded in chips against the solve, instantly
+                a random board in a random 100bb scenario, solved on this page in a few seconds ·
+                you get a random combo at a decision node · pick an action · graded in big blinds
+                against the solve, instantly
               </span>
-            </button>
+              <button
+                onClick={deal}
+                disabled={fixedHand === false || !!randoming}
+                className="btn-inv border-2 px-4 py-2.5 uppercase"
+                style={{ font: "800 12px/1 var(--font-sans)", letterSpacing: ".06em" }}
+              >
+                or deal on the loaded board
+              </button>
+            </div>
           </>
         )}
 
@@ -552,18 +680,18 @@ export default function TrainPanel({
             <div className="rule-b flex flex-wrap items-center gap-x-4 gap-y-1 bg-paper-2 px-3 py-2">
               <Cards cards={spot.node.board} className="text-[15px] font-semibold" />
               <span className="num text-muted">
-                pot <span className="text-text">{spot.node.pot.toFixed(2)}</span>
+                pot <span className="text-text">{spot.node.pot.toFixed(2)} bb</span>
               </span>
               <span className="num text-muted">
                 stacks{" "}
                 <span className="text-text">
-                  {spot.node.stacks[0].toFixed(2)} / {spot.node.stacks[1].toFixed(2)}
+                  {spot.node.stacks[0].toFixed(2)} / {spot.node.stacks[1].toFixed(2)} bb
                 </span>
               </span>
               {spotInfo && (
                 <span className="num text-dim">
-                  started {spotInfo.meta.effective_stack.toFixed(1)} behind · pot{" "}
-                  {spotInfo.meta.starting_pot.toFixed(1)}
+                  started {spotInfo.meta.effective_stack.toFixed(1)}bb behind · pot{" "}
+                  {spotInfo.meta.starting_pot.toFixed(1)}bb
                 </span>
               )}
               <span className="num text-dim">
@@ -671,7 +799,7 @@ export default function TrainPanel({
                     {TIER_LABEL[result.grade.tier]}
                   </span>
                   <div>
-                    <div className="label">EV loss · chips</div>
+                    <div className="label">EV loss · bb</div>
                     <div
                       className={`fig fig-1 ${
                         result.grade.evLoss === 0
@@ -698,7 +826,7 @@ export default function TrainPanel({
                   <div className="grid grid-cols-[1fr_120px_84px_46px] gap-x-2 border-b-2 border-ink bg-paper-2 px-1.5 py-1">
                     <span className="label">solver mix for this hand</span>
                     <span className="label">frequency</span>
-                    <span className="label text-right">EV (chips)</span>
+                    <span className="label text-right">EV (bb)</span>
                     <span className="label text-right">d100</span>
                   </div>
                   {spot.actions.map((a, i) => {
@@ -822,7 +950,7 @@ export default function TrainPanel({
             <div className="px-3 py-3">
               <div className="label">0 hands graded</div>
               <p className="num mt-1 text-[11px] text-muted">
-                every action you pick is scored on the chips it costs against the solve and lands
+                every action you pick is scored on the big blinds it costs against the solve and lands
                 here, worst first.
               </p>
             </div>

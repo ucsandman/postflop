@@ -35,7 +35,7 @@ const MODE_SWATCHES: { name: string; cells: (string | undefined)[]; line: string
     cells: [0, 0.15, 0.35, 0.55, 0.7, 0.85, 1, 0.45, 0.2].map(
       (t) => regretColor(t, 1) ?? undefined,
     ),
-    line: "color = chips lost against always taking the best action, ivory = none.",
+    line: "color = big blinds lost against always taking the best action, ivory = none.",
   },
 ];
 
@@ -79,7 +79,7 @@ export default function Help() {
             <p>
               Convergence is <strong className="font-bold text-text">measured, not assumed</strong>.
               Exploitability is computed by two full best-response walks, one per player, against
-              the current average strategy, and reported in chips and as a percent of the starting
+              the current average strategy, and reported in big blinds and as a percent of the starting
               pot. That is the number in the header, and the one plotted while a browser solve runs.
               There are no estimated or placeholder figures anywhere in this UI: every number on
               screen came out of the engine.
@@ -119,7 +119,7 @@ export default function Help() {
                 from the range. A faded cell has combos but zero reach on this line.
               </li>
               <li>
-                Per-hand EV in the combo panel is zero-sum net chips from the start of the solve. A
+                Per-hand EV in the combo panel is zero-sum net big blinds from the start of the solve. A
                 dash means the EV is undefined at that node (no opponent mass can face the hand),
                 which is a different statement from zero.
               </li>

@@ -239,14 +239,14 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
               </div>
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="effective stack">
+              <Field label="effective stack (bb)">
                 <input
                   type="text"
                   value={form.effective_stack}
                   onChange={(e) => edit((f) => ({ ...f, effective_stack: e.target.value }))}
                 />
               </Field>
-              <Field label="starting pot">
+              <Field label="starting pot (bb)">
                 <input
                   type="text"
                   value={form.starting_pot}
@@ -777,14 +777,14 @@ function ProgressPanel({
               <span className="label">exploitability</span>
               <div className="fig fig-1 mt-1">{last.pct.toFixed(4)}%</div>
               <div className="num mt-1 text-muted" style={{ fontSize: 11 }}>
-                {last.chips.toFixed(6)} chips at iteration {last.iter}
+                {last.chips.toFixed(6)} bb at iteration {last.iter}
               </div>
             </div>
           )}
           <Curve reports={reports} />
           <div className="mt-2 grid grid-cols-3 gap-x-2 border-b border-line-soft pb-1">
             <span className="label">iter</span>
-            <span className="label text-right">chips</span>
+            <span className="label text-right">bb</span>
             <span className="label text-right">% of pot</span>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">

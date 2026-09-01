@@ -11,7 +11,7 @@ interface Props {
   /**
    * `strategy`: stacked action-frequency bars. `reach`: range density only.
    * `ev`: highest-EV action per hand, faded toward ivory when near-indifferent.
-   * `regret`: chips lost by not always taking the best action, ivory to red.
+   * `regret`: big blinds lost by not always taking the best action, ivory to red.
    */
   mode: "strategy" | "reach" | "ev" | "regret";
   /** Required for `ev`/`regret`, same 169-length order as `cells`. */
@@ -92,10 +92,10 @@ export default function RangeGrid({
           ? `${cell.label}: no live combos here`
           : mode === "ev"
             ? cellEv && cellEv.bestAction >= 0
-              ? `${cell.label}: best ${actions?.[cellEv.bestAction]?.text ?? cellEv.bestAction}, margin ${fmtChips(cellEv.margin === Infinity ? 0 : cellEv.margin)} chips`
+              ? `${cell.label}: best ${actions?.[cellEv.bestAction]?.text ?? cellEv.bestAction}, margin ${fmtChips(cellEv.margin === Infinity ? 0 : cellEv.margin)} bb`
               : `${cell.label}: no EV data`
             : mode === "regret"
-              ? `${cell.label}: EV lost ${Number.isNaN(cellEv?.regret ?? NaN) ? "no data" : fmtChips(cellEv!.regret) + " chips"}`
+              ? `${cell.label}: EV lost ${Number.isNaN(cellEv?.regret ?? NaN) ? "no data" : fmtChips(cellEv!.regret) + " bb"}`
               : `${cell.label}: ${cell.slots.length} combo${cell.slots.length > 1 ? "s" : ""}, weight ${cell.weight.toFixed(2)}`;
 
         return (

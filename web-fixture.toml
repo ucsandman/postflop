@@ -1,20 +1,22 @@
+# The bundled "Turn spot" sample: a standard 100bb single-raised pot.
+# BTN opens 2.5bb, BB calls (pot 5.5, stacks 97.5); flop Qs Jh 2h goes
+# check-check is NOT modeled — the tree starts on the turn with the same
+# pot/stacks the preflop action leaves behind. Ranges are the approximate
+# study ranges the web presets use (top 33% / top 45%).
 board = "Qs Jh 2h 8c"
-oop_range = "22+,ATs+,KTs+,QTs+,JTs,T9s,98s,ATo+,KJo+"
-ip_range = "66+,A9s+,KTs+,QTs+,JTs,ATo+,KQo"
-effective_stack = 40.0
-starting_pot = 6.0
+oop_range = "22+,A2s+,K4s+,Q5s+,J6s+,T6s+,96s+,86s+,75s+,65s,54s,A8o+,K9o+,QTo+,J9o+"
+ip_range = "22+,A2s+,K2s+,Q2s+,J2s+,T3s+,95s+,85s+,74s+,64s+,53s+,43s,A5o+,K8o+,Q9o+,J9o+,T9o,98o"
+effective_stack = 97.5
+starting_pot = 5.5
 max_iterations = 600
 
-[sizings.oop.flop]
-bet = { percents = [50.0], allin = false }
 [sizings.oop.turn]
 bet = { percents = [75.0], allin = false }
 [sizings.oop.river]
 bet = { percents = [75.0], allin = true }
-[sizings.ip.flop]
-bet = { percents = [50.0], allin = false }
-raise = { percents = [60.0], allin = false }
 [sizings.ip.turn]
 bet = { percents = [75.0], allin = false }
+raise = { percents = [60.0], allin = false }
 [sizings.ip.river]
 bet = { percents = [75.0], allin = true }
+raise = { percents = [60.0], allin = false }
