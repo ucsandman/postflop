@@ -156,16 +156,19 @@ impl SortedRanks {
 /// Per-hero-combo showdown EV, ranks precomputed.
 ///
 /// `win` is the payoff per unit of villain reach hero beats, `lose` the payoff
-/// per unit that beats hero. A chop pays exactly `(win + lose) / 2`, so with
-/// pot `P` split evenly the caller passes `win = P/2`, `lose = -P/2` and a
-/// chop correctly pays `0`.
+/// per unit that beats hero, and `chop` the payoff per unit that ties. The
+/// three are independent: `chop` is a parameter, never derived from the other
+/// two. Under a linear (chip) payoff a split pot is worth `(win + lose) / 2`
+/// and callers pass exactly that, but a non-linear payoff map - tournament
+/// equity, where half a pot is not half the value of the pot - has a chop
+/// value of its own, and this signature is what lets a caller state it.
 ///
 /// For each hero hand `h` with rank `r`, over villain hands sharing no card
 /// with `h`:
 ///
 /// ```text
 /// EV(h) = win * (reach with rank < r) + lose * (reach with rank > r)
-///       + (win + lose)/2 * (reach with rank == r)
+///       + chop * (reach with rank == r)
 /// ```
 ///
 /// # Algorithm
@@ -192,6 +195,7 @@ impl SortedRanks {
 ///
 /// # Panics
 /// If any of the four side slices disagree in length, or `out.len() != hero.len()`.
+#[allow(clippy::too_many_arguments)]
 pub fn showdown_ev_ranked(
     hero: &[Hand],
     hero_ranks: &SortedRanks,
@@ -200,14 +204,13 @@ pub fn showdown_ev_ranked(
     villain_reach: &[f32],
     win: f64,
     lose: f64,
+    chop: f64,
     out: &mut [f32],
 ) {
     assert_eq!(hero.len(), hero_ranks.len(), "hero/ranks length mismatch");
     assert_eq!(hero.len(), out.len(), "out/hero length mismatch");
     assert_eq!(villain.len(), villain_ranks.len(), "villain/ranks length mismatch");
     assert_eq!(villain.len(), villain_reach.len(), "villain/reach length mismatch");
-
-    let chop = (win + lose) * 0.5;
 
     let mut all_card = [0f64; NUM_CARDS];
     let mut all_combo = [0f64; NUM_COMBOS];
@@ -291,11 +294,12 @@ pub fn showdown_ev(
     villain_reach: &[f32],
     win: f64,
     lose: f64,
+    chop: f64,
     out: &mut [f32],
 ) {
     let hr = SortedRanks::new(board, hero);
     let vr = SortedRanks::new(board, villain);
-    showdown_ev_ranked(hero, &hr, villain, &vr, villain_reach, win, lose, out);
+    showdown_ev_ranked(hero, &hr, villain, &vr, villain_reach, win, lose, chop, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -333,7 +337,10 @@ pub mod reference {
         }
     }
 
-    /// See [`super::showdown_ev_ranked`].
+    /// See [`super::showdown_ev_ranked`]. `chop` is a parameter here too: the
+    /// oracle must not keep the `(win + lose) / 2` linearity the fast path gave
+    /// up, or it stops being able to falsify it.
+    #[allow(clippy::too_many_arguments)]
     pub fn showdown_ev(
         board: &[Card; 5],
         hero: &[Hand],
@@ -341,9 +348,9 @@ pub mod reference {
         villain_reach: &[f32],
         win: f64,
         lose: f64,
+        chop: f64,
         out: &mut [f64],
     ) {
-        let chop = (win + lose) * 0.5;
         for (i, &h) in hero.iter().enumerate() {
             let hr = hand_rank(board, h);
             let mut ev = 0f64;
@@ -446,7 +453,7 @@ mod tests {
         let villain = [hand("AhAs"), hand("QcQd"), hand("KcKd")];
         let reach = [0.5f32, 0.25, 1.0];
         let mut out = [0f32; 3];
-        showdown_ev(&board, &hero, &villain, &reach, 3.0, -1.0, &mut out);
+        showdown_ev(&board, &hero, &villain, &reach, 3.0, -1.0, 1.0, &mut out);
         assert!((out[0] - 4.25).abs() < 1e-6, "{out:?}");
         assert!((out[1] - 0.25).abs() < 1e-6, "{out:?}");
         assert!((out[2] - 3.75).abs() < 1e-6, "{out:?}");
@@ -490,7 +497,7 @@ mod tests {
         let reach: Vec<f32> = (0..hands.len()).map(|_| rng.gen::<f32>()).collect();
 
         let mut fast = vec![0f32; hands.len()];
-        showdown_ev(&board, &hands, &hands, &reach, 2.0, 0.0, &mut fast);
+        showdown_ev(&board, &hands, &hands, &reach, 2.0, 0.0, 1.0, &mut fast);
 
         // chop = 1.0, so EV == live villain reach == naive fold at payoff 1.0.
         let mut want = vec![0f64; hands.len()];
@@ -501,6 +508,79 @@ mod tests {
         // the raw total.
         let total: f64 = reach.iter().map(|&w| w as f64).sum();
         assert!(fast.iter().all(|&v| (v as f64) < total - 1.0));
+    }
+
+    /// `chop` is a parameter, not `(win + lose) / 2`.
+    ///
+    /// The royal-flush board makes every matchup a tie, so `win` and `lose`
+    /// touch nothing and the whole output is the chop payoff times each hero
+    /// combo's card-removal-corrected live villain reach. `win = 10`,
+    /// `lose = -10` has midpoint `0`, so a path that rederived the chop would
+    /// return all zeros for both cases below; the second case demands `7 * live`
+    /// instead. This is the gate that says the fast path, the convenience
+    /// wrapper and the oracle all read the parameter they were handed.
+    ///
+    /// A tournament payoff map needs exactly this: half a pot is not worth half
+    /// the value of a pot in equity, so the chop payoff is its own number.
+    #[test]
+    fn chop_is_not_derived() {
+        let board = board5("As Ks Qs Js Ts");
+        let hands = live_hands(&board);
+        assert_eq!(hands.len(), 1081);
+        let r0 = hand_rank(&board, hands[0]);
+        assert!(hands.iter().all(|&h| hand_rank(&board, h) == r0), "one rank group");
+
+        let mut rng = StdRng::seed_from_u64(0x0CD0_0CD0);
+        let reach: Vec<f32> = (0..hands.len()).map(|_| rng.gen::<f32>()).collect();
+
+        // live[i] is what `chop = 1` must pay, computed by the independent
+        // inclusion-exclusion path in `fold_ev`'s oracle.
+        let mut live = vec![0f64; hands.len()];
+        reference::fold_ev(&hands, &hands, &reach, 1.0, &mut live);
+        let (lo, hi) = live.iter().fold((f64::MAX, 0f64), |(a, b), &v| (a.min(v), b.max(v)));
+        assert!(lo > 0.0, "every hero combo must see some live villain reach");
+
+        let hr = SortedRanks::new(&board, &hands);
+
+        // chop = 0 with win/lose an order of magnitude larger: every entry zero.
+        let mut zero = vec![0f32; hands.len()];
+        showdown_ev(&board, &hands, &hands, &reach, 10.0, -10.0, 0.0, &mut zero);
+        assert!(
+            zero.iter().all(|&v| v == 0.0),
+            "chop = 0 must zero every entry; worst = {}",
+            zero.iter().cloned().fold(0f32, |a, b| a.max(b.abs()))
+        );
+
+        // chop = 7, same win/lose: 7 * live on all three code paths.
+        let want: Vec<f64> = live.iter().map(|&v| 7.0 * v).collect();
+
+        let mut fast = vec![0f32; hands.len()];
+        showdown_ev(&board, &hands, &hands, &reach, 10.0, -10.0, 7.0, &mut fast);
+        assert_close(&fast, &want, 1e-2, "chop = 7 (wrapper)");
+
+        let mut ranked = vec![0f32; hands.len()];
+        showdown_ev_ranked(&hands, &hr, &hands, &hr, &reach, 10.0, -10.0, 7.0, &mut ranked);
+        assert_eq!(fast, ranked, "ranked entry point must agree bit-for-bit");
+
+        let mut oracle = vec![0f64; hands.len()];
+        reference::showdown_ev(&board, &hands, &hands, &reach, 10.0, -10.0, 7.0, &mut oracle);
+        assert_close(&fast, &oracle, 1e-2, "chop = 7 (oracle)");
+        let worst = fast
+            .iter()
+            .zip(&oracle)
+            .map(|(&f, &o)| (f as f64 - o).abs())
+            .fold(0f64, f64::max);
+
+        // The derived value would have been 0, so `want` must be far from it.
+        assert!(7.0 * lo > 1.0, "the 7 * live signal must be visibly non-zero");
+        println!(
+            "chop_is_not_derived: combos = {}, tie group = {} (all matchups tie), live reach {lo:.4}..{hi:.4}, derived chop would be {}, parameter chop = 7 pays {:.4}..{:.4}, worst fast-vs-oracle diff {worst:.3e} (tol 1e-2)",
+            hands.len(),
+            hands.len(),
+            (10.0f64 + -10.0) * 0.5,
+            7.0 * lo,
+            7.0 * hi,
+        );
     }
 
     /// Board A K Q J with one blank: every hand containing a ten makes the
@@ -529,9 +609,9 @@ mod tests {
         let reach: Vec<f32> = (0..villain.len()).map(|_| rng.gen::<f32>()).collect();
 
         let mut fast = vec![0f32; hero.len()];
-        showdown_ev(&board, &hero, &villain, &reach, 1.0, -1.0, &mut fast);
+        showdown_ev(&board, &hero, &villain, &reach, 1.0, -1.0, 0.0, &mut fast);
         let mut want = vec![0f64; hero.len()];
-        reference::showdown_ev(&board, &hero, &villain, &reach, 1.0, -1.0, &mut want);
+        reference::showdown_ev(&board, &hero, &villain, &reach, 1.0, -1.0, 0.0, &mut want);
         assert_close(&fast, &want, 1e-4, "partial ties");
     }
 
@@ -594,12 +674,15 @@ mod tests {
             let (board, hero, villain, reach) = random_case(&mut rng, size);
             let win: f64 = rng.gen_range(0.0..=1.0);
             let lose: f64 = rng.gen_range(-1.0..=0.0);
+            // Chop is drawn independently, not as (win + lose) / 2: a fast path
+            // that ignored the parameter and rederived it would pass otherwise.
+            let chop: f64 = rng.gen_range(-1.0..=1.0);
             widest = widest.max(hero.len().max(villain.len()));
 
             let mut fast = vec![0f32; hero.len()];
-            showdown_ev(&board, &hero, &villain, &reach, win, lose, &mut fast);
+            showdown_ev(&board, &hero, &villain, &reach, win, lose, chop, &mut fast);
             let mut want = vec![0f64; hero.len()];
-            reference::showdown_ev(&board, &hero, &villain, &reach, win, lose, &mut want);
+            reference::showdown_ev(&board, &hero, &villain, &reach, win, lose, chop, &mut want);
             assert_close(&fast, &want, 1e-4, &format!("showdown case {case}"));
         }
         assert_eq!(widest, 1081, "the sweep must have covered full-width sides");
@@ -611,12 +694,12 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(11);
         let (board, hero, villain, reach) = random_case(&mut rng, Some(200));
         let mut a = vec![0f32; hero.len()];
-        showdown_ev(&board, &hero, &villain, &reach, 2.5, -2.5, &mut a);
+        showdown_ev(&board, &hero, &villain, &reach, 2.5, -2.5, 0.0, &mut a);
 
         let hr = SortedRanks::new(&board, &hero);
         let vr = SortedRanks::new(&board, &villain);
         let mut b = vec![0f32; hero.len()];
-        showdown_ev_ranked(&hero, &hr, &villain, &vr, &reach, 2.5, -2.5, &mut b);
+        showdown_ev_ranked(&hero, &hr, &villain, &vr, &reach, 2.5, -2.5, 0.0, &mut b);
         assert_eq!(a, b);
     }
 
@@ -628,9 +711,9 @@ mod tests {
         fold_ev(&hero, &[], &[], 5.0, &mut out);
         assert_eq!(out[0], 0.0);
         out[0] = 1.0;
-        showdown_ev(&board, &hero, &[], &[], 3.0, -1.0, &mut out);
+        showdown_ev(&board, &hero, &[], &[], 3.0, -1.0, 1.0, &mut out);
         assert_eq!(out[0], 0.0);
         // Empty hero writes nothing and must not panic.
-        showdown_ev(&board, &[], &hero, &[1.0], 3.0, -1.0, &mut []);
+        showdown_ev(&board, &[], &hero, &[1.0], 3.0, -1.0, 1.0, &mut []);
     }
 }

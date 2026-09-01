@@ -65,9 +65,12 @@
 //! u_win + u_lose = (P - rake - stake_w) + (-stake_l) = P - rake - P = -rake
 //! ```
 //!
-//! which is `0` rake-free. A chop pays `(win + lose)/2 = (P - rake)/2 - stake`, i.e.
-//! the rake is split evenly, which is exactly what [`terminal::showdown_ev_ranked`]
-//! does with its `chop = (win + lose) / 2`.
+//! which is `0` rake-free. A chop pays `(P - rake)/2 - stake`, i.e. the rake is split
+//! evenly. That equals `(win + lose)/2`, but [`terminal::showdown_ev_ranked`] takes the
+//! chop payoff as its own parameter rather than deriving it, so [`TermData`] carries
+//! `chop` alongside `win`/`lose` and states the midpoint explicitly. Under a linear
+//! chip payoff the two are the same number; under a non-linear payoff map they are
+//! not, and only the explicit form can express it.
 //!
 //! Since both players are matched at every terminal the tree produces (`c_0 == c_1`,
 //! the uncalled bet already back in the bettor's stack), `stake = P/2` and the rake-free
@@ -128,6 +131,9 @@ struct TermData {
     win: [f64; 2],
     /// Net chips to player `p` when `p` is awarded nothing.
     lose: [f64; 2],
+    /// Net chips to player `p` when the pot is split. Stated, not derived from
+    /// `win`/`lose`: see the module docs.
+    chop: [f64; 2],
 }
 
 /// A solvable heads-up NLHE postflop spot.
@@ -402,14 +408,19 @@ impl NlheGame {
             cfg.starting_pot * 0.5 + (cfg.effective_stack - node.stacks[0]),
             cfg.starting_pot * 0.5 + (cfg.effective_stack - node.stacks[1]),
         ];
+        let win = [net - stake[0], net - stake[1]];
+        let lose = [-stake[0], -stake[1]];
         TermData {
             board,
             folder: match t {
                 TreeTerminal::Fold { folder, .. } => Some(*folder),
                 TreeTerminal::Showdown { .. } => None,
             },
-            win: [net - stake[0], net - stake[1]],
-            lose: [-stake[0], -stake[1]],
+            win,
+            lose,
+            // Half the post-rake pot, minus the stake. The same f64 midpoint
+            // `showdown_ev_ranked` used to compute internally, moved out here.
+            chop: [(win[0] + lose[0]) * 0.5, (win[1] + lose[1]) * 0.5],
         }
     }
 
@@ -578,6 +589,7 @@ impl Game for NlheGame {
                 opp_reach,
                 t.win[h],
                 t.lose[h],
+                t.chop[h],
                 out,
             ),
         }
