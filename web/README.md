@@ -55,14 +55,16 @@ components/
   RangeGrid.tsx 169-cell grid, strategy bars or reach density
   ComboPanel.tsx per-combo distribution + EV for one cell
   TreeNav.tsx   breadcrumb, action buttons, 52-card runout selector
-  SolvePanel.tsx solve form, preflight gate, progress curve
+  SolvePanel.tsx solve form, preset picker, preflight gate, progress curve
+  RangeEditor.tsx paintable 13x13 range grid, one per seat
   Help.tsx      about / how to read the grid
   Card.tsx      card and combo rendering
 lib/
   wasm.ts       async module loader
   types.ts      shapes of the JSON the wasm API returns
   grid.ts       grid aggregation, action colours, formatting
-  config.ts     solve form <-> engine TOML
+  range.ts      169-class weights <-> range strings, hand ordering, presets' ranges
+  config.ts     solve form <-> engine TOML, spot presets
 scripts/sync-wasm.mjs
 docs/screens/   verification screenshots
 ```
@@ -80,10 +82,20 @@ docs/screens/   verification screenshots
 - Freeing a `SolutionHandle` happens outside React state updaters. Updaters must
   be pure — React replays them, and a second `free()` on the same pointer traps
   with "null pointer passed to rust".
+- The solve form stores ranges as **strings**; `RangeEditor` is a two-way view on
+  one. Painting regenerates a canonical string (`22+`, `ATs+`, `A5s-A2s`,
+  `:weight` suffixes); typing repaints the grid through the engine's own
+  `parse_range`, and the typed text stays the source of truth until the next grid
+  edit — an explicit-combo token like `AhKh` can only show as its class mean.
+- The preset preflop ranges are **approximate study ranges**, not solver output.
+  They are top-N% cuts of the conventional hand ordering in `lib/range.ts`, and
+  the UI says so.
 
 ## Checks
 
 ```
-npm run build   # includes tsc
+npm run build          # includes tsc
 npm run lint
+node lib/grid.test.ts  # zero-reach guard
+node lib/range.test.ts # range-string canonicalisation, round-tripped through parse_range
 ```

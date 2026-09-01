@@ -1,17 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import RangeEditor from "@/components/RangeEditor";
 import {
   DEFAULT_FORM,
   HARD_BYTES,
+  PRESETS,
   SEATS,
   STREETS,
   SolveForm,
-  TURN_FORM,
   WARN_BYTES,
   toToml,
 } from "@/lib/config";
 import { fmtBytes } from "@/lib/grid";
+import { randomFlop } from "@/lib/range";
 import type { TreeStats } from "@/lib/types";
 
 interface Report {
@@ -24,6 +26,8 @@ type Gate = null | "warn" | "hard";
 
 export default function SolvePanel({ onSolved }: { onSolved: (json: string, wall: number) => void }) {
   const [form, setForm] = useState<SolveForm>(DEFAULT_FORM);
+  /** Which preset the form still matches, `""` once anything has been hand-edited. */
+  const [presetId, setPresetId] = useState(PRESETS[0].id);
   const [stats, setStats] = useState<TreeStats | null>(null);
   const [gate, setGate] = useState<Gate>(null);
   const [reports, setReports] = useState<Report[]>([]);
@@ -66,9 +70,17 @@ export default function SolvePanel({ onSolved }: { onSolved: (json: string, wall
 
   const edit = (fn: (f: SolveForm) => SolveForm) => {
     setForm((f) => fn(structuredClone(f)));
+    setPresetId("");
     setStats(null);
     setGate(null);
     setError(null);
+  };
+
+  const applyPreset = (id: string) => {
+    const preset = PRESETS.find((p) => p.id === id);
+    if (!preset) return;
+    edit(() => structuredClone(preset.form));
+    setPresetId(id);
   };
 
   const preflight = useCallback(
@@ -140,23 +152,52 @@ export default function SolvePanel({ onSolved }: { onSolved: (json: string, wall
   };
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-3 p-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+    // Wider than the Inspector's shell on purpose: two 13x13 grids side by side need
+    // the room, and `html { font-size: 13px }` makes Tailwind's rem widths ~20% narrower
+    // than their names suggest.
+    <div className="mx-auto grid max-w-[1400px] gap-3 p-4 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div className="panel p-4">
-        <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="text-[15px] font-semibold">Solve a spot in this browser</h2>
-          <div className="flex gap-1.5">
-            <Preset label="river (tiny)" onClick={() => edit(() => structuredClone(DEFAULT_FORM))} />
-            <Preset label="turn (larger)" onClick={() => edit(() => structuredClone(TURN_FORM))} />
+        <div className="mb-3">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
+            <h2 className="text-[15px] font-semibold">Solve a spot in this browser</h2>
+            <select
+              value={presetId}
+              data-testid="preset-select"
+              aria-label="spot preset"
+              onChange={(e) => applyPreset(e.target.value)}
+              className="ml-auto max-w-full rounded border border-line bg-raised px-2 py-1 text-text"
+            >
+              {presetId === "" && <option value="">— custom —</option>}
+              {PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
           </div>
+          <p className="mt-1 text-[11px] text-dim" data-testid="preset-note">
+            {PRESETS.find((p) => p.id === presetId)?.note ??
+              "Edited by hand. Pick a preset above to start over from a known spot."}
+          </p>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="board" hint="3–5 cards, e.g. Ks 7d 2c 8h">
-            <input
-              type="text"
-              value={form.board}
-              onChange={(e) => edit((f) => ({ ...f, board: e.target.value }))}
-            />
+          <Field label="board" hint="3–5 cards. Presets ship a turn card: the same ranges on a bare flop build a tree in the gigabytes.">
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                value={form.board}
+                onChange={(e) => edit((f) => ({ ...f, board: e.target.value }))}
+              />
+              <button
+                type="button"
+                data-testid="random-flop"
+                onClick={() => edit((f) => ({ ...f, board: randomFlop() }))}
+                className="shrink-0 rounded border border-line bg-raised px-2 py-1 text-[11px] text-muted hover:border-accent-dim hover:text-text"
+              >
+                random flop
+              </button>
+            </div>
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="effective stack">
@@ -174,20 +215,19 @@ export default function SolvePanel({ onSolved }: { onSolved: (json: string, wall
               />
             </Field>
           </div>
-          <Field label="OOP range">
-            <input
-              type="text"
-              value={form.oop_range}
-              onChange={(e) => edit((f) => ({ ...f, oop_range: e.target.value }))}
-            />
-          </Field>
-          <Field label="IP range">
-            <input
-              type="text"
-              value={form.ip_range}
-              onChange={(e) => edit((f) => ({ ...f, ip_range: e.target.value }))}
-            />
-          </Field>
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <RangeEditor
+            seat="oop"
+            value={form.oop_range}
+            onChange={(range) => edit((f) => ({ ...f, oop_range: range }))}
+          />
+          <RangeEditor
+            seat="ip"
+            value={form.ip_range}
+            onChange={(range) => edit((f) => ({ ...f, ip_range: range }))}
+          />
         </div>
 
         <div className="mt-4">
@@ -342,17 +382,6 @@ function Field({
       {children}
       {hint && <span className="mt-0.5 block text-[10px] text-dim">{hint}</span>}
     </label>
-  );
-}
-
-function Preset({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="rounded border border-line bg-raised px-2 py-1 text-[11px] text-muted hover:border-accent-dim hover:text-text"
-    >
-      {label}
-    </button>
   );
 }
 

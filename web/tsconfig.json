@@ -9,6 +9,10 @@
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    // lib/*.test.ts run straight on node (`node lib/range.test.ts`), and node's TS
+    // stripping resolves specifiers literally, so the modules under test have to be
+    // imported with their real `.ts` extension. Bundler resolution handles that fine.
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
