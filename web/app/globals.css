@@ -299,7 +299,7 @@ input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--color-ink); 
 .cardstock i { font-style: normal; font-size: .8em; color: inherit; margin-top: .06em; }
 
 /* ── COMBO TABLE ──────────────────────────────────────────────────────────── */
-.combo-rows { display: grid; grid-template-columns: 64px 52px minmax(0,1fr) auto 66px; column-gap: 8px; align-items: center; }
+.combo-rows { display: grid; grid-template-columns: 64px 52px minmax(0,1fr) repeat(var(--nact, 2), 54px) 66px; column-gap: 8px; align-items: center; }
 @media (min-width: 1900px) {
   .combo-rows { grid-template-columns: 76px 56px minmax(120px,1fr) repeat(var(--nact, 2), 62px) 74px; }
 }
