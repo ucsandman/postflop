@@ -106,7 +106,7 @@ export default function Workbench() {
     initialParams.current = new URLSearchParams(window.location.search);
   }, []);
 
-  const adopt = useCallback((json: string, label: string) => {
+  const adopt = useCallback((json: string, label: string, keepTab = false) => {
     setError(null);
     setLoading(true);
     return loadWasm()
@@ -145,7 +145,7 @@ export default function Workbench() {
         setNodeId(initNode);
         setPath([]);
         setSelected(initSelected);
-        setTab("inspect");
+        if (!keepTab) setTab("inspect");
       })
       .catch((e: unknown) => {
         setError(e instanceof Error ? e.message : String(e));
@@ -153,13 +153,13 @@ export default function Workbench() {
       .finally(() => setLoading(false));
   }, []);
 
-  const loadSample = async (file: string, name: string) => {
+  const loadSample = async (file: string, name: string, keepTab = false) => {
     setError(null);
     setLoading(true);
     try {
       const res = await fetch(`/fixtures/${file}`);
       if (!res.ok) throw new Error(`could not fetch ${file}: HTTP ${res.status}`);
-      await adopt(await res.text(), name);
+      await adopt(await res.text(), name, keepTab);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setLoading(false);
@@ -465,6 +465,9 @@ export default function Workbench() {
       <div hidden={tab !== "train"}>
         <TrainPanel
           handle={handle}
+          samples={SAMPLES}
+          onLoadSample={(file, name) => void loadSample(file, name, true)}
+          onSolved={(json, wall) => adopt(json, `browser solve (${wall.toFixed(2)}s)`, true)}
           onReview={(node, cell) => {
             setNodeId(node);
             setPath([]);

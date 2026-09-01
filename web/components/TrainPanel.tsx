@@ -1,15 +1,18 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Cards, ComboCards } from "@/components/Card";
+import SolvePanel from "@/components/SolvePanel";
 import { actionColors, cellOf, comboFreqs, rangeFreqs } from "@/lib/grid";
 import {
   TIER_COLOR,
   TIER_LABEL,
+  flipHand,
   grade,
   gradeable,
   isClose,
   loadHistory,
+  parseHand,
   pickUniform,
   pickWeighted,
   rollAction,
@@ -143,8 +146,10 @@ function makeSpot(
 
   let slot: number;
   if (cards !== null) {
-    slot = combos.findIndex((c) => c.cards === cards);
-    if (slot < 0 || !gradeable(at(slot))) return null;
+    // The solution spells each combo in its own canonical order; the user's spelling
+    // (or a combo carried from an earlier street) may be flipped.
+    slot = combos.findIndex((c) => c.cards === cards || c.cards === flipHand(cards));
+    if (slot < 0 || combos[slot].weight <= 0 || !gradeable(at(slot))) return null;
   } else {
     const weights = combos.map((c, i) => {
       const row = at(i);
@@ -171,15 +176,33 @@ function makeSpot(
 
 interface Props {
   handle: SolutionHandle | null;
+  /** Bundled instant spots, so training can start with zero setup. */
+  samples: { file: string; name: string; detail: string }[];
+  onLoadSample: (file: string, name: string) => void;
+  /** A solve finished inside this tab's own setup panel; the parent adopts it. */
+  onSolved: (json: string, wall: number) => void;
   /** Jump the inspector to a played hand's node and grid cell. */
   onReview: (node: number, cell: { row: number; col: number }) => void;
   /** Injected so the dealer is deterministic in a test; the app passes Math.random. */
   rng?: Rng;
 }
 
-export default function TrainPanel({ handle, onReview, rng = Math.random }: Props) {
+export default function TrainPanel({
+  handle,
+  samples,
+  onLoadSample,
+  onSolved,
+  onReview,
+  rng = Math.random,
+}: Props) {
   const [seat, setSeat] = useState<"any" | "oop" | "ip">("any");
   const [closeOnly, setCloseOnly] = useState(false);
+  /** Optional "train this exact hand" filter, e.g. "AhKd"; empty means deal randomly. */
+  const [handText, setHandText] = useState("");
+  /** The spot-setup panel, shown when nothing is loaded or on request for a new spot. */
+  const [setupOpen, setSetupOpen] = useState(false);
+  /** Deal automatically as soon as the solution this tab just solved (or loaded) lands. */
+  const autoDeal = useRef(false);
   /**
    * The dealt hand, tagged with the solution it came from: loading another solution frees
    * the old handle and invalidates every node id in the spot, so anything dealt from it is
@@ -199,14 +222,27 @@ export default function TrainPanel({ handle, onReview, rng = Math.random }: Prop
   const spot = current?.spot ?? null;
   const note = current?.note ?? null;
 
+  /** `null` when the hand box is empty, a combo string when it parses, `false` on junk. */
+  const fixedHand = handText.trim() === "" ? null : parseHand(handText) ?? false;
+
   const deal = useCallback(() => {
-    if (!handle) return;
+    if (!handle || fixedHand === false) return;
     setResult(null);
     for (let tries = 0; tries < MAX_DEALS; tries++) {
       const hero: 0 | 1 = seat === "any" ? (rng() < 0.5 ? 0 : 1) : seat === "oop" ? 0 : 1;
-      const walk = walkToHero(handle, 0, hero, null, STOP_AT_HERO, rng, []);
+      const walk = walkToHero(handle, 0, hero, fixedHand, STOP_AT_HERO, rng, []);
       if (walk.kind !== "hero") continue;
-      const next = makeSpot(handle, walk.node, hero, walk.history, closeOnly, rng, null);
+      // A chosen hand overrides the close-decisions filter: the user asked for this
+      // exact combo, not for whichever combos happen to mix here.
+      const next = makeSpot(
+        handle,
+        walk.node,
+        hero,
+        walk.history,
+        fixedHand ? false : closeOnly,
+        rng,
+        fixedHand,
+      );
       if (next) {
         setDealt({ handle, spot: next, note: null });
         return;
@@ -215,11 +251,23 @@ export default function TrainPanel({ handle, onReview, rng = Math.random }: Prop
     setDealt({
       handle,
       spot: null,
-      note: closeOnly
-        ? `No close decision (top two actions within 1% of pot) turned up in ${MAX_DEALS} random lines. Turn the filter off, or load a spot with more mixing.`
-        : `No gradeable spot for that seat in ${MAX_DEALS} random lines.`,
+      note: fixedHand
+        ? `${fixedHand} never reached a gradeable decision for that seat in ${MAX_DEALS} random lines — it may be outside the range, blocked by the board, or at zero weight.`
+        : closeOnly
+          ? `No close decision (top two actions within 1% of pot) turned up in ${MAX_DEALS} random lines. Turn the filter off, or load a spot with more mixing.`
+          : `No gradeable spot for that seat in ${MAX_DEALS} random lines.`,
     });
-  }, [handle, seat, closeOnly, rng]);
+  }, [handle, seat, closeOnly, rng, fixedHand]);
+
+  // A solution just arrived that this tab asked for (its own solve, or a sample chosen
+  // from the setup panel): start dealing without another click.
+  useEffect(() => {
+    if (handle && autoDeal.current) {
+      autoDeal.current = false;
+      setSetupOpen(false);
+      deal();
+    }
+  }, [handle, deal]);
 
   const answer = (chosen: number) => {
     if (!spot || result) return;
@@ -309,21 +357,82 @@ export default function TrainPanel({ handle, onReview, rng = Math.random }: Prop
           <span className="text-[11px] text-dim">top two actions within 1% of pot</span>
         </label>
 
-        <button
-          data-testid="train-deal"
-          disabled={!handle}
-          onClick={deal}
-          className="ml-auto rounded bg-accent px-3.5 py-1.5 font-semibold text-ink hover:bg-[#efbc60] disabled:opacity-40"
-        >
-          {spot ? "Deal another" : "Deal a hand"}
-        </button>
+        <label className="flex items-center gap-1.5 text-muted">
+          <span className="label">hand</span>
+          <input
+            data-testid="train-hand"
+            value={handText}
+            onChange={(e) => setHandText(e.target.value)}
+            placeholder="any — or AhKd"
+            spellCheck={false}
+            className={`num w-24 rounded border bg-raised px-2 py-1 text-text placeholder:text-dim ${
+              fixedHand === false ? "border-card-h" : "border-line"
+            }`}
+          />
+          {fixedHand === false && <span className="text-[11px] text-card-h">two cards, e.g. AhKd</span>}
+        </label>
+
+        <div className="ml-auto flex items-center gap-2">
+          {handle && (
+            <button
+              data-testid="train-new-spot"
+              onClick={() => setSetupOpen((s) => !s)}
+              className="rounded border border-line bg-raised px-3 py-1.5 text-muted hover:border-accent-dim hover:text-text"
+            >
+              {setupOpen ? "Close setup" : "New spot…"}
+            </button>
+          )}
+          <button
+            data-testid="train-deal"
+            disabled={!handle || fixedHand === false}
+            onClick={deal}
+            className="rounded bg-accent px-3.5 py-1.5 font-semibold text-ink hover:bg-[#efbc60] disabled:opacity-40"
+          >
+            {spot ? "Deal another" : "Deal a hand"}
+          </button>
+        </div>
       </section>
 
-      {!handle ? (
-        <div className="panel flex items-center justify-center px-8 py-12 text-dim">
-          Load a solution first — the trainer deals from the solved tree, it does not solve.
-        </div>
-      ) : (
+      {(!handle || setupOpen) && (
+        <section className="flex flex-col gap-3">
+          <div className="panel flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5">
+            <span className="font-semibold">
+              {handle ? "Set up a new spot" : "Pick a spot to train"}
+            </span>
+            <span className="text-dim">
+              start instantly from a sample, or set up any board, ranges and stacks below —
+              the trainer starts dealing the moment it solves.
+            </span>
+            <div className="ml-auto flex gap-2">
+              {samples.map((s) => (
+                <button
+                  key={s.file}
+                  data-testid={`train-sample-${s.file}`}
+                  onClick={() => {
+                    autoDeal.current = true;
+                    onLoadSample(s.file, s.name);
+                  }}
+                  className="rounded border border-line bg-raised px-3 py-1.5 hover:border-accent-dim"
+                  title={s.detail}
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          </div>
+          <SolvePanel
+            locks={[]}
+            onRemoveLock={() => {}}
+            onClearLocks={() => {}}
+            onSolved={(json, wall) => {
+              autoDeal.current = true;
+              onSolved(json, wall);
+            }}
+          />
+        </section>
+      )}
+
+      {!handle ? null : (
         <div className="grid flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
           <section className="panel flex flex-col overflow-hidden">
             {note && (

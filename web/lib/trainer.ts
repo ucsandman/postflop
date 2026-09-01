@@ -52,6 +52,27 @@ export interface Grade {
 }
 
 /**
+ * Parse a hand the user typed — "AhKd", "ah kd", "KD AH" — into the engine's combo
+ * spelling (rank uppercase, suit lowercase, in the order typed), or `null` when it
+ * isn't two distinct cards. Matching against a combo list should try both card orders;
+ * the solution spells each combo in its own canonical order.
+ */
+export function parseHand(text: string): string | null {
+  const m = text
+    .trim()
+    .match(/^([2-9tjqka])([cdhs])[\s,]*([2-9tjqka])([cdhs])$/i);
+  if (!m) return null;
+  const a = m[1].toUpperCase() + m[2].toLowerCase();
+  const b = m[3].toUpperCase() + m[4].toLowerCase();
+  return a === b ? null : a + b;
+}
+
+/** The same two cards in the other order, for matching a combo list. */
+export function flipHand(hand: string): string {
+  return hand.slice(2) + hand.slice(0, 2);
+}
+
+/**
  * True when every action at the node has a defined EV for this combo. `combo_evs` is
  * `NaN` where the opponent's range cannot reach the child holding anything this hand
  * does not block, and a spot with such a hole cannot be graded — the dealer skips it.

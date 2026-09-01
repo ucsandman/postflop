@@ -4,9 +4,11 @@
 import assert from "node:assert/strict";
 import {
   BEST_FREQ,
+  flipHand,
   gradeable,
   grade,
   isClose,
+  parseHand,
   loadHistory,
   pickUniform,
   pickWeighted,
@@ -171,5 +173,18 @@ assert.deepEqual(loadHistory(), []);
 delete (globalThis as { localStorage?: unknown }).localStorage;
 assert.doesNotThrow(() => loadHistory(), "no localStorage global must not escape loadHistory");
 assert.doesNotThrow(() => saveHistory([rec("best", 0)]), "nor saveHistory");
+
+// --- parseHand / flipHand ------------------------------------------------------------
+assert.equal(parseHand("AhKd"), "AhKd");
+assert.equal(parseHand("ah kd"), "AhKd", "case and a space normalize");
+assert.equal(parseHand("KD,AH"), "KdAh", "comma separator, order preserved as typed");
+assert.equal(parseHand("Th9h"), "Th9h");
+assert.equal(parseHand("AhAh"), null, "the same card twice is not a hand");
+assert.equal(parseHand("Ah"), null, "one card is not a hand");
+assert.equal(parseHand("AhKx"), null, "bad suit");
+assert.equal(parseHand("1hKd"), null, "bad rank");
+assert.equal(parseHand(""), null);
+assert.equal(flipHand("AhKd"), "KdAh");
+assert.equal(flipHand(flipHand("AhKd")), "AhKd");
 
 console.log("trainer.test.ts: ok");

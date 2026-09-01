@@ -172,10 +172,12 @@ On top of that:
 - **Runout hotness** — the turn/river card selector colored green/red by how
   each runout shifts hero EV (range-wide or for one selected combo), with
   arrow-key stepping between sibling runouts.
-- **Trainer** — deal spots from the loaded solution, answer, and get graded by
-  EV loss (Best → Blunder tiers) with a running session score and a
-  worst-hands-first review list. A "close decisions only" filter serves just
-  the spots where actions are nearly indifferent.
+- **Trainer** — self-contained: pick a sample spot or set up any board, ranges
+  and stacks right in the tab, and it starts dealing the moment the solve
+  converges. Answer and get graded by EV loss (Best → Blunder tiers) with a
+  running session score and a worst-hands-first review list. Filters for seat,
+  "close decisions only", and an exact hand of your choice (type `AhKd` and
+  every deal holds it).
 - **Node locking** — lock the inspected node to its displayed strategy, then
   re-solve to see the exploit; pending locks are validated against the spot
   they were captured on.
