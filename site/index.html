@@ -8,8 +8,13 @@
 <meta property="og:title" content="postflop">
 <meta property="og:description" content="A heads-up NLHE postflop GTO solver in Rust. Exploitability measured, never asserted.">
 <meta property="og:image" content="https://postflop.vercel.app/og.png">
-<meta property="og:image:width" content="2400">
-<meta property="og:image:height" content="1260">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="postflop: convergence is measured, never asserted. Open-source heads-up NLHE solver.">
+<meta property="og:video" content="https://postflop.vercel.app/og.mp4">
+<meta property="og:video:type" content="video/mp4">
+<meta property="og:video:width" content="1200">
+<meta property="og:video:height" content="630">
 <meta property="og:url" content="https://postflop.vercel.app/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="postflop">
@@ -28,7 +33,7 @@
   "operatingSystem": "Windows, macOS, Linux, Web",
   "description": "Study postflop decisions in heads-up no-limit hold'em: what to bet, which hands do it, and what it costs to get it wrong. Open-source Rust Discounted CFR engine with a best-response exploitability calculator, CLI, WebAssembly build, and a browser workbench.",
   "url": "https://postflop.vercel.app/",
-  "license": "https://github.com/ucsandman/postflop/blob/master/LICENSE",
+  "license": "https://github.com/ucsandman/postflop/blob/main/LICENSE",
   "codeRepository": "https://github.com/ucsandman/postflop",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -159,6 +164,21 @@ section+section{border-top:var(--rule) solid var(--ink)}
 .section-head h2{font:900 clamp(32px,4vw,64px)/.96 var(--font-display);letter-spacing:-.04em;text-transform:uppercase}
 .section-head p{margin-top:20px;color:var(--muted);font-size:17px;max-width:74ch}
 .section-head p strong{color:var(--text);font-weight:700}
+
+/* ---------- film ---------- */
+#film{background:var(--paper-2)}
+.film{display:grid;grid-template-columns:minmax(0,1fr)}
+@media (min-width:1100px){.film{grid-template-columns:minmax(0,1fr) minmax(300px,.34fr)}.film>*+*{border-left:var(--rule) solid var(--ink)}}
+@media (max-width:1099px){.film>*+*{border-top:var(--rule) solid var(--ink)}}
+.film-frame{padding:var(--gutter)}
+.film-frame video{display:block;width:100%;height:auto;aspect-ratio:16/9;background:var(--ink);border:var(--rule) solid var(--ink)}
+.film-side{padding:var(--gutter);display:flex;flex-direction:column;gap:18px}
+.film-side h3{font:900 24px/1.05 var(--font-display);letter-spacing:-.03em;text-transform:uppercase}
+.film-side p{color:var(--muted);font-size:15px}
+.film-side dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font:500 13px/1.5 var(--font-mono)}
+.film-side dt{color:var(--dim);text-transform:uppercase;letter-spacing:.08em;font:800 10px/2 var(--font-display)}
+.film-side dd{color:var(--text)}
+.film-side .hero-ctas{margin-top:auto}
 
 /* ---------- start here ---------- */
 .start-cols{display:grid;grid-template-columns:minmax(0,1fr);border-top:var(--rule) solid var(--ink)}
@@ -369,6 +389,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
   <div class="nav">
     <a class="wordmark" href="#">postflop<span class="tick" aria-hidden="true"></span></a>
     <nav class="nav-links" aria-label="Sections">
+      <a class="hide-sm" href="#film">Film</a>
       <a class="hide-sm" href="#start">Start</a>
       <a class="hide-sm" href="#engine">Engine</a>
       <a class="hide-sm" href="#numbers">Numbers</a>
@@ -404,6 +425,36 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
       <span class="frame"><img src="screens/hero-grid.png" alt="The 13 by 13 strategy grid as the workbench renders it: a black slab of 169 cells on the Qs Jh 2h 8c turn, each cell inked with the out-of-position player's action frequencies" width="1080" height="1255" loading="eager"></span>
       <figcaption class="label">The 13×13, as it renders · Qs Jh 2h 8c turn, OOP strategy</figcaption>
     </figure>
+  </div>
+</section>
+
+<section id="film" aria-label="Launch film">
+  <div class="section-head wrap">
+    <h2>Seventy-seven seconds.</h2>
+    <p>The whole argument, filmed: why a solver that grades its own homework can be confidently wrong, and what it looks like to measure convergence instead. Product footage is a real screen recording of the workbench.</p>
+  </div>
+  <div class="film">
+    <div class="film-frame">
+      <video controls preload="none" playsinline poster="launch-poster.jpg" width="1920" height="1080" aria-label="postflop launch film">
+        <source src="launch.mp4" type="video/mp4">
+        <track kind="captions" srclang="en" label="English" src="launch.vtt" default>
+        Your browser does not play MP4. <a href="launch.mp4">Download the film</a>.
+      </video>
+    </div>
+    <div class="film-side">
+      <h3>What it covers</h3>
+      <p>The best-response calculator that measures exploitability separately from the solve. Walking the tree: per-hand strategies, EVs, blockers, every runout. The same Rust engine running in the browser as WebAssembly. Node locking. Then the source.</p>
+      <dl>
+        <dt>Runtime</dt><dd>1:17</dd>
+        <dt>Captions</dt><dd>English, on by default</dd>
+        <dt>Footage</dt><dd>Real workbench capture</dd>
+        <dt>Narration</dt><dd>Text-to-speech</dd>
+      </dl>
+      <div class="hero-ctas">
+        <a class="cta-hi" href="https://postflop-workbench.vercel.app">Open the workbench</a>
+        <a class="cta-flat" href="https://github.com/ucsandman/postflop/tree/main/web/public/marketing">Media kit</a>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -744,7 +795,8 @@ solver solve --config spot.toml \
       <a href="https://postflop-workbench.vercel.app/?tour=1">Guided tour</a>
       <a href="https://github.com/ucsandman/postflop">GitHub repository</a>
       <a href="https://github.com/ucsandman/postflop#quick-start">Documentation</a>
-      <a href="https://github.com/ucsandman/postflop/blob/master/LICENSE">License</a>
+      <a href="https://github.com/ucsandman/postflop/tree/main/web/public/marketing">Media kit</a>
+      <a href="https://github.com/ucsandman/postflop/blob/main/LICENSE">License</a>
     </nav>
   </div>
   <div class="statusbar">

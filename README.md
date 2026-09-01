@@ -1,16 +1,57 @@
-# postflop
+<p align="center">
+  <img src="web/public/marketing/readme.gif" width="600" height="315" alt="postflop: exploitability falling from 0.40% to 0.12% of pot, every report tagged [measured]">
+</p>
 
-A heads-up no-limit hold'em **postflop GTO solver**: a Rust engine implementing
-vector-form Discounted CFR with a full best-response exploitability calculator,
-a native CLI, WebAssembly bindings, and a browser workbench for inspecting
-solutions.
+<h1 align="center">postflop</h1>
 
-**Live:** [postflop.vercel.app](https://postflop.vercel.app) ·
-try the [hosted workbench](https://postflop-workbench.vercel.app), no install needed.
+<p align="center"><strong>A heads-up no-limit hold'em postflop GTO solver whose convergence is measured, never asserted.</strong></p>
 
-![Inspector — 13x13 strategy grid with per-combo breakdown](web/docs/screens/01-inspector-grid.png)
+<p align="center">
+  <a href="https://postflop-workbench.vercel.app">Workbench</a> ·
+  <a href="https://postflop.vercel.app">Site</a> ·
+  <a href="https://postflop.vercel.app/#film">Launch film (1:17)</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#correctness">Correctness</a> ·
+  <a href="#measured-performance">Benchmarks</a>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-101010?labelColor=FFE000&style=flat-square" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/engine-Rust-101010?labelColor=FFE000&style=flat-square" alt="Rust engine">
+  <img src="https://img.shields.io/badge/runs_in-browser_(WASM)-101010?labelColor=FFE000&style=flat-square" alt="Runs in the browser via WebAssembly">
+  <img src="https://img.shields.io/badge/estimated_figures-0-101010?labelColor=FFE000&style=flat-square" alt="Zero estimated figures">
+</p>
+
+A Rust engine implementing vector-form Discounted CFR with a full best-response
+exploitability calculator, a native CLI, WebAssembly bindings, and a browser
+workbench for inspecting solutions. Solve a spot in the browser with nothing to
+install, or run the same engine on every core from the command line and open
+the result anywhere.
+
+Most solvers tell you they converged. This one runs a separate best-response
+calculator against the current average strategy at every report interval and
+prints what a perfect opponent could still win, in chips and as a percentage of
+the pot. The `[measured]` tag in its output is literal.
+
+## Contents
+
+- [What it does](#what-it-does)
+- [Workspace](#workspace)
+- [Quick start](#quick-start)
+  - [Solve a spot](#solve-a-spot)
+  - [Node locking](#node-locking)
+  - [Inspect a solution](#inspect-a-solution)
+  - [Browser workbench](#browser-workbench)
+- [Correctness](#correctness)
+- [Measured performance](#measured-performance)
+- [Tests](#tests)
+- [Media kit](#media-kit)
+- [Not yet implemented](#not-yet-implemented)
+- [License](#license)
 
 ## What it does
+
+![Inspector: 13x13 strategy grid with per-combo breakdown](web/docs/screens/01-inspector-grid.png)
 
 Give it a flop, turn, or river spot — board, both ranges, stacks, pot, bet
 sizings — and it computes an approximate Nash equilibrium with a **measured
@@ -248,6 +289,19 @@ cd web && npm test               # web unit tests (grid/range/trainer/config mat
 cargo test -p engine --release verify_1m -- --ignored --nocapture   # evaluator vs oracle, 1M hands
 cargo test -p engine --release milestone4 -- --ignored --nocapture  # full flop solve (~3 min, ~1.5 GB)
 ```
+
+## Media kit
+
+Everything for writing about or presenting postflop lives in
+[`web/public/marketing/`](web/public/marketing/): the 77-second launch film
+with captions, a 3-second logo reveal, short clips cut for X and LinkedIn, the
+1200x630 link-preview image and its 8-second loop, 18 stat cards (one per proof
+point, square and 4:5), and a paste-ready postkit per platform with caption,
+alt text, and thumbnail. Every number in the copy traces to a benchmark in
+this README. The narration and music are synthetic; the product footage is a
+real screen recording. See the folder's
+[README](web/public/marketing/README.md) and
+[DISCLOSURE](web/public/marketing/postkit/DISCLOSURE.md) before publishing.
 
 ## Not yet implemented
 
