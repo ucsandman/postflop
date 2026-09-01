@@ -9,8 +9,8 @@ footage is a real screen recording of the workbench at commit 2245821.
 | --- | --- | --- |
 | `launch.mp4` | 77s launch film, 1920x1080, VO + music, mastered to -14 LUFS | Hero video on the landing page, YouTube, LinkedIn native upload |
 | `logo-reveal.mp4` | 3s spade + wordmark reveal | Video intros, stings |
-| `social-x.mp4` | 10s silent clip: hook headline, convergence plate, CTA block | X post attachment (or use `postkit/x/`) |
-| `social-linkedin.mp4` | 10s silent clip: "Convergence is measured, never asserted.", node-lock plate, CTA | LinkedIn post attachment (or use `postkit/linkedin/`) |
+| `social-x.mp4` | 10s clip: hook headline, convergence plate, CTA block; music bed plus the hook VO line, -14 LUFS | X post attachment (or use `postkit/x/`). VO is text-to-speech: disclose in copy |
+| `social-linkedin.mp4` | 10s clip: "Convergence is measured, never asserted.", node-lock plate, CTA; music bed plus the node-lock VO line | LinkedIn post attachment (or use `postkit/linkedin/`). VO is text-to-speech: disclose in copy |
 | `og.png` | 1200x630 link-preview image | `og:image` and `twitter:image` |
 | `og.mp4` | 8s seamless 1200x630 loop | Animated hero or social embed where video previews are supported |
 | `readme.gif` | 600x315 loop, 3 MB | GitHub README |

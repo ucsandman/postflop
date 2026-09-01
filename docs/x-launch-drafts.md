@@ -35,9 +35,12 @@ First reply (your own, right after posting):
 Solve a spot in the browser, no signup: https://postflop.vercel.app?utm_source=x&utm_medium=video&utm_campaign=postflop
 Source, MIT: https://github.com/ucsandman/postflop
 
-Attach: web/public/marketing/postkit/x/social-16x9.mp4 (10s, silent, no disclosure
-needed). If you attach the launch film instead (VO is text-to-speech), add one line
-such as "Narration is TTS." per postkit/DISCLOSURE.md.
+Attach: web/public/marketing/postkit/x/social-16x9.mp4 (10s, music bed plus the hook
+VO line, mastered to -14 LUFS). The narration is text-to-speech, so the first reply
+carries the disclosure line below per postkit/DISCLOSURE.md. A muted twin
+(social-16x9-silent.mp4) sits beside it for embeds that autoplay without sound.
+
+Disclosure line for the first reply: Narration in the clip is text to speech.
 
 ## Option B: three-post thread (more room for receipts)
 
