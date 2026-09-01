@@ -4,12 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import RangeEditor from "@/components/RangeEditor";
 import {
   DEFAULT_FORM,
+  EMPTY_CONTEXT,
   HARD_BYTES,
   type NodeLock,
   PRESETS,
   SEATS,
   STREETS,
+  type SeatProfile,
   SolveForm,
+  type SpotContext,
   WARN_BYTES,
   findPresetId,
   loadForm,
@@ -30,7 +33,7 @@ interface Report {
 type Gate = null | "warn" | "hard";
 
 interface Props {
-  onSolved: (json: string, wall: number) => void;
+  onSolved: (json: string, wall: number, context: SpotContext) => void;
   /** Nodes the inspector asked to freeze; emitted as `[[locks]]` on the next solve. */
   locks: NodeLock[];
   onRemoveLock: (line: string) => void;
@@ -151,7 +154,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
         (r) => setReports((prev) => [...prev, r]),
       );
       setWall(res.wall ?? 0);
-      onSolved(res.json!, res.wall ?? 0);
+      onSolved(res.json!, res.wall ?? 0, form.context ?? EMPTY_CONTEXT);
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     } finally {
@@ -257,6 +260,79 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
             value={form.ip_range}
             onChange={(range) => edit((f) => ({ ...f, ip_range: range }))}
           />
+        </div>
+
+        <div className="mt-4">
+          <div className="mb-1.5 flex items-baseline gap-2">
+            <span className="label">table context</span>
+            <span className="text-[11px] text-dim">
+              display only — positions and the player profile each range models. The engine
+              solves the ranges; this labels where they came from.
+            </span>
+          </div>
+          <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+            {SEATS.map((seat) => {
+              const prof = (form.context ?? EMPTY_CONTEXT)[seat];
+              const setProf = (patch: Partial<SeatProfile>) =>
+                setForm((f) => {
+                  const ctx = structuredClone(f.context ?? EMPTY_CONTEXT);
+                  ctx[seat] = { ...ctx[seat], ...patch };
+                  return { ...f, context: ctx };
+                });
+              return (
+                <div key={seat} className="rounded border border-line-soft p-2">
+                  <div className="label mb-1 text-accent-dim">{seat.toUpperCase()}</div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <label className="grid gap-0.5">
+                      <span className="label">position</span>
+                      <input
+                        type="text"
+                        data-testid={`ctx-${seat}-pos`}
+                        value={prof.pos}
+                        placeholder={seat.toUpperCase()}
+                        onChange={(e) => setProf({ pos: e.target.value })}
+                      />
+                    </label>
+                    <label className="grid gap-0.5">
+                      <span className="label">VPIP %</span>
+                      <input
+                        type="text"
+                        data-testid={`ctx-${seat}-vpip`}
+                        value={prof.vpip}
+                        placeholder="—"
+                        onChange={(e) => setProf({ vpip: e.target.value })}
+                      />
+                    </label>
+                    <label className="grid gap-0.5">
+                      <span className="label">PFR %</span>
+                      <input
+                        type="text"
+                        data-testid={`ctx-${seat}-pfr`}
+                        value={prof.pfr}
+                        placeholder="—"
+                        onChange={(e) => setProf({ pfr: e.target.value })}
+                      />
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <label className="mt-2 grid gap-0.5">
+            <span className="label">preflop action</span>
+            <input
+              type="text"
+              data-testid="ctx-preflop"
+              value={(form.context ?? EMPTY_CONTEXT).preflop}
+              placeholder="e.g. BTN opens 2.5bb, BB calls"
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  context: { ...structuredClone(f.context ?? EMPTY_CONTEXT), preflop: e.target.value },
+                }))
+              }
+            />
+          </label>
         </div>
 
         <div className="mt-4">

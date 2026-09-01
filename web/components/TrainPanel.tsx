@@ -23,7 +23,8 @@ import {
   type HandRecord,
   type Rng,
 } from "@/lib/trainer";
-import type { Combo, NodeAction, NodeInfo } from "@/lib/types";
+import type { SpotContext } from "@/lib/config";
+import type { Combo, Meta, NodeAction, NodeInfo } from "@/lib/types";
 import { PLAYER_NAMES } from "@/lib/types";
 import type { SolutionHandle } from "@/lib/wasm";
 
@@ -176,11 +177,13 @@ function makeSpot(
 
 interface Props {
   handle: SolutionHandle | null;
+  /** Positions and modeled player profiles for the loaded spot; null for an opened file. */
+  spotContext: SpotContext | null;
   /** Bundled instant spots, so training can start with zero setup. */
   samples: { file: string; name: string; detail: string }[];
   onLoadSample: (file: string, name: string) => void;
   /** A solve finished inside this tab's own setup panel; the parent adopts it. */
-  onSolved: (json: string, wall: number) => void;
+  onSolved: (json: string, wall: number, context: SpotContext) => void;
   /** Jump the inspector to a played hand's node and grid cell. */
   onReview: (node: number, cell: { row: number; col: number }) => void;
   /** Injected so the dealer is deterministic in a test; the app passes Math.random. */
@@ -189,6 +192,7 @@ interface Props {
 
 export default function TrainPanel({
   handle,
+  spotContext,
   samples,
   onLoadSample,
   onSolved,
@@ -319,6 +323,18 @@ export default function TrainPanel({
     saveHistory([]);
   };
 
+  /** Starting stacks/pot from the solution itself, plus each range's width (share of all
+   *  1326 combos, weight-summed) — an honest per-spot VPIP analogue computed at the root. */
+  const spotInfo = useMemo(() => {
+    if (!handle) return null;
+    const meta = JSON.parse(handle.meta()) as Meta;
+    const width = (p: 0 | 1) => {
+      const cs = JSON.parse(handle.combos(0, p)) as Combo[];
+      return cs.reduce((sum, c) => sum + c.weight, 0) / 1326;
+    };
+    return { meta, widths: [width(0), width(1)] as [number, number] };
+  }, [handle]);
+
   const stats = useMemo(() => summarize(rows), [rows]);
   const listed = useMemo(
     () => (sortWorst ? [...rows].sort((a, b) => b.pctPot - a.pctPot) : rows),
@@ -424,9 +440,9 @@ export default function TrainPanel({
             locks={[]}
             onRemoveLock={() => {}}
             onClearLocks={() => {}}
-            onSolved={(json, wall) => {
+            onSolved={(json, wall, ctx) => {
               autoDeal.current = true;
-              onSolved(json, wall);
+              onSolved(json, wall, ctx);
             }}
           />
         </section>
@@ -457,9 +473,51 @@ export default function TrainPanel({
                       {spot.node.stacks[0].toFixed(2)} / {spot.node.stacks[1].toFixed(2)}
                     </span>
                   </span>
+                  {spotInfo && (
+                    <span className="num text-dim">
+                      started {spotInfo.meta.effective_stack.toFixed(1)} behind · pot{" "}
+                      {spotInfo.meta.starting_pot.toFixed(1)}
+                    </span>
+                  )}
                   <span className="num text-dim">
                     {spot.node.street} · node {spot.node.id}
                   </span>
+                </div>
+
+                <div
+                  data-testid="train-players"
+                  className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-line-soft px-3 py-2"
+                >
+                  {([0, 1] as const).map((p) => {
+                    const prof = spotContext?.[p === 0 ? "oop" : "ip"];
+                    const hasStats = !!prof && (prof.vpip !== "" || prof.pfr !== "");
+                    return (
+                      <span key={p} className="flex items-baseline gap-2">
+                        <span
+                          className={`label ${spot.hero === p ? "text-accent" : "text-accent-dim"}`}
+                        >
+                          {prof?.pos || PLAYER_NAMES[p]}
+                          {prof?.pos && prof.pos !== PLAYER_NAMES[p] ? ` (${PLAYER_NAMES[p]})` : ""}
+                          {spot.hero === p ? " · you" : ""}
+                        </span>
+                        {spotInfo && (
+                          <span className="num text-muted">
+                            range {(spotInfo.widths[p] * 100).toFixed(0)}% of hands
+                          </span>
+                        )}
+                        {hasStats && (
+                          <span className="num text-dim" title="the player profile these ranges model">
+                            {prof.vpip !== "" && `VPIP ${prof.vpip}`}
+                            {prof.vpip !== "" && prof.pfr !== "" && " / "}
+                            {prof.pfr !== "" && `PFR ${prof.pfr}`}
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })}
+                  {spotContext?.preflop && (
+                    <span className="text-[11px] text-dim">preflop: {spotContext.preflop}</span>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1 border-b border-line-soft px-3 py-2">

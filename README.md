@@ -175,7 +175,9 @@ On top of that:
 - **Trainer** — self-contained: pick a sample spot or set up any board, ranges
   and stacks right in the tab, and it starts dealing the moment the solve
   converges. Answer and get graded by EV loss (Best → Blunder tiers) with a
-  running session score and a worst-hands-first review list. Filters for seat,
+  running session score and a worst-hands-first review list. Every spot shows
+  its table context — positions, starting stacks, the preflop action, live
+  range widths, and the VPIP/PFR profile each range models. Filters for seat,
   "close decisions only", and an exact hand of your choice (type `AhKd` and
   every deal holds it).
 - **Node locking** — lock the inspected node to its displayed strategy, then

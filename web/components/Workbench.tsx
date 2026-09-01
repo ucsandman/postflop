@@ -18,7 +18,7 @@ import {
   buildRunoutHotness,
   rangeFreqs,
 } from "@/lib/grid";
-import { lineOf, spotKey, type NodeLock } from "@/lib/config";
+import { PRESETS, lineOf, spotKey, type NodeLock, type SpotContext } from "@/lib/config";
 import type { Combo, Meta, NodeAction, NodeInfo, PathStep, RootEvs } from "@/lib/types";
 import { PLAYER_NAMES } from "@/lib/types";
 import { loadWasm, type SolutionHandle } from "@/lib/wasm";
@@ -65,13 +65,28 @@ function findHeroPlayer(handle: SolutionHandle, startNodeId: number): 0 | 1 {
 }
 
 const SAMPLES = [
-  { file: "fixture-turn.json", name: "Turn spot", detail: "Qs Jh 2h 8c · 772 decision nodes" },
-  { file: "fixture-river.json", name: "River spot", detail: "Ks 7d 2c 8h 3d · 5 decision nodes" },
+  {
+    file: "fixture-turn.json",
+    name: "Turn spot",
+    detail: "Qs Jh 2h 8c · 772 decision nodes",
+    // The bundled fixtures were solved from these presets, so the presets' table
+    // context (positions, modeled profiles) is the fixtures' context too.
+    context: PRESETS.find((p) => p.id === "turn-fixture")?.form.context ?? null,
+  },
+  {
+    file: "fixture-river.json",
+    name: "River spot",
+    detail: "Ks 7d 2c 8h 3d · 5 decision nodes",
+    context: PRESETS.find((p) => p.id === "river-drill")?.form.context ?? null,
+  },
 ];
 
 export default function Workbench() {
   const [handle, setHandle] = useState<SolutionHandle | null>(null);
   const [source, setSource] = useState<string>("");
+  /** Table context of the loaded spot — positions and modeled player profiles. Known for
+   *  samples and browser solves; `null` for an opened file, which carries no story. */
+  const [spotContext, setSpotContext] = useState<SpotContext | null>(null);
   const [nodeId, setNodeId] = useState(0);
   const [path, setPath] = useState<PathStep[]>([]);
   const [selected, setSelected] = useState<{ row: number; col: number } | null>(null);
@@ -160,6 +175,7 @@ export default function Workbench() {
       const res = await fetch(`/fixtures/${file}`);
       if (!res.ok) throw new Error(`could not fetch ${file}: HTTP ${res.status}`);
       await adopt(await res.text(), name, keepTab);
+      setSpotContext(SAMPLES.find((s) => s.file === file)?.context ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setLoading(false);
@@ -169,6 +185,7 @@ export default function Workbench() {
   const onFile = async (f: File | undefined) => {
     if (!f) return;
     await adopt(await f.text(), f.name);
+    setSpotContext(null);
     if (fileInput.current) fileInput.current.value = "";
   };
 
@@ -457,7 +474,10 @@ export default function Workbench() {
           locks={locks}
           onRemoveLock={(l) => setLocks((ls) => ls.filter((x) => x.line !== l))}
           onClearLocks={() => setLocks([])}
-          onSolved={(json, wall) => adopt(json, `browser solve (${wall.toFixed(2)}s)`)}
+          onSolved={(json, wall, ctx) => {
+            setSpotContext(ctx);
+            return adopt(json, `browser solve (${wall.toFixed(2)}s)`);
+          }}
         />
       </div>
       {/* Kept mounted for the same reason as the solve panel: switching to the inspector
@@ -465,9 +485,13 @@ export default function Workbench() {
       <div hidden={tab !== "train"}>
         <TrainPanel
           handle={handle}
+          spotContext={spotContext}
           samples={SAMPLES}
           onLoadSample={(file, name) => void loadSample(file, name, true)}
-          onSolved={(json, wall) => adopt(json, `browser solve (${wall.toFixed(2)}s)`, true)}
+          onSolved={(json, wall, ctx) => {
+            setSpotContext(ctx);
+            return adopt(json, `browser solve (${wall.toFixed(2)}s)`, true);
+          }}
           onReview={(node, cell) => {
             setNodeId(node);
             setPath([]);

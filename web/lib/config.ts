@@ -21,7 +21,32 @@ export interface SolveForm {
   target_pct: string;
   report_every: string;
   sizings: SizingGrid;
+  /** Table context the engine never sees — positions and the modeled player profiles.
+   *  Display-only: `toToml` ignores it, so old saved forms without it load fine. */
+  context?: SpotContext;
 }
+
+/** The profile one seat's range models. `vpip`/`pfr` are display strings ("24"), empty
+ *  when nothing is modeled — the engine solves ranges, these label where they came from. */
+export interface SeatProfile {
+  /** Table position, e.g. "BTN", "BB" — or "OOP"/"IP" when there is no story. */
+  pos: string;
+  vpip: string;
+  pfr: string;
+}
+
+export interface SpotContext {
+  oop: SeatProfile;
+  ip: SeatProfile;
+  /** The preflop action that produced these ranges, e.g. "BTN opens 2.5bb, BB calls". */
+  preflop: string;
+}
+
+export const EMPTY_CONTEXT: SpotContext = {
+  oop: { pos: "OOP", vpip: "", pfr: "" },
+  ip: { pos: "IP", vpip: "", pfr: "" },
+  preflop: "",
+};
 
 const emptySizings = (): SizingGrid => ({
   oop: { flop: { bet: "", raise: "" }, turn: { bet: "", raise: "" }, river: { bet: "", raise: "" } },
@@ -82,6 +107,11 @@ export const PRESETS: Preset[] = [
       target_pct: "0.5",
       report_every: "50",
       sizings: standardSizings(),
+      context: {
+        ip: { pos: "BTN", vpip: "24", pfr: "19" },
+        oop: { pos: "BB", vpip: "28", pfr: "13" },
+        preflop: "BTN opens 2.5bb, BB calls",
+      },
     },
   },
   {
@@ -98,6 +128,11 @@ export const PRESETS: Preset[] = [
       target_pct: "0.5",
       report_every: "50",
       sizings: standardSizings(),
+      context: {
+        oop: { pos: "CO", vpip: "23", pfr: "18" },
+        ip: { pos: "BTN", vpip: "26", pfr: "17" },
+        preflop: "CO opens 2.5bb, BTN calls",
+      },
     },
   },
   {
@@ -114,6 +149,11 @@ export const PRESETS: Preset[] = [
       target_pct: "0.5",
       report_every: "50",
       sizings: standardSizings(),
+      context: {
+        ip: { pos: "SB", vpip: "48", pfr: "32" },
+        oop: { pos: "BB", vpip: "42", pfr: "14" },
+        preflop: "Heads-up: SB (button) raises 3x, BB calls",
+      },
     },
   },
   {
@@ -130,6 +170,11 @@ export const PRESETS: Preset[] = [
       target_pct: "0.5",
       report_every: "50",
       sizings: standardSizings(),
+      context: {
+        oop: { pos: "BB", vpip: "27", pfr: "15" },
+        ip: { pos: "BTN", vpip: "25", pfr: "20" },
+        preflop: "BTN opens 2.5bb, BB 3-bets to 9bb, BTN calls",
+      },
     },
   },
   {
@@ -156,6 +201,11 @@ export const PRESETS: Preset[] = [
         s.ip.river.bet = "75+";
         return s;
       })(),
+      context: {
+        oop: { pos: "OOP", vpip: "", pfr: "" },
+        ip: { pos: "IP", vpip: "", pfr: "" },
+        preflop: "Hand-written study ranges — no preflop story",
+      },
     },
   },
   {
@@ -178,6 +228,11 @@ export const PRESETS: Preset[] = [
         s.ip.river.raise = "100";
         return s;
       })(),
+      context: {
+        oop: { pos: "OOP", vpip: "", pfr: "" },
+        ip: { pos: "IP", vpip: "", pfr: "" },
+        preflop: "Constructed drill: polarized range against a capped one",
+      },
     },
   },
 ];
