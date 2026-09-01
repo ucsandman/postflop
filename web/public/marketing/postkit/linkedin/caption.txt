@@ -1,0 +1,3 @@
+Convergence is measured, never asserted.
+
+An open-source heads-up no-limit hold'em solver that shows its work: best-response exploitability, an oracle-verified evaluator, one engine from CLI to browser.
