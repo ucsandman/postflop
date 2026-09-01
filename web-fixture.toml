@@ -1,0 +1,20 @@
+board = "Qs Jh 2h 8c"
+oop_range = "22+,ATs+,KTs+,QTs+,JTs,T9s,98s,ATo+,KJo+"
+ip_range = "66+,A9s+,KTs+,QTs+,JTs,ATo+,KQo"
+effective_stack = 40.0
+starting_pot = 6.0
+max_iterations = 600
+
+[sizings.oop.flop]
+bet = { percents = [50.0], allin = false }
+[sizings.oop.turn]
+bet = { percents = [75.0], allin = false }
+[sizings.oop.river]
+bet = { percents = [75.0], allin = true }
+[sizings.ip.flop]
+bet = { percents = [50.0], allin = false }
+raise = { percents = [60.0], allin = false }
+[sizings.ip.turn]
+bet = { percents = [75.0], allin = false }
+[sizings.ip.river]
+bet = { percents = [75.0], allin = true }
