@@ -81,21 +81,56 @@ pub fn exploitability<G: Game, P: StrategyProfile>(game: &G, profile: &P) -> Exp
     ExploitReport { br, chips, pct_of_pot: 100.0 * chips / game.root_pot() }
 }
 
-fn root_value<G: Game, P: StrategyProfile>(game: &G, hero: u8, profile: &P, maximize: bool) -> f32 {
-    let root = game.root();
-    let opp = 1 - hero;
-    let hn = game.combo_count(root, hero);
-    let on = game.combo_count(root, opp);
+/// Hero's per-combo counterfactual value vector for the subtree rooted at `node`.
+///
+/// `opp_reach` is the opponent's reach vector *at `node`* (range weights times every
+/// opponent action probability and chance weight on the path to it), length
+/// `combo_count(node, 1 - hero)`; `out` has `combo_count(node, hero)` entries and is
+/// overwritten. `maximize` picks between best-responding at hero's nodes and following
+/// `profile` there.
+///
+/// Values are raw counterfactual chips — not divided by [`Game::normalizer`] and not by
+/// the opponent mass compatible with each hero combo. Divide by the latter to get a
+/// per-combo EV, or dot with hero's own reach and divide by the normalizer to get a
+/// scalar in chips per hand (which is what [`expected_value`] does).
+pub fn subtree_values<G: Game, P: StrategyProfile>(
+    game: &G,
+    node: u32,
+    hero: u8,
+    profile: &P,
+    opp_reach: &[f32],
+    maximize: bool,
+    out: &mut [f32],
+) {
+    debug_assert_eq!(opp_reach.len(), game.combo_count(node, 1 - hero));
+    debug_assert_eq!(out.len(), game.combo_count(node, hero));
+    let (on, hn) = (opp_reach.len(), out.len());
 
     let mut br = Br { game, profile, scratch: Scratch::new(), maximize };
     let o_off = br.scratch.alloc(on);
-    let out = br.scratch.alloc(hn);
-    br.scratch.buf[o_off..o_off + on].copy_from_slice(game.root_weights(opp));
-    br.walk(root, hero, o_off, on, out, hn);
+    let v_off = br.scratch.alloc(hn);
+    br.scratch.buf[o_off..o_off + on].copy_from_slice(opp_reach);
+    br.walk(node, hero, o_off, on, v_off, hn);
+    out.copy_from_slice(&br.scratch.buf[v_off..v_off + hn]);
+}
+
+fn root_value<G: Game, P: StrategyProfile>(game: &G, hero: u8, profile: &P, maximize: bool) -> f32 {
+    let root = game.root();
+    let hn = game.combo_count(root, hero);
+    let mut values = vec![0.0f32; hn];
+    subtree_values(
+        game,
+        root,
+        hero,
+        profile,
+        game.root_weights(1 - hero),
+        maximize,
+        &mut values,
+    );
 
     let mut total = 0.0f32;
     for (i, &wi) in game.root_weights(hero).iter().take(hn).enumerate() {
-        total += wi * br.scratch.buf[out + i];
+        total += wi * values[i];
     }
     total / game.normalizer()
 }

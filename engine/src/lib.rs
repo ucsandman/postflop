@@ -8,5 +8,6 @@ pub mod games;
 pub mod iso;
 pub mod nlhe;
 pub mod range;
+pub mod solution;
 pub mod terminal;
 pub mod tree;

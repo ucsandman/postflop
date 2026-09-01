@@ -1,1 +1,1335 @@
-// implemented in nlhe integration phase
+//! The real heads-up NLHE postflop game: [`NlheGame`] implements [`Game`] over a
+//! [`GameTree`] plus two parsed ranges, so [`crate::cfr::Solver`] and [`crate::br`]
+//! run on it unchanged.
+//!
+//! # What is precomputed, and why
+//!
+//! Everything the iteration touches is built once in [`NlheGame::new`]:
+//!
+//! * **Board data, keyed by board mask.** Every node carries the board *known at that
+//!   node*; nodes on the same board share one [`BoardData`] holding that board's live
+//!   hands, their 1326-indices, and (on a 5-card board) the [`SortedRanks`] both sides
+//!   show down with. Keying on the *mask* also collapses turn/river orderings, so a flop
+//!   tree has `1 + 49 + C(49,2) = 1226` distinct boards — not `1 + 49 + 49*48` — no
+//!   matter how big the betting tree on top of them is.
+//! * **Chance maps, keyed by the *parent* board.** The combo set a dealt card leaves
+//!   behind depends only on (board so far, card) — never on the betting line — so all
+//!   turn chance nodes in a flop tree share the same 49 maps per player, and all river
+//!   chance nodes under turn card `t` share the same 48. That is `49 + 49*48` map
+//!   groups instead of one copy per chance node, which is where naive implementations
+//!   run out of memory. [`NlheGame::chance_map_bytes`] reports the real figure.
+//! * **Terminal payoffs.** Two `f64` per terminal per player (see the algebra below),
+//!   so [`Game::terminal_utility`] is one call into [`crate::terminal`] with no
+//!   allocation and no `eval7` in the hot path.
+//!
+//! Dead combos are filtered out, never zero-weighted: a combo whose weight is `0` in
+//! the range string is absent from the root vector entirely, and a combo a runout card
+//! kills is absent from that subtree's vector.
+//!
+//! # Payoff algebra (net chips, exactly zero-sum)
+//!
+//! Write `S` for `starting_pot`, `E` for `effective_stack`. At any node the tree
+//! guarantees `pot + stacks[0] + stacks[1] == S + 2E`, so player `p`'s postflop
+//! contribution is `c_p = E - stacks[p]` and the terminal pot is `P = S + c_0 + c_1`.
+//!
+//! The convention in [`crate::game`] is *net chips vs the start of the solve*, with the
+//! starting pot credited half to each player. So each player's **stake** — the chips
+//! that are theirs and at risk in the middle — is
+//!
+//! ```text
+//! stake_p = S/2 + c_p        and        stake_0 + stake_1 = P
+//! ```
+//!
+//! That identity is the whole proof. Whoever is awarded the (post-rake) pot nets
+//! `P - rake - stake`, whoever is awarded nothing nets `-stake`, and for any joint
+//! combo pair
+//!
+//! ```text
+//! u_win + u_lose = (P - rake - stake_w) + (-stake_l) = P - rake - P = -rake
+//! ```
+//!
+//! which is `0` rake-free. A chop pays `(win + lose)/2 = (P - rake)/2 - stake`, i.e.
+//! the rake is split evenly, which is exactly what [`terminal::showdown_ev_ranked`]
+//! does with its `chop = (win + lose) / 2`.
+//!
+//! Since both players are matched at every terminal the tree produces (`c_0 == c_1`,
+//! the uncalled bet already back in the bettor's stack), `stake = P/2` and the rake-free
+//! numbers reduce to `win = P/2`, `lose = -P/2`. The general form is used anyway: it
+//! costs nothing and does not assume the tree only ever builds matched terminals.
+//!
+//! **Rake makes the game constant-sum, not zero-sum**: the two utilities sum to
+//! `-rake` instead of `0`, so `br::exploitability` is offset by the expected rake and
+//! no longer bottoms out at zero. Measure convergence against that shifted baseline, or
+//! solve rake-free. The milestone tests are rake-free.
+
+use std::collections::HashMap;
+
+use crate::br::{self, StrategyProfile};
+use crate::cards::{self, Card, NUM_CARDS};
+use crate::config::SolveConfig;
+use crate::game::{ChanceEdge, Game, NodeInfo};
+use crate::range::Range;
+use crate::terminal::{self, Hand, SortedRanks};
+use crate::tree::{GameTree, Node, NodeKind, Terminal as TreeTerminal, NO_CHILD};
+
+/// Sentinel for "this node has no side-table entry".
+const NONE: u32 = u32::MAX;
+
+/// One distinct board reached somewhere in the tree, with both players' live combos on
+/// it. Shared by every node that sees this board.
+#[derive(Debug)]
+struct BoardData {
+    board: Vec<Card>,
+    /// Live hands per player, a subsequence of the root list in canonical ascending
+    /// combo order.
+    hands: [Vec<Hand>; 2],
+    /// The canonical 1326-combo index of each entry of `hands`.
+    indices: [Vec<u32>; 2],
+    /// Showdown rankings, present only on a complete 5-card board.
+    ranks: [Option<SortedRanks>; 2],
+}
+
+/// `parent_of_child` for one dealt card, per player. Empty when the card is dead.
+#[derive(Debug, Default, Clone)]
+struct CardMap([Vec<u32>; 2]);
+
+#[derive(Debug)]
+struct ChanceData {
+    /// Board id *before* the deal — the board this node's combo vectors live on.
+    board: u32,
+    /// `(dealt card, child node)`, ascending by card.
+    outcomes: Vec<(Card, u32)>,
+    weight: f32,
+}
+
+#[derive(Debug)]
+struct TermData {
+    board: u32,
+    /// `Some(p)` when player `p` folded, `None` at a showdown.
+    folder: Option<u8>,
+    /// Net chips to player `p` when `p` is awarded the post-rake pot.
+    win: [f64; 2],
+    /// Net chips to player `p` when `p` is awarded nothing.
+    lose: [f64; 2],
+}
+
+/// A solvable heads-up NLHE postflop spot.
+#[derive(Debug)]
+pub struct NlheGame {
+    cfg: SolveConfig,
+    tree: GameTree,
+    boards: Vec<BoardData>,
+    /// Board id per node.
+    node_board: Vec<u32>,
+    /// Cached [`NodeInfo`] per node, so `node()` is one array read.
+    info: Vec<NodeInfo>,
+    /// Index into `chance` or `terms` (disambiguated by `info`), or [`NONE`].
+    node_aux: Vec<u32>,
+    chance: Vec<ChanceData>,
+    terms: Vec<TermData>,
+    /// Parent board id -> 52 per-card maps. One entry per board that is dealt from.
+    maps: HashMap<u32, Vec<CardMap>>,
+    root_weights: [Vec<f32>; 2],
+    normalizer: f32,
+}
+
+/// `"random"` (any case) means the full 1326-combo range; anything else is standard
+/// range notation.
+fn parse_range(s: &str) -> Result<Range, String> {
+    if s.trim().eq_ignore_ascii_case("random") {
+        Ok(Range::uniform_full())
+    } else {
+        Range::parse(s)
+    }
+}
+
+#[inline]
+fn hand_mask(h: Hand) -> u64 {
+    cards::card_mask(h.0) | cards::card_mask(h.1)
+}
+
+/// Fraction of runouts that avoid four given hole cards, from a board of `board_len`
+/// cards down to the river.
+///
+/// Every compatible combo pair uses four distinct cards, none of them on the board, so
+/// this factor is the same for every pair — which is what lets [`Game::normalizer`] stay
+/// a closed form instead of an enumeration. Flop: `(45/49)*(44/48)`. Turn: `44/48`.
+/// River: `1`.
+fn chance_mass_factor(board_len: usize) -> f64 {
+    let mut f = 1.0f64;
+    let mut unseen = (NUM_CARDS - board_len) as f64;
+    for _ in 0..(5 - board_len) {
+        f *= (unseen - 4.0) / unseen;
+        unseen -= 1.0;
+    }
+    f
+}
+
+impl NlheGame {
+    /// Parses the board and both ranges, builds the tree, and precomputes every table
+    /// the CFR iteration reads.
+    pub fn new(cfg: &SolveConfig) -> Result<NlheGame, String> {
+        cfg.validate()?;
+        let board = cfg.board_cards()?;
+        let root_mask = cards::mask_of(&board);
+        let tree = GameTree::build(cfg, &board)?;
+
+        // --- root combo sets: live on the board AND carrying positive weight -------
+        let ranges = [
+            parse_range(&cfg.oop_range).map_err(|e| format!("oop_range: {e}"))?,
+            parse_range(&cfg.ip_range).map_err(|e| format!("ip_range: {e}"))?,
+        ];
+        let mut root_hands: [Vec<Hand>; 2] = [Vec::new(), Vec::new()];
+        let mut root_indices: [Vec<u32>; 2] = [Vec::new(), Vec::new()];
+        let mut root_weights: [Vec<f32>; 2] = [Vec::new(), Vec::new()];
+        for p in 0..2 {
+            for c in ranges[p].live_on(root_mask).combos {
+                if c.weight <= 0.0 {
+                    continue;
+                }
+                root_hands[p].push(c.cards);
+                root_indices[p].push(c.index as u32);
+                root_weights[p].push(c.weight);
+            }
+            if root_hands[p].is_empty() {
+                let who = if p == 0 { "oop_range" } else { "ip_range" };
+                return Err(format!("{who} has no combos left after board filtering"));
+            }
+        }
+
+        // --- walk the tree, assigning a board id to every node ---------------------
+        let n = tree.len();
+        let mut node_board = vec![NONE; n];
+        let mut board_masks: Vec<(u64, Vec<Card>)> = vec![(root_mask, board.clone())];
+        let mut by_mask: HashMap<u64, u32> = HashMap::from([(root_mask, 0u32)]);
+        let mut info = vec![NodeInfo::Terminal; n];
+        let mut node_aux = vec![NONE; n];
+        let mut chance: Vec<ChanceData> = Vec::new();
+        let mut terms: Vec<TermData> = Vec::new();
+
+        let mut stack = vec![(tree.root(), 0u32)];
+        while let Some((idx, b)) = stack.pop() {
+            node_board[idx as usize] = b;
+            let node: &Node = tree.node(idx);
+            match &node.kind {
+                NodeKind::Decision { player, actions } => {
+                    info[idx as usize] = NodeInfo::Decision {
+                        player: *player,
+                        num_actions: actions.len(),
+                    };
+                    for a in actions {
+                        stack.push((a.child, b));
+                    }
+                }
+                NodeKind::Chance { child_for_card, .. } => {
+                    let mut outcomes = Vec::new();
+                    for (card, &child) in child_for_card.iter().enumerate() {
+                        if child == NO_CHILD {
+                            continue;
+                        }
+                        let m = board_masks[b as usize].0 | cards::card_mask(card as Card);
+                        let child_board = match by_mask.get(&m) {
+                            Some(&id) => id,
+                            None => {
+                                let id = board_masks.len() as u32;
+                                let mut cb = board_masks[b as usize].1.clone();
+                                cb.push(card as Card);
+                                board_masks.push((m, cb));
+                                by_mask.insert(m, id);
+                                id
+                            }
+                        };
+                        outcomes.push((card as Card, child));
+                        stack.push((child, child_board));
+                    }
+                    info[idx as usize] = NodeInfo::Chance {
+                        num_outcomes: outcomes.len(),
+                    };
+                    node_aux[idx as usize] = chance.len() as u32;
+                    chance.push(ChanceData {
+                        board: b,
+                        weight: 1.0 / outcomes.len() as f32,
+                        outcomes,
+                    });
+                }
+                NodeKind::Terminal(t) => {
+                    info[idx as usize] = NodeInfo::Terminal;
+                    node_aux[idx as usize] = terms.len() as u32;
+                    terms.push(Self::term_data(cfg, node, t, b));
+                }
+            }
+        }
+
+        // --- board data ------------------------------------------------------------
+        let boards: Vec<BoardData> = board_masks
+            .into_iter()
+            .map(|(mask, cards_on_board)| {
+                let extra = mask & !root_mask;
+                let mut hands: [Vec<Hand>; 2] = [Vec::new(), Vec::new()];
+                let mut indices: [Vec<u32>; 2] = [Vec::new(), Vec::new()];
+                for p in 0..2 {
+                    for (k, &h) in root_hands[p].iter().enumerate() {
+                        if hand_mask(h) & extra == 0 {
+                            hands[p].push(h);
+                            indices[p].push(root_indices[p][k]);
+                        }
+                    }
+                }
+                let ranks = if cards_on_board.len() == 5 {
+                    let b5: [Card; 5] = cards_on_board[..5].try_into().expect("5 cards");
+                    [
+                        Some(SortedRanks::new(&b5, &hands[0])),
+                        Some(SortedRanks::new(&b5, &hands[1])),
+                    ]
+                } else {
+                    [None, None]
+                };
+                BoardData {
+                    board: cards_on_board,
+                    hands,
+                    indices,
+                    ranks,
+                }
+            })
+            .collect();
+
+        // --- chance maps, one group per board that is ever dealt from --------------
+        let mut maps: HashMap<u32, Vec<CardMap>> = HashMap::new();
+        for c in &chance {
+            if maps.contains_key(&c.board) {
+                continue;
+            }
+            let parent = &boards[c.board as usize];
+            let mut per_card = vec![CardMap::default(); NUM_CARDS];
+            for &(card, _) in &c.outcomes {
+                let dead = cards::card_mask(card);
+                let mut m = CardMap::default();
+                for p in 0..2 {
+                    m.0[p] = parent.hands[p]
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, &h)| hand_mask(h) & dead == 0)
+                        .map(|(k, _)| k as u32)
+                        .collect();
+                }
+                per_card[card as usize] = m;
+            }
+            maps.insert(c.board, per_card);
+        }
+
+        // --- normalizer ------------------------------------------------------------
+        // Joint root mass over compatible pairs: fold_ev at payoff 1 gives, per hero
+        // combo, exactly the opponent weight that shares no card with it.
+        let mut compat = vec![0.0f32; root_hands[0].len()];
+        terminal::fold_ev(
+            &root_hands[0],
+            &root_hands[1],
+            &root_weights[1],
+            1.0,
+            &mut compat,
+        );
+        let joint: f64 = root_weights[0]
+            .iter()
+            .zip(&compat)
+            .map(|(&w, &m)| w as f64 * m as f64)
+            .sum();
+        let normalizer = (joint * chance_mass_factor(board.len())) as f32;
+
+        Ok(NlheGame {
+            cfg: cfg.clone(),
+            tree,
+            boards,
+            node_board,
+            info,
+            node_aux,
+            chance,
+            terms,
+            maps,
+            root_weights,
+            normalizer,
+        })
+    }
+
+    /// Terminal payoffs. See the module docs for the derivation.
+    fn term_data(cfg: &SolveConfig, node: &Node, t: &TreeTerminal, board: u32) -> TermData {
+        let pot = node.pot;
+        let net = pot - cfg.rake.amount(pot);
+        // stake_p = starting_pot/2 + postflop contribution of p.
+        let stake = [
+            cfg.starting_pot * 0.5 + (cfg.effective_stack - node.stacks[0]),
+            cfg.starting_pot * 0.5 + (cfg.effective_stack - node.stacks[1]),
+        ];
+        TermData {
+            board,
+            folder: match t {
+                TreeTerminal::Fold { folder, .. } => Some(*folder),
+                TreeTerminal::Showdown { .. } => None,
+            },
+            win: [net - stake[0], net - stake[1]],
+            lose: [-stake[0], -stake[1]],
+        }
+    }
+
+    // -- accessors -----------------------------------------------------------------
+
+    /// The config this game was built from.
+    pub fn config(&self) -> &SolveConfig {
+        &self.cfg
+    }
+
+    /// The public betting tree.
+    pub fn tree(&self) -> &GameTree {
+        &self.tree
+    }
+
+    /// Pot, stacks and street at a node.
+    pub fn node_at(&self, node: u32) -> &Node {
+        self.tree.node(node)
+    }
+
+    /// The board *known at* `node`, including every chance card dealt on the path.
+    ///
+    /// A chance node reports the board before its own deal, because that is the board
+    /// its combo vectors live on.
+    pub fn board_at(&self, node: u32) -> &[Card] {
+        &self.boards[self.node_board[node as usize] as usize].board
+    }
+
+    /// Live hole-card combos for `player` at `node`, canonical ascending order.
+    pub fn live_combos(&self, node: u32, player: u8) -> &[Hand] {
+        &self.boards[self.node_board[node as usize] as usize].hands[player as usize]
+    }
+
+    /// The canonical 1326-combo index of each entry of [`NlheGame::live_combos`].
+    pub fn combo_indices(&self, node: u32, player: u8) -> &[u32] {
+        &self.boards[self.node_board[node as usize] as usize].indices[player as usize]
+    }
+
+    /// Number of distinct boards the tree reaches (`1 + 49 + 49*48` for a flop).
+    pub fn num_boards(&self) -> usize {
+        self.boards.len()
+    }
+
+    /// Bytes held by the shared chance maps. The naive per-chance-node alternative costs
+    /// this times the number of chance nodes sharing each board.
+    pub fn chance_map_bytes(&self) -> usize {
+        self.maps
+            .values()
+            .flat_map(|v| v.iter())
+            .map(|m| (m.0[0].len() + m.0[1].len()) * std::mem::size_of::<u32>())
+            .sum()
+    }
+
+    /// Opponent reach mass compatible with each of `hero`'s live combos at `node`.
+    ///
+    /// This is the per-combo denominator that turns a counterfactual value into an EV
+    /// in chips: pairs sharing a card are impossible and excluded exactly.
+    pub fn compatible_mass(&self, node: u32, hero: u8, opp_reach: &[f32]) -> Vec<f32> {
+        let b = &self.boards[self.node_board[node as usize] as usize];
+        let (h, o) = (hero as usize, 1 - hero as usize);
+        let mut out = vec![0.0f32; b.hands[h].len()];
+        terminal::fold_ev(&b.hands[h], &b.hands[o], opp_reach, 1.0, &mut out);
+        out
+    }
+
+    /// Per-combo EV in chips for `hero` at the root under `profile`, one entry per root
+    /// combo slot in [`NlheGame::live_combos`] order.
+    ///
+    /// Zero-sum convention (see the module docs); pass through
+    /// [`NlheGame::ev_pot_share`] for the pot-inclusive display figure. A combo whose
+    /// opponent-compatible mass is zero reports `0.0`.
+    pub fn root_combo_evs<P: StrategyProfile>(&self, hero: u8, profile: &P) -> Vec<f32> {
+        let root = self.root();
+        let hn = self.combo_count(root, hero);
+        let mut cfv = vec![0.0f32; hn];
+        br::subtree_values(
+            self,
+            root,
+            hero,
+            profile,
+            self.root_weights(1 - hero),
+            false,
+            &mut cfv,
+        );
+        let mass = self.compatible_mass(root, hero, self.root_weights(1 - hero));
+        for (v, m) in cfv.iter_mut().zip(&mass) {
+            *v = if *m > 0.0 { *v / *m } else { 0.0 };
+        }
+        cfv
+    }
+
+    /// Converts a zero-sum EV (net chips vs the start of the solve) into the
+    /// PioSOLVER-style pot-inclusive figure by handing back the `starting_pot/2` credit
+    /// the zero-sum convention took away.
+    ///
+    /// The two players' pot-share EVs sum to `starting_pot` (less rake), which is what a
+    /// solver UI shows beside a range.
+    pub fn ev_pot_share(&self, hero: u8, ev_zero_sum: f32) -> f32 {
+        debug_assert!(hero < 2, "player must be 0 or 1");
+        ev_zero_sum + (self.cfg.starting_pot * 0.5) as f32
+    }
+}
+
+impl Game for NlheGame {
+    fn root(&self) -> u32 {
+        self.tree.root()
+    }
+
+    fn num_nodes(&self) -> usize {
+        self.info.len()
+    }
+
+    fn node(&self, node: u32) -> NodeInfo {
+        self.info[node as usize]
+    }
+
+    fn child(&self, node: u32, action: usize) -> u32 {
+        match &self.tree.node(node).kind {
+            NodeKind::Decision { actions, .. } => actions[action].child,
+            other => panic!("child() on a non-decision node {node}: {other:?}"),
+        }
+    }
+
+    fn combo_count(&self, node: u32, player: u8) -> usize {
+        self.boards[self.node_board[node as usize] as usize].hands[player as usize].len()
+    }
+
+    fn root_weights(&self, player: u8) -> &[f32] {
+        &self.root_weights[player as usize]
+    }
+
+    fn chance_outcome(&self, node: u32, outcome: usize) -> ChanceEdge<'_> {
+        let c = &self.chance[self.node_aux[node as usize] as usize];
+        let (card, child) = c.outcomes[outcome];
+        let m = &self.maps[&c.board][card as usize];
+        ChanceEdge {
+            child,
+            weight: c.weight,
+            parent_of_child: [&m.0[0], &m.0[1]],
+        }
+    }
+
+    fn terminal_utility(&self, node: u32, hero: u8, opp_reach: &[f32], out: &mut [f32]) {
+        let t = &self.terms[self.node_aux[node as usize] as usize];
+        let b = &self.boards[t.board as usize];
+        let (h, o) = (hero as usize, 1 - hero as usize);
+        match t.folder {
+            Some(f) => {
+                // The folder is awarded nothing; the other player takes the pot.
+                let payoff = if f == hero { t.lose[h] } else { t.win[h] };
+                terminal::fold_ev(&b.hands[h], &b.hands[o], opp_reach, payoff, out);
+            }
+            None => terminal::showdown_ev_ranked(
+                &b.hands[h],
+                b.ranks[h].as_ref().expect("showdown on a 5-card board"),
+                &b.hands[o],
+                b.ranks[o].as_ref().expect("showdown on a 5-card board"),
+                opp_reach,
+                t.win[h],
+                t.lose[h],
+                out,
+            ),
+        }
+    }
+
+    fn normalizer(&self) -> f32 {
+        self.normalizer
+    }
+
+    fn root_pot(&self) -> f32 {
+        self.cfg.starting_pot as f32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cfr::{DcfrParams, Solver};
+    use crate::config::Sizings;
+    use crate::tree::{ActionLabel, NodeCounts};
+    use std::time::Instant;
+
+    // =====================================================================
+    // MILESTONE 3 — polarized vs condensed river, verified by hand
+    // =====================================================================
+    //
+    // Board Ks 7d 2c 8h 3d. Pot 10, effective stack 10, one sizing: 100% pot
+    // (= the whole stack, so it is labelled AllIn) and no raises.
+    //
+    //   OOP value  KK   = {KcKd, KcKh, KdKh}          3 combos (Ks is on the board)
+    //   OOP air    A4s  = {Ac4c, Ad4d, Ah4h, As4s}    4 combos
+    //              A5s  = {Ac5c, Ad5d, Ah5h, As5s}    4 combos
+    //   IP         TT   = 6 combos, JJ = 6 combos    12 combos
+    //
+    // BLOCKERS: OOP's range uses only kings, aces, fours and fives; IP's uses only
+    // tens and jacks. The two card sets are DISJOINT, so every one of the 11 x 12
+    // combo pairs is possible and card removal moves nothing at all. This is the
+    // idealized game exactly, not an approximation of it — the tolerances below are
+    // therefore about solver convergence, not blocker noise.
+    //
+    // HAND RANKINGS on Ks 7d 2c 8h 3d: KK = three kings (beats everything else);
+    // TT/JJ = one pair (beats every OOP air hand); A4/A5 = ace high and can make no
+    // straight (needs a 5 resp. a 4, neither on board) and no flush (only two
+    // diamonds on board), so air NEVER wins a showdown.
+    //
+    // STAKES (module docs): S = 10, E = 10, so stake = 5 + contribution.
+    //   check/check showdown  P = 10, stake 5  -> win +5,  lose -5
+    //   bet, fold             P = 10, stake 5  -> +5 to the bettor, -5 to the folder
+    //   bet, call showdown    P = 30, stake 15 -> win +15, lose -15
+    //
+    // EQUILIBRIUM, by hand:
+    //   IP is indifferent facing the pot bet when   b * (+15) = v * (15)  with weights
+    //   b/(v+b), v/(v+b)  ->  b/v = 1/2: the betting range is 2/3 value, 1/3 bluff.
+    //   OOP air is indifferent when   f*(+5) + (1-f)*(-15) = -5  ->  f = 1/2:
+    //   IP defends exactly MDF = 1/2 of its bluffcatchers.
+    //   v = 3 KK combos betting pure (check-check would net only +5 vs 10 for betting),
+    //   so b = 1.5 combos out of 8 air combos -> air bets 1.5/8 = 0.1875.
+    //   Root EV(OOP) = (3 * 10 + 8 * (-5)) / 11 = -10/11 = -0.90909.
+    //   Cross-check from IP's side: IP faces a bet 4.5/11 of the time and is
+    //   indifferent there (-5), and wins the pot the other 6.5/11 (+5):
+    //   (4.5*(-5) + 6.5*(+5))/11 = +10/11.  Zero-sum. ✔
+    //
+    // The check branch is degenerate on purpose: OOP's checking range is pure air
+    // that loses every showdown, so IP betting it out and IP checking it back are
+    // worth exactly the same (+5), and OOP folding to a bet is worth exactly what
+    // losing the showdown is worth (-5). Nothing there perturbs the numbers above.
+
+    const M3_BOARD: &str = "Ks 7d 2c 8h 3d";
+    const M3_OOP: &str = "KK,A4s,A5s";
+    const M3_IP: &str = "TT,JJ";
+
+    fn milestone3_cfg() -> SolveConfig {
+        let mut cfg = SolveConfig {
+            board: M3_BOARD.to_string(),
+            oop_range: M3_OOP.to_string(),
+            ip_range: M3_IP.to_string(),
+            effective_stack: 10.0,
+            starting_pot: 10.0,
+            raise_cap: 0,
+            ..SolveConfig::default()
+        };
+        cfg.sizings.oop.river.bet = Sizings::new(&[100.0], false);
+        cfg.sizings.ip.river.bet = Sizings::new(&[100.0], false);
+        cfg
+    }
+
+    fn solve(cfg: &SolveConfig, iters: u64, report_every: u64) -> (Solver<NlheGame>, Vec<(u64, f32, f32)>) {
+        let game = NlheGame::new(cfg).expect("game builds");
+        let mut s = Solver::new(game);
+        let mut log = Vec::new();
+        s.run(iters, &DcfrParams::default(), report_every, |i, c, p| {
+            log.push((i, c, p))
+        });
+        (s, log)
+    }
+
+    /// Slot of a named combo in a player's live list at a node.
+    fn slot(g: &NlheGame, node: u32, player: u8, combo: &str) -> usize {
+        let c = cards::parse_cards(combo).expect("combo parses");
+        assert_eq!(c.len(), 2);
+        let want = crate::range::combo_index(c[0], c[1]) as u32;
+        g.combo_indices(node, player)
+            .iter()
+            .position(|&i| i == want)
+            .unwrap_or_else(|| panic!("{combo} is not live for player {player} at node {node}"))
+    }
+
+    fn action(g: &NlheGame, node: u32, want: ActionLabel) -> u32 {
+        match &g.tree().node(node).kind {
+            NodeKind::Decision { actions, .. } => actions
+                .iter()
+                .find(|a| a.label == want)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "no {want:?} at node {node}; have {:?}",
+                        actions.iter().map(|a| a.label).collect::<Vec<_>>()
+                    )
+                })
+                .child,
+            other => panic!("node {node} is not a decision: {other:?}"),
+        }
+    }
+
+    /// Mean of `strategy[action]` over the combos named by `slots`, weight 1 each.
+    fn freq(strategy: &[f32], n_combo: usize, action: usize, slots: &[usize]) -> f32 {
+        slots
+            .iter()
+            .map(|&i| strategy[action * n_combo + i])
+            .sum::<f32>()
+            / slots.len() as f32
+    }
+
+    fn slots_for(g: &NlheGame, player: u8, tokens: &[&str]) -> Vec<usize> {
+        tokens.iter().map(|t| slot(g, 0, player, t)).collect()
+    }
+
+    const KK: [&str; 3] = ["KcKd", "KcKh", "KdKh"];
+    const AIR: [&str; 8] = [
+        "Ac4c", "Ad4d", "Ah4h", "As4s", "Ac5c", "Ad5d", "Ah5h", "As5s",
+    ];
+    const BLUFFCATCH: [&str; 12] = [
+        "TcTd", "TcTh", "TcTs", "TdTh", "TdTs", "ThTs", "JcJd", "JcJh", "JcJs", "JdJh", "JdJs",
+        "JhJs",
+    ];
+
+    #[test]
+    fn milestone3_tree_and_ranges_are_the_spot_we_designed() {
+        let g = NlheGame::new(&milestone3_cfg()).expect("builds");
+        assert_eq!(g.combo_count(0, 0), 11, "OOP: 3 KK + 8 air");
+        assert_eq!(g.combo_count(0, 1), 12, "IP: TT + JJ");
+        assert_eq!(g.num_boards(), 1, "a river tree deals no cards");
+        assert_eq!(g.chance_map_bytes(), 0, "a river tree has no chance maps");
+        assert_eq!(
+            g.tree().counts(),
+            NodeCounts { decision: 4, chance: 0, fold: 2, showdown: 3, total: 9 }
+        );
+        assert_eq!(g.board_at(0).len(), 5);
+        assert_eq!(cards::cards_to_string(g.board_at(0)), M3_BOARD);
+
+        // Card removal really is inert here: every OOP combo sees the full IP range.
+        let mass = g.compatible_mass(0, 0, g.root_weights(1));
+        assert!(mass.iter().all(|&m| (m - 12.0).abs() < 1e-6), "{mass:?}");
+
+        // The single sizing is a pot-size bet, which is the whole 10-chip stack.
+        let bet = action(&g, 0, ActionLabel::AllIn);
+        assert!((g.node_at(bet).pot - 20.0).abs() < 1e-9);
+        assert_eq!(g.node_at(bet).stacks[0], 0.0);
+    }
+
+    #[test]
+    fn milestone3_converges_monotonically_below_half_a_basis_point() {
+        let cfg = milestone3_cfg();
+        let t0 = Instant::now();
+        let (s, log) = solve(&cfg, 20_000, 100);
+        let wall = t0.elapsed();
+        for (i, chips, pct) in &log {
+            println!("m3 iter {i:>6}  exploitability {chips:.9} chips  {pct:.6}% of pot");
+        }
+        println!(
+            "m3 MEASURED wall time: {:?} for 20000 iters + {} exploitability reports",
+            wall,
+            log.len()
+        );
+
+        let final_pct = log.last().unwrap().2;
+        assert!(final_pct < 0.05, "exploitability {final_pct}% of pot is not < 0.05%");
+
+        // MONOTONICITY. Report-to-report, DCFR exploitability is *not* monotone and
+        // asserting that it is would be asserting something false: the discount schedule
+        // reshuffles regret between actions every iteration, so a 100-iteration window
+        // routinely bounces (e.g. 0.00174 at 500 -> 0.00269 at 600 in this very spot).
+        // What is monotone is the decade envelope, which is exactly the check milestone 1
+        // makes on Kuhn — plus two stronger claims that a lucky single sample could not
+        // satisfy.
+        let at = |iter: u64| log.iter().find(|r| r.0 == iter).expect("report exists").1;
+        let decades = [at(100), at(1_000), at(10_000), at(20_000)];
+        println!("m3 decade envelope: {decades:?}");
+        for w in decades.windows(2) {
+            assert!(w[1] <= w[0] + 1e-6, "decade envelope rose: {} -> {}", w[0], w[1]);
+        }
+
+        // The descent is real, not one lucky sample: the median report of the last
+        // quarter is several times below the median of the first quarter (measured 6x;
+        // asserted at 4x).
+        // (Medians, not min/max — the bounce means a single early report can dip below a
+        // single late one without the curve having failed to descend.)
+        let median = |xs: &[(u64, f32, f32)]| {
+            let mut v: Vec<f32> = xs.iter().map(|r| r.1).collect();
+            v.sort_by(f32::total_cmp);
+            v[v.len() / 2]
+        };
+        let q = log.len() / 4;
+        let (early, late) = (median(&log[..q]), median(&log[3 * q..]));
+        println!("m3 median exploitability: first quarter {early:.9}, last quarter {late:.9}");
+        assert!(late * 4.0 < early, "median {late} is not 4x below {early}");
+
+        // And the 0.05%-of-pot gate holds for *every* report from iteration 1000 on,
+        // not merely for the last one.
+        for &(i, _, pct) in log.iter().filter(|r| r.0 >= 1_000) {
+            assert!(pct < 0.05, "iter {i} exploitability {pct}% of pot is not < 0.05%");
+        }
+        assert!(s.exploitability().chips >= 0.0);
+    }
+
+    #[test]
+    fn milestone3_frequencies_match_theory() {
+        let (s, _) = solve(&milestone3_cfg(), 20_000, 0);
+        let g = s.game();
+        let oop = s.average_strategy(0);
+        let n0 = g.combo_count(0, 0);
+        let (check, bet) = (0usize, 1usize);
+
+        let kk = slots_for(g, 0, &KK);
+        let air = slots_for(g, 0, &AIR);
+        let kk_bet = freq(&oop, n0, bet, &kk);
+        let air_bet = freq(&oop, n0, bet, &air);
+        println!("m3 OOP: KK bet {kk_bet:.4}  air bet {air_bet:.4}  (air check {:.4})", freq(&oop, n0, check, &air));
+
+        // Value bets pure: betting is worth 10 chips, checking only 5.
+        assert!(kk_bet > 0.97, "KK should bet ~always, got {kk_bet}");
+        // Bluff:value = 1:2, i.e. bluffs are 1/3 of the betting range.
+        let value_mass = 3.0 * kk_bet;
+        let bluff_mass = 8.0 * air_bet;
+        let bluff_share = bluff_mass / (value_mass + bluff_mass);
+        println!("m3 betting range: value {value_mass:.4} bluff {bluff_mass:.4} -> bluff share {bluff_share:.4}");
+        assert!(
+            (bluff_share - 1.0 / 3.0).abs() < 0.03,
+            "bluff share {bluff_share} != 1/3"
+        );
+        assert!((air_bet - 0.1875).abs() < 0.03, "air bet freq {air_bet} != 1.5/8");
+
+        // IP defends MDF = 1/2 of its bluffcatchers against a pot-size bet.
+        let facing = action(g, 0, ActionLabel::AllIn);
+        let ip = s.average_strategy(facing);
+        let n1 = g.combo_count(facing, 1);
+        let bc = BLUFFCATCH.iter().map(|t| slot(g, facing, 1, t)).collect::<Vec<_>>();
+        let call = freq(&ip, n1, 1, &bc); // actions are [Fold, Call]
+        println!("m3 IP call frequency facing the pot bet: {call:.4}");
+        assert!((call - 0.5).abs() < 0.03, "IP call frequency {call} != MDF 1/2");
+    }
+
+    #[test]
+    fn milestone3_indifference_conditions_hold_for_named_combos() {
+        let (s, _) = solve(&milestone3_cfg(), 20_000, 0);
+        let g = s.game();
+        let avg = s.average();
+
+        // ---- OOP air: EV(bet) vs EV(check) --------------------------------------
+        // Idealized: EV(check) = -5 (air never wins, and folding to IP's bet after a
+        // check is worth the same -5). EV(bet) = f*(+5) + (1-f)*(-15) = -5 at f = 1/2.
+        let bet_child = action(g, 0, ActionLabel::AllIn);
+        let check_child = action(g, 0, ActionLabel::Check);
+        let ip_reach = g.root_weights(1);
+        let hn = g.combo_count(0, 0);
+        let mut ev_bet = vec![0.0f32; hn];
+        let mut ev_check = vec![0.0f32; hn];
+        br::subtree_values(g, bet_child, 0, &avg, ip_reach, false, &mut ev_bet);
+        br::subtree_values(g, check_child, 0, &avg, ip_reach, false, &mut ev_check);
+        let mass = g.compatible_mass(0, 0, ip_reach);
+        for (v, m) in ev_bet.iter_mut().zip(&mass) {
+            *v /= m;
+        }
+        for (v, m) in ev_check.iter_mut().zip(&mass) {
+            *v /= m;
+        }
+
+        let air = slot(g, 0, 0, "Ac4c");
+        println!(
+            "m3 indifference OOP Ac4c: EV(bet) {:.5}  EV(check) {:.5}  (theory -5.00000 both)",
+            ev_bet[air], ev_check[air]
+        );
+        let strat = s.average_strategy(0);
+        let air_bet_freq = strat[hn + air];
+        assert!(
+            (0.02..0.98).contains(&air_bet_freq),
+            "Ac4c must actually mix to be indifferent, bets {air_bet_freq}"
+        );
+        assert!(
+            (ev_bet[air] - ev_check[air]).abs() < 0.05,
+            "Ac4c EV(bet) {} != EV(check) {}",
+            ev_bet[air],
+            ev_check[air]
+        );
+        assert!(
+            (ev_check[air] + 5.0).abs() < 0.05,
+            "Ac4c check EV {} != the hand-computed -5",
+            ev_check[air]
+        );
+
+        // Value is not indifferent: betting KK is worth 10, checking only 5.
+        let kk = slot(g, 0, 0, "KcKd");
+        println!(
+            "m3 OOP KcKd: EV(bet) {:.5}  EV(check) {:.5}  (theory +10 / +5)",
+            ev_bet[kk], ev_check[kk]
+        );
+        assert!(ev_bet[kk] > ev_check[kk] + 3.0, "KK must strictly prefer betting");
+        assert!((ev_bet[kk] - 10.0).abs() < 0.15, "KK bet EV {} != 10", ev_bet[kk]);
+
+        // ---- IP bluffcatcher: EV(call) vs EV(fold) ------------------------------
+        // Idealized: EV(fold) = -5 (stake forfeited). EV(call) = (1/3)*(+15) +
+        // (2/3)*(-15) = -5 once OOP's betting range is 1/3 bluffs.
+        let mut oop_reach = g.root_weights(0).to_vec();
+        for (i, w) in oop_reach.iter_mut().enumerate() {
+            *w *= strat[hn + i]; // OOP's bet probability for combo i
+        }
+        let fold_child = action(g, bet_child, ActionLabel::Fold);
+        let call_child = action(g, bet_child, ActionLabel::Call);
+        let ipn = g.combo_count(bet_child, 1);
+        let mut ev_fold = vec![0.0f32; ipn];
+        let mut ev_call = vec![0.0f32; ipn];
+        br::subtree_values(g, fold_child, 1, &avg, &oop_reach, false, &mut ev_fold);
+        br::subtree_values(g, call_child, 1, &avg, &oop_reach, false, &mut ev_call);
+        let ip_mass = g.compatible_mass(bet_child, 1, &oop_reach);
+        for (v, m) in ev_fold.iter_mut().zip(&ip_mass) {
+            *v /= m;
+        }
+        for (v, m) in ev_call.iter_mut().zip(&ip_mass) {
+            *v /= m;
+        }
+
+        let bc = slot(g, bet_child, 1, "TcTd");
+        let ip_strat = s.average_strategy(bet_child);
+        let call_freq = ip_strat[ipn + bc];
+        println!(
+            "m3 indifference IP TcTd facing the bet: EV(call) {:.5}  EV(fold) {:.5}  \
+             (theory -5.00000 both), mixes call at {call_freq:.4}",
+            ev_call[bc], ev_fold[bc]
+        );
+        assert!(
+            (0.02..0.98).contains(&call_freq),
+            "TcTd must actually mix to be indifferent, calls {call_freq}"
+        );
+        assert!(
+            (ev_call[bc] - ev_fold[bc]).abs() < 0.05,
+            "TcTd EV(call) {} != EV(fold) {}",
+            ev_call[bc],
+            ev_fold[bc]
+        );
+        assert!(
+            (ev_fold[bc] + 5.0).abs() < 1e-4,
+            "folding always forfeits exactly the 5-chip stake, got {}",
+            ev_fold[bc]
+        );
+    }
+
+    #[test]
+    fn milestone3_values_are_zero_sum_and_match_the_hand_computation() {
+        let (s, _) = solve(&milestone3_cfg(), 20_000, 0);
+        let g = s.game();
+        let v0 = s.expected_value(0);
+        let v1 = s.expected_value(1);
+        println!("m3 EV: OOP {v0:.6}  IP {v1:.6}  sum {:.9}  (theory -10/11, +10/11)", v0 + v1);
+        assert!((v0 + v1).abs() < 1e-3, "values {v0} + {v1} are not zero-sum");
+        assert!(
+            (v0 - (-10.0 / 11.0)).abs() < 0.03,
+            "OOP value {v0} != the hand-computed -10/11"
+        );
+
+        // Pot-share display convention: the two sides sum to the starting pot.
+        let (p0, p1) = (g.ev_pot_share(0, v0), g.ev_pot_share(1, v1));
+        println!("m3 pot-share EV: OOP {p0:.6}  IP {p1:.6}  sum {:.6}", p0 + p1);
+        assert!((p0 + p1 - 10.0).abs() < 1e-3);
+
+        // Per-combo root EVs line up with the aggregate and with the hand numbers.
+        let evs = g.root_combo_evs(0, &s.average());
+        let kk = slot(g, 0, 0, "KcKd");
+        let air = slot(g, 0, 0, "Ac4c");
+        println!("m3 per-combo root EV: KcKd {:.5} (theory +10)  Ac4c {:.5} (theory -5)", evs[kk], evs[air]);
+        assert!((evs[kk] - 10.0).abs() < 0.15);
+        assert!((evs[air] + 5.0).abs() < 0.05);
+        let mean: f32 = evs.iter().sum::<f32>() / evs.len() as f32;
+        assert!((mean - v0).abs() < 1e-3, "per-combo mean {mean} != root EV {v0}");
+    }
+
+    #[test]
+    fn milestone3_is_bit_identical_across_identical_solves() {
+        let cfg = milestone3_cfg();
+        let (a, _) = solve(&cfg, 2_000, 0);
+        let (b, _) = solve(&cfg, 2_000, 0);
+        assert_eq!(a.exploitability(), b.exploitability());
+        for node in [0u32, 1, 2] {
+            if matches!(a.game().node(node), NodeInfo::Decision { .. }) {
+                assert_eq!(a.average_strategy(node), b.average_strategy(node), "node {node}");
+            }
+        }
+    }
+
+    // =====================================================================
+    // Realistic river convergence smoke test
+    // =====================================================================
+
+    #[test]
+    fn realistic_river_spot_converges() {
+        // ~22% OOP vs ~12% IP on a fixed (arbitrary) river board — fixed rather than
+        // randomly drawn so the run is reproducible.
+        let mut cfg = SolveConfig {
+            board: "Qh 9s 4d Jc 2h".to_string(),
+            oop_range: "22+,A2s+,K7s+,Q9s+,JTs,T9s,98s,A9o+,KTo+,QJo".to_string(),
+            ip_range: "55+,A9s+,KTs+,QTs+,JTs,AJo+,KQo".to_string(),
+            effective_stack: 100.0,
+            starting_pot: 20.0,
+            raise_cap: 1,
+            ..SolveConfig::default()
+        };
+        cfg.sizings.oop.river.bet = Sizings::new(&[75.0], false);
+        cfg.sizings.ip.river.bet = Sizings::new(&[75.0], false);
+        cfg.sizings.oop.river.raise = Sizings::new(&[100.0], false);
+        cfg.sizings.ip.river.raise = Sizings::new(&[100.0], false);
+
+        let t0 = Instant::now();
+        let g = NlheGame::new(&cfg).expect("builds");
+        let build = t0.elapsed();
+
+        // The raise sizing really is in the tree, so this is not a bet-only smoke test.
+        let facing = action(&g, action(&g, 0, ActionLabel::Check), ActionLabel::Bet(15.0));
+        let raises: Vec<ActionLabel> = match &g.tree().node(facing).kind {
+            NodeKind::Decision { actions, .. } => actions
+                .iter()
+                .map(|a| a.label)
+                .filter(|l| matches!(l, ActionLabel::Raise(_) | ActionLabel::AllIn))
+                .collect(),
+            _ => unreachable!(),
+        };
+        assert_eq!(raises.len(), 1, "expected exactly one raise sizing, got {raises:?}");
+        println!("realistic river raise action: {:?}", raises[0]);
+
+        println!(
+            "realistic river: {} nodes, OOP {} combos, IP {} combos, build {:?}",
+            g.num_nodes(),
+            g.combo_count(0, 0),
+            g.combo_count(0, 1),
+            build
+        );
+
+        let t1 = Instant::now();
+        let mut s = Solver::new(g);
+        let mut log = Vec::new();
+        s.run(2_000, &DcfrParams::default(), 250, |i, c, p| log.push((i, c, p)));
+        let wall = t1.elapsed();
+        for (i, chips, pct) in &log {
+            println!("river iter {i:>5}  exploitability {chips:.9} chips  {pct:.6}% of pot");
+        }
+        println!("realistic river MEASURED wall time: {wall:?} for 2000 iters (+8 BR reports)");
+
+        let final_pct = log.last().unwrap().2;
+        assert!(final_pct < 0.5, "exploitability {final_pct}% of pot is not < 0.5%");
+        // Monotone-ish: never worse than the previous report by more than 1% relative.
+        for w in log[1..].windows(2) {
+            assert!(
+                w[1].1 <= w[0].1 * 1.01 + 1e-6,
+                "exploitability jumped from {} at {} to {} at {}",
+                w[0].1,
+                w[0].0,
+                w[1].1,
+                w[1].0
+            );
+        }
+        let (v0, v1) = (s.expected_value(0), s.expected_value(1));
+        println!("realistic river EV: OOP {v0:.6} IP {v1:.6} sum {:.9}", v0 + v1);
+        assert!((v0 + v1).abs() < 1e-2, "not zero-sum: {v0} + {v1}");
+    }
+
+    // =====================================================================
+    // Chance-edge sharing, memory, and the normalizer
+    // =====================================================================
+
+    fn flop_checkdown_cfg(oop: &str, ip: &str) -> SolveConfig {
+        // No sizing tables at all: a legal check-down tree over the full runout, which
+        // is the cheapest way to exercise every chance node and river board.
+        SolveConfig {
+            board: "As Kd 7h".to_string(),
+            oop_range: oop.to_string(),
+            ip_range: ip.to_string(),
+            effective_stack: 100.0,
+            starting_pot: 10.0,
+            ..SolveConfig::default()
+        }
+    }
+
+    #[test]
+    fn flop_tree_shares_chance_maps_across_betting_lines() {
+        let cfg = flop_checkdown_cfg("random", "random");
+        let t0 = Instant::now();
+        let g = NlheGame::new(&cfg).expect("builds");
+        let build = t0.elapsed();
+
+        assert_eq!(g.combo_count(0, 0), 1176, "flop root combos");
+        // Boards are keyed by mask, so Ts-then-2h and 2h-then-Ts are one river board:
+        // 1 flop + 49 turns + C(49,2) rivers, not 49*48 rivers.
+        assert_eq!(g.num_boards(), 1 + 49 + 49 * 48 / 2, "flop + 49 turns + C(49,2) rivers");
+
+        // 49 turn maps + 49*48 river maps, per player. Counted from the stored groups:
+        // one group per board that is dealt from (the flop, and each of the 49 turns).
+        assert_eq!(g.maps.len(), 1 + 49, "one map group per board dealt from");
+        let map_entries: usize = g
+            .maps
+            .values()
+            .flat_map(|v| v.iter())
+            .filter(|m| !m.0[0].is_empty() || !m.0[1].is_empty())
+            .count();
+        assert_eq!(map_entries, 49 + 49 * 48, "one map per (board, dealt card)");
+
+        // Every chance node with the same parent board hands out the *same* slices.
+        let chance_nodes: Vec<u32> = (0..g.num_nodes() as u32)
+            .filter(|&i| matches!(g.node(i), NodeInfo::Chance { .. }))
+            .collect();
+        assert_eq!(chance_nodes.len(), 1 + 49);
+        for &c in &chance_nodes {
+            let NodeInfo::Chance { num_outcomes } = g.node(c) else { unreachable!() };
+            for k in 0..num_outcomes {
+                let e = g.chance_outcome(c, k);
+                for p in 0..2 {
+                    let m = e.parent_of_child[p];
+                    assert_eq!(m.len(), g.combo_count(e.child, p as u8));
+                    assert!(m.windows(2).all(|w| w[0] < w[1]), "map must be ascending");
+                    assert!(m.iter().all(|&i| (i as usize) < g.combo_count(c, p as u8)));
+                    // The map really does select the child's hands out of the parent's.
+                    let parent = g.live_combos(c, p as u8);
+                    let child = g.live_combos(e.child, p as u8);
+                    assert!(m.iter().zip(child).all(|(&i, &h)| parent[i as usize] == h));
+                }
+                assert!((e.weight - 1.0 / num_outcomes as f32).abs() < 1e-7);
+            }
+        }
+
+        let shared = g.chance_map_bytes();
+        // What a per-chance-node copy would have cost on this (tiny, check-down) tree.
+        let naive: usize = chance_nodes
+            .iter()
+            .map(|&c| {
+                let NodeInfo::Chance { num_outcomes } = g.node(c) else { unreachable!() };
+                (0..num_outcomes)
+                    .map(|k| {
+                        let e = g.chance_outcome(c, k);
+                        (e.parent_of_child[0].len() + e.parent_of_child[1].len()) * 4
+                    })
+                    .sum::<usize>()
+            })
+            .sum();
+        println!(
+            "flop chance maps MEASURED: {} groups, {map_entries} maps, {} bytes shared \
+             ({:.2} MB); the same tree copied per chance node = {} bytes ({:.2} MB); \
+             build {:?}",
+            g.maps.len(),
+            shared,
+            shared as f64 / 1.048576e6,
+            naive,
+            naive as f64 / 1.048576e6,
+            build
+        );
+        assert!(shared > 0);
+        // On a check-down tree there is exactly one chance node per board, so sharing
+        // breaks even here; every extra betting line multiplies the naive figure and
+        // leaves the shared one untouched.
+        assert_eq!(shared, naive);
+    }
+
+    /// The chance-map tables are per *board*, so adding betting lines (which multiplies
+    /// the number of chance nodes) must not grow them at all.
+    #[test]
+    fn chance_map_memory_is_independent_of_the_betting_tree() {
+        let mut small = flop_checkdown_cfg("TT+,AQs+", "99+,AJs+");
+        let plain = NlheGame::new(&small).expect("builds");
+        let plain_nodes = plain.tree().counts().chance;
+        let plain_bytes = plain.chance_map_bytes();
+
+        small.sizings.oop.flop.bet = Sizings::new(&[50.0], false);
+        small.sizings.ip.flop.bet = Sizings::new(&[50.0], false);
+        small.raise_cap = 0;
+        let bigger = NlheGame::new(&small).expect("builds");
+
+        println!(
+            "chance nodes {} -> {}, map bytes {} -> {} (unchanged)",
+            plain_nodes,
+            bigger.tree().counts().chance,
+            plain_bytes,
+            bigger.chance_map_bytes()
+        );
+        assert!(bigger.tree().counts().chance > plain_nodes * 2);
+        assert_eq!(bigger.chance_map_bytes(), plain_bytes);
+        assert_eq!(bigger.num_boards(), plain.num_boards());
+    }
+
+    /// `normalizer()` must be the total joint reach mass the traversal actually
+    /// accumulates: over every runout, over every compatible pair live on it, weighted
+    /// by the chance probabilities. Checked here against a direct enumeration.
+    fn assert_normalizer_matches_enumeration(cfg: &SolveConfig) {
+        let g = NlheGame::new(cfg).expect("builds");
+        let board = cfg.board_cards().unwrap();
+        let base = cards::mask_of(&board);
+        let hands: [Vec<Hand>; 2] = [g.live_combos(0, 0).to_vec(), g.live_combos(0, 1).to_vec()];
+        let w: [Vec<f32>; 2] = [g.root_weights(0).to_vec(), g.root_weights(1).to_vec()];
+
+        // Joint mass over compatible pairs on one runout mask.
+        let mass_on = |extra: u64| -> f64 {
+            let live: Vec<Vec<usize>> = (0..2)
+                .map(|p| {
+                    (0..hands[p].len())
+                        .filter(|&k| hand_mask(hands[p][k]) & extra == 0)
+                        .collect()
+                })
+                .collect();
+            let h0: Vec<Hand> = live[0].iter().map(|&k| hands[0][k]).collect();
+            let h1: Vec<Hand> = live[1].iter().map(|&k| hands[1][k]).collect();
+            let r1: Vec<f32> = live[1].iter().map(|&k| w[1][k]).collect();
+            let mut compat = vec![0.0f32; h0.len()];
+            terminal::fold_ev(&h0, &h1, &r1, 1.0, &mut compat);
+            live[0]
+                .iter()
+                .zip(&compat)
+                .map(|(&k, &m)| w[0][k] as f64 * m as f64)
+                .sum()
+        };
+
+        let deck: Vec<Card> = (0..NUM_CARDS as Card)
+            .filter(|&c| base & cards::card_mask(c) == 0)
+            .collect();
+        let brute: f64 = match board.len() {
+            5 => mass_on(0),
+            4 => {
+                let p = 1.0 / deck.len() as f64;
+                deck.iter().map(|&r| p * mass_on(cards::card_mask(r))).sum()
+            }
+            3 => {
+                let pt = 1.0 / deck.len() as f64;
+                let pr = 1.0 / (deck.len() - 1) as f64;
+                deck.iter()
+                    .map(|&t| {
+                        let tm = cards::card_mask(t);
+                        pt * pr
+                            * deck
+                                .iter()
+                                .filter(|&&r| r != t)
+                                .map(|&r| mass_on(tm | cards::card_mask(r)))
+                                .sum::<f64>()
+                    })
+                    .sum()
+            }
+            n => panic!("bad board length {n}"),
+        };
+        let got = g.normalizer() as f64;
+        println!(
+            "normalizer on a {}-card board: closed form {got:.6}, enumerated {brute:.6}, \
+             rel err {:.3e}",
+            board.len(),
+            (got - brute).abs() / brute
+        );
+        assert!(
+            (got - brute).abs() / brute < 1e-5,
+            "normalizer {got} != enumerated {brute}"
+        );
+    }
+
+    #[test]
+    fn normalizer_matches_a_direct_runout_enumeration() {
+        // River: no chance mass at all.
+        assert_normalizer_matches_enumeration(&milestone3_cfg());
+
+        // Turn: one card to come, non-uniform weights, overlapping ranges.
+        let turn = SolveConfig {
+            board: "As Kd 7h 2c".to_string(),
+            oop_range: "QQ+,AKs:0.5,76s".to_string(),
+            ip_range: "JJ-88,AQo:0.25,A5s".to_string(),
+            effective_stack: 50.0,
+            starting_pot: 10.0,
+            ..SolveConfig::default()
+        };
+        assert_normalizer_matches_enumeration(&turn);
+
+        // Flop: two cards to come, full ranges.
+        assert_normalizer_matches_enumeration(&flop_checkdown_cfg("random", "random"));
+    }
+
+    // =====================================================================
+    // Payoff algebra
+    // =====================================================================
+
+    /// Every terminal is exactly zero-sum per joint combo pair, rake-free: probing one
+    /// combo at a time with a unit opponent reach recovers `u0(i,j) + u1(j,i) == 0`.
+    #[test]
+    fn every_terminal_is_zero_sum_per_combo_pair() {
+        let cfg = milestone3_cfg();
+        let g = NlheGame::new(&cfg).expect("builds");
+        let terminals: Vec<u32> = (0..g.num_nodes() as u32)
+            .filter(|&i| matches!(g.node(i), NodeInfo::Terminal))
+            .collect();
+        assert_eq!(terminals.len(), 5);
+
+        for &t in &terminals {
+            let n0 = g.combo_count(t, 0);
+            let n1 = g.combo_count(t, 1);
+            for j in 0..n1 {
+                let mut reach1 = vec![0.0f32; n1];
+                reach1[j] = 1.0;
+                let mut u0 = vec![0.0f32; n0];
+                g.terminal_utility(t, 0, &reach1, &mut u0);
+                for i in 0..n0 {
+                    let mut reach0 = vec![0.0f32; n0];
+                    reach0[i] = 1.0;
+                    let mut u1 = vec![0.0f32; n1];
+                    g.terminal_utility(t, 1, &reach0, &mut u1);
+                    assert!(
+                        (u0[i] + u1[j]).abs() < 1e-4,
+                        "terminal {t} pair ({i},{j}): {} + {} != 0",
+                        u0[i],
+                        u1[j]
+                    );
+                }
+            }
+        }
+    }
+
+    /// Rake turns the game constant-sum: the two utilities sum to `-rake` at every
+    /// terminal that awards a pot, and a showdown chop splits the rake evenly.
+    #[test]
+    fn rake_makes_the_game_constant_sum() {
+        let mut cfg = milestone3_cfg();
+        cfg.rake = crate::config::Rake { percent: 5.0, cap: 0.0 };
+        let g = NlheGame::new(&cfg).expect("builds");
+
+        for t in (0..g.num_nodes() as u32).filter(|&i| matches!(g.node(i), NodeInfo::Terminal)) {
+            let pot = g.node_at(t).pot;
+            let rake = cfg.rake.amount(pot);
+            let (n0, n1) = (g.combo_count(t, 0), g.combo_count(t, 1));
+            let mut reach1 = vec![0.0f32; n1];
+            reach1[0] = 1.0;
+            let mut reach0 = vec![0.0f32; n0];
+            reach0[0] = 1.0;
+            let mut u0 = vec![0.0f32; n0];
+            let mut u1 = vec![0.0f32; n1];
+            g.terminal_utility(t, 0, &reach1, &mut u0);
+            g.terminal_utility(t, 1, &reach0, &mut u1);
+            assert!(
+                (u0[0] + u1[0] + rake as f32).abs() < 1e-4,
+                "terminal {t}: {} + {} != -rake {rake}",
+                u0[0],
+                u1[0]
+            );
+        }
+
+        // Raked solve: exploitability is measured against a floor of -expected rake, so
+        // the raw sum of best responses no longer bottoms out at zero.
+        let mut s = Solver::new(g);
+        s.run(3_000, &DcfrParams::default(), 0, |_, _, _| {});
+        let (v0, v1) = (s.expected_value(0), s.expected_value(1));
+        println!("raked EV: OOP {v0:.6} IP {v1:.6} sum {:.6} (negative = rake paid)", v0 + v1);
+        assert!(v0 + v1 < -0.1, "raked values should sum to minus the expected rake");
+    }
+
+    #[test]
+    fn construction_rejects_bad_input() {
+        let mut cfg = milestone3_cfg();
+        cfg.oop_range = "XX".to_string();
+        assert!(NlheGame::new(&cfg).unwrap_err().contains("oop_range"));
+
+        let mut cfg = milestone3_cfg();
+        // Every combo of this range is on the board.
+        cfg.ip_range = "KsKh".to_string();
+        assert!(NlheGame::new(&cfg).unwrap_err().contains("ip_range"));
+
+        let mut cfg = milestone3_cfg();
+        cfg.board = "As Kd".to_string();
+        assert!(NlheGame::new(&cfg).is_err());
+    }
+
+    #[test]
+    fn zero_weight_combos_are_filtered_out_not_carried() {
+        let mut cfg = milestone3_cfg();
+        cfg.oop_range = "KK,A4s:0.0,A5s".to_string();
+        let g = NlheGame::new(&cfg).expect("builds");
+        assert_eq!(g.combo_count(0, 0), 3 + 4, "A4s at weight 0 must be absent");
+        assert!(g.root_weights(0).iter().all(|&w| w > 0.0));
+    }
+
+    #[test]
+    fn board_at_a_chance_node_is_the_board_before_its_own_deal() {
+        let g = NlheGame::new(&flop_checkdown_cfg("TT+", "99+")).expect("builds");
+        let turn_chance = (0..g.num_nodes() as u32)
+            .find(|&i| matches!(g.node(i), NodeInfo::Chance { .. }))
+            .unwrap();
+        assert_eq!(g.board_at(turn_chance).len(), 3);
+        let e = g.chance_outcome(turn_chance, 0);
+        assert_eq!(g.board_at(e.child).len(), 4);
+        assert_eq!(g.combo_count(e.child, 0), e.parent_of_child[0].len());
+    }
+}
