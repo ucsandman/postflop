@@ -4,12 +4,27 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use clap::Args;
-use engine::cfr::{DcfrParams, Solver};
+use clap::{Args, ValueEnum};
+use engine::cfr::{DcfrParams, Solver, StorageMode};
 use engine::config::SolveConfig;
 use engine::nlhe::NlheGame;
 use engine::solution::Solution;
-use engine::tree::NodeKind;
+
+/// CLI-facing mirror of [`StorageMode`] (clap needs its own enum for `--storage`).
+#[derive(Clone, Copy, ValueEnum)]
+enum StorageArg {
+    F32,
+    I16,
+}
+
+impl From<StorageArg> for StorageMode {
+    fn from(a: StorageArg) -> StorageMode {
+        match a {
+            StorageArg::F32 => StorageMode::F32,
+            StorageArg::I16 => StorageMode::I16,
+        }
+    }
+}
 
 #[derive(Args)]
 pub struct SolveArgs {
@@ -50,6 +65,10 @@ pub struct SolveArgs {
     /// Write the solved strategy here. Omit to solve-and-print only.
     #[arg(long)]
     out: Option<PathBuf>,
+    /// Per-node regret/strategy storage. `i16` roughly halves peak memory; results
+    /// are the same up to the codec's quantization error. See `StorageMode`.
+    #[arg(long, value_enum, default_value_t = StorageArg::F32)]
+    storage: StorageArg,
 }
 
 pub fn run(args: SolveArgs) -> Result<(), String> {
@@ -99,10 +118,9 @@ pub fn run(args: SolveArgs) -> Result<(), String> {
     }
 
     let game = NlheGame::new(&cfg)?;
-    print_tree_stats(&game);
-
     let params = DcfrParams::from_config(&cfg);
-    let mut solver = Solver::new(game);
+    let mut solver = Solver::new_with_storage(game, args.storage.into());
+    print_tree_stats(&solver);
 
     let start = Instant::now();
     let mut done = 0u64;
@@ -130,31 +148,19 @@ pub fn run(args: SolveArgs) -> Result<(), String> {
     Ok(())
 }
 
-fn print_tree_stats(game: &NlheGame) {
+fn print_tree_stats(solver: &Solver<NlheGame>) {
+    let game = solver.game();
     let counts = game.tree().counts();
     println!(
         "tree: {} decision, {} chance, {} fold, {} showdown terminals ({} nodes total)",
         counts.decision, counts.chance, counts.fold, counts.showdown, counts.total
     );
     println!(
-        "strategy storage: {} bytes [measured]  (regret + strategy-sum arrays, f32)",
-        strategy_storage_bytes(game)
+        "strategy storage: {:?}, {} bytes [measured]  (regret + strategy-sum arrays)",
+        solver.storage_mode(),
+        solver.storage_bytes()
     );
     println!("chance maps: {} bytes [measured]", game.chance_map_bytes());
-}
-
-/// Bytes the solver's regret + cumulative-strategy arrays hold: two `f32` arrays of
-/// `num_actions * combo_count` per decision node — the same sizing `Solver::new`
-/// does internally, recomputed here since the solver does not expose the totals.
-fn strategy_storage_bytes(game: &NlheGame) -> usize {
-    let tree = game.tree();
-    let mut total = 0usize;
-    for idx in 0..tree.len() as u32 {
-        if let NodeKind::Decision { player, actions } = &tree.node(idx).kind {
-            total += actions.len() * game.live_combos(idx, *player).len();
-        }
-    }
-    total * 2 * std::mem::size_of::<f32>()
 }
 
 fn print_final_report(solver: &Solver<NlheGame>, wall_seconds: f64) {

@@ -54,7 +54,12 @@ pub enum SizingKind {
     Bet,
     /// Aggressive action facing a bet or a raise.
     Raise,
-    /// OOP leading into the player who was the last aggressor on the previous street.
+    /// OOP leading into the player who was the last aggressor on the *previous*
+    /// street. Never chosen on the solve's starting street: that street has no
+    /// previous street in this tree, so [`Bet`](SizingKind::Bet) is what OOP's
+    /// opening lead there uses instead. [`SolveConfig::validate`] rejects a config
+    /// that sets a starting-street donk table with an empty starting-street bet
+    /// table, since that would leave OOP with no way to lead at all.
     Donk,
 }
 
@@ -95,7 +100,8 @@ pub struct StreetSizings {
     pub bet: Sizings,
     /// Raising when facing a bet or raise.
     pub raise: Sizings,
-    /// OOP leading into the previous street's aggressor. Never consulted for IP.
+    /// OOP leading into the previous street's aggressor. Never consulted for IP,
+    /// and never reachable on the solve's starting street — see [`SizingKind::Donk`].
     pub donk: Sizings,
 }
 
@@ -278,6 +284,12 @@ pub struct SolveConfig {
     /// Results are no longer an exact equilibrium of the full tree.
     #[serde(default)]
     pub turn_chance_sampling: bool,
+    /// CFR+/DCFR+ style positive-regret floor: clamp cumulative regret at zero right
+    /// after each update, so a negative regret never has to be climbed back out of.
+    /// Wired straight through to `DcfrParams::floor_regrets_at_zero`. Off by default,
+    /// matching plain Discounted CFR.
+    #[serde(default)]
+    pub regret_floor: bool,
 
     /// Rake applied at terminals. Default: none.
     #[serde(default)]
@@ -303,6 +315,7 @@ impl Default for SolveConfig {
             beta: default_beta(),
             gamma: default_gamma(),
             turn_chance_sampling: false,
+            regret_floor: false,
             rake: Rake::default(),
             sizings: BetSizings::default(),
         }
@@ -368,6 +381,29 @@ impl SolveConfig {
                     ));
                 }
             }
+        }
+
+        // Donk sizings only ever fire when OOP leads into the player who was the
+        // aggressor on the *previous* street (see `StreetSizings::donk`). The
+        // starting street has no previous street in this tree, so a donk table
+        // there can never be reached. If `bet` is also empty for that street, OOP
+        // has no way to lead at all — the tree builds silently with OOP unable to
+        // bet first, which is the bug this guards against. (If `bet` is non-empty,
+        // OOP can still lead through it; the donk entry is merely inert.)
+        let starting_street = self.starting_street()?;
+        let start_oop = self.sizings.oop.street(starting_street);
+        if !start_oop.donk.is_empty() && start_oop.bet.is_empty() {
+            let street_name = match starting_street {
+                Street::Flop => "flop",
+                Street::Turn => "turn",
+                Street::River => "river",
+            };
+            return Err(format!(
+                "sizings.oop.{street_name}.donk is set but sizings.oop.{street_name}.bet is \
+                 empty: donk sizings never apply on the starting street (there is no prior \
+                 street's aggressor yet), so OOP would have no lead sizings at all — put OOP's \
+                 starting-street lead sizings in `bet`, not `donk`"
+            ));
         }
 
         if !(self.rake.percent.is_finite() && (0.0..=100.0).contains(&self.rake.percent)) {
@@ -556,6 +592,40 @@ starting_pot = 10.0
         assert_eq!(Rake { percent: 5.0, cap: 3.0 }.amount(100.0), 3.0);
         assert_eq!(Rake { percent: 5.0, cap: 3.0 }.amount(20.0), 1.0);
         assert_eq!(Rake { percent: 5.0, cap: 0.0 }.amount(100.0), 5.0);
+    }
+
+    #[test]
+    fn validate_rejects_donk_on_the_starting_street_with_empty_bet() {
+        // MINIMAL's board is 5 cards, so the starting street is the river: there is
+        // no prior street, so a river donk table can never fire.
+        let mut cfg = SolveConfig::from_toml_str(MINIMAL).expect("baseline parses");
+        cfg.sizings.oop.river.donk = Sizings::new(&[50.0], false);
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("donk"), "{err}");
+        assert!(err.contains("starting street"), "{err}");
+    }
+
+    #[test]
+    fn donk_on_the_starting_street_is_fine_once_bet_is_also_set() {
+        // OOP can still lead via `bet`; the redundant `donk` entry is dead weight,
+        // not a silent inability to lead, so this is not an error.
+        let mut cfg = SolveConfig::from_toml_str(MINIMAL).expect("baseline parses");
+        cfg.sizings.oop.river.bet = Sizings::new(&[50.0], false);
+        cfg.sizings.oop.river.donk = Sizings::new(&[25.0], false);
+        cfg.validate().expect("bet present makes the donk table harmless");
+    }
+
+    #[test]
+    fn regret_floor_defaults_false_and_round_trips() {
+        let cfg = SolveConfig::from_toml_str(MINIMAL).expect("parse");
+        assert!(!cfg.regret_floor);
+
+        let with_floor = format!("{MINIMAL}\nregret_floor = true\n");
+        let cfg2 = SolveConfig::from_toml_str(&with_floor).expect("parse with regret_floor");
+        assert!(cfg2.regret_floor);
+
+        let out = toml::to_string(&cfg2).expect("serialize");
+        assert!(SolveConfig::from_toml_str(&out).expect("reparse").regret_floor);
     }
 
     #[test]

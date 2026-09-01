@@ -38,6 +38,10 @@ use crate::nlhe::NlheGame;
 use crate::tree::{ActionLabel, GameTree, NodeKind};
 
 /// Current file format version. Bump when the layout changes incompatibly.
+///
+/// [`Solution::load`] refuses a file whose `format_version` is *greater* than this
+/// (a future format this build doesn't understand yet); it does not attempt to
+/// migrate an older one.
 pub const FORMAT_VERSION: u32 = 1;
 
 /// One player's root combo: enough to label a strategy slot without rebuilding a
@@ -212,6 +216,13 @@ impl Solution {
     pub fn from_reader<R: Read>(reader: R) -> Result<Solution, String> {
         let sol: Solution =
             serde_json::from_reader(reader).map_err(|e| format!("cannot parse solution: {e}"))?;
+        if sol.format_version > FORMAT_VERSION {
+            return Err(format!(
+                "solution file format_version {} is newer than format_version {} this build \
+                 supports; rebuild with a matching engine version",
+                sol.format_version, FORMAT_VERSION
+            ));
+        }
         sol.validate_structure()?;
         Ok(sol)
     }
@@ -361,5 +372,21 @@ mod tests {
         std::fs::remove_file(&path).ok();
 
         assert!(err.contains("action count mismatch"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn future_format_version_fails_to_load() {
+        let solver = solved();
+        let mut sol = Solution::from_solver(&solver, 0.0);
+        sol.format_version = 999;
+
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("solution_future_version_{}.json", std::process::id()));
+        sol.save(&path).expect("save");
+        let err = Solution::load(&path).expect_err("a file from a newer format must not load silently");
+        std::fs::remove_file(&path).ok();
+
+        assert!(err.contains("999"), "unexpected error: {err}");
+        assert!(err.contains(&FORMAT_VERSION.to_string()), "unexpected error: {err}");
     }
 }

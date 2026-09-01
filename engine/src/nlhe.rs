@@ -26,6 +26,23 @@
 //! the range string is absent from the root vector entirely, and a combo a runout card
 //! kills is absent from that subtree's vector.
 //!
+//! # Chance weights are conditional
+//!
+//! A deal from `n` unseen cards weighs each outcome `1/(n-4)`, not `1/n`. Every
+//! compatible combo pair holds four cards that are not on the board, so exactly four of
+//! those `n` outcomes are dead for it and the other `n-4` each carry `1/(n-4)`: **one
+//! unit of runout mass per pair, at every chance depth**. That is what makes a terminal
+//! above a chance node and a terminal below one directly comparable, which the CFR
+//! traversal assumes when it compares sibling actions. Uniform `1/n` weights leave a pair
+//! only `(n-4)/n` of a unit below each deal while a flop fold keeps a full unit, which
+//! over-values fold equity by `(49*48)/(45*44)` — about 19% — on a flop solve and by
+//! `48/44` on a turn solve, and no single global rescale can fix two chance depths at
+//! once. Corrected 2026-09-01; see
+//! `one_compatible_pair_accumulates_exactly_one_unit_of_runout_mass`.
+//!
+//! The consequence for [`Game::normalizer`] is that it is plain joint root mass: the deal
+//! weights contribute exactly `1`, so there is nothing to correct for.
+//!
 //! # Payoff algebra (net chips, exactly zero-sum)
 //!
 //! Write `S` for `starting_pot`, `E` for `effective_stack`. At any node the tree
@@ -148,23 +165,6 @@ fn hand_mask(h: Hand) -> u64 {
     cards::card_mask(h.0) | cards::card_mask(h.1)
 }
 
-/// Fraction of runouts that avoid four given hole cards, from a board of `board_len`
-/// cards down to the river.
-///
-/// Every compatible combo pair uses four distinct cards, none of them on the board, so
-/// this factor is the same for every pair — which is what lets [`Game::normalizer`] stay
-/// a closed form instead of an enumeration. Flop: `(45/49)*(44/48)`. Turn: `44/48`.
-/// River: `1`.
-fn chance_mass_factor(board_len: usize) -> f64 {
-    let mut f = 1.0f64;
-    let mut unseen = (NUM_CARDS - board_len) as f64;
-    for _ in 0..(5 - board_len) {
-        f *= (unseen - 4.0) / unseen;
-        unseen -= 1.0;
-    }
-    f
-}
-
 impl NlheGame {
     /// Parses the board and both ranges, builds the tree, and precomputes every table
     /// the CFR iteration reads.
@@ -246,9 +246,18 @@ impl NlheGame {
                         num_outcomes: outcomes.len(),
                     };
                     node_aux[idx as usize] = chance.len() as u32;
+                    // CONDITIONAL deal weight: `1/(outcomes - 4)`, not `1/outcomes`.
+                    // Every compatible pair holds four cards that are not on the board,
+                    // so exactly four of these outcomes are dead for it and the other
+                    // `outcomes - 4` each carry `1/(outcomes - 4)` — one unit of runout
+                    // mass per pair, at every chance depth. A uniform `1/outcomes` leaves
+                    // each pair only `(outcomes-4)/outcomes` of a unit, which is not the
+                    // same number at two different depths, so terminals above and below a
+                    // chance node end up on different scales. See
+                    // `one_compatible_pair_accumulates_exactly_one_unit_of_runout_mass`.
                     chance.push(ChanceData {
                         board: b,
-                        weight: 1.0 / outcomes.len() as f32,
+                        weight: 1.0 / (outcomes.len() - 4) as f32,
                         outcomes,
                     });
                 }
@@ -319,7 +328,9 @@ impl NlheGame {
 
         // --- normalizer ------------------------------------------------------------
         // Joint root mass over compatible pairs: fold_ev at payoff 1 gives, per hero
-        // combo, exactly the opponent weight that shares no card with it.
+        // combo, exactly the opponent weight that shares no card with it. No runout
+        // correction: the conditional deal weights above give every pair exactly one
+        // unit of chance mass, whatever the board length.
         let mut compat = vec![0.0f32; root_hands[0].len()];
         terminal::fold_ev(
             &root_hands[0],
@@ -333,7 +344,7 @@ impl NlheGame {
             .zip(&compat)
             .map(|(&w, &m)| w as f64 * m as f64)
             .sum();
-        let normalizer = (joint * chance_mass_factor(board.len())) as f32;
+        let normalizer = joint as f32;
 
         Ok(NlheGame {
             cfg: cfg.clone(),
@@ -452,11 +463,11 @@ impl NlheGame {
             &mut cfv,
         );
         let mass = self.compatible_mass(root, hero, self.root_weights(1 - hero));
-        // Counterfactual values carry the runout chance mass (deal weights over
-        // cards the pair can't hold), so chips-per-hand must divide by it too.
-        let f = chance_mass_factor(self.board_at(root).len()) as f32;
+        // Chance mass needs no correction: the conditional deal weights give every pair
+        // exactly one unit of runout mass, so the compatible opponent mass is the whole
+        // denominator.
         for (v, m) in cfv.iter_mut().zip(&mass) {
-            *v = if *m > 0.0 { *v / (*m * f) } else { 0.0 };
+            *v = if *m > 0.0 { *v / *m } else { 0.0 };
         }
         cfv
     }
@@ -1071,7 +1082,8 @@ mod tests {
                     let child = g.live_combos(e.child, p as u8);
                     assert!(m.iter().zip(child).all(|(&i, &h)| parent[i as usize] == h));
                 }
-                assert!((e.weight - 1.0 / num_outcomes as f32).abs() < 1e-7);
+                // Conditional weight: four of the outcomes are dead for any given pair.
+                assert!((e.weight - 1.0 / (num_outcomes - 4) as f32).abs() < 1e-7);
             }
         }
 
@@ -1135,7 +1147,12 @@ mod tests {
 
     /// `normalizer()` must be the total joint reach mass the traversal actually
     /// accumulates: over every runout, over every compatible pair live on it, weighted
-    /// by the chance probabilities. Checked here against a direct enumeration.
+    /// by the chance weights. Checked here against a direct enumeration.
+    ///
+    /// The weights are conditional (`1/(unseen - 4)` per deal, corrected 2026-09-01), so
+    /// a pair contributes its full `w0 * w1` on every board length and the enumeration
+    /// collapses back onto the plain joint mass — which is exactly the claim the closed
+    /// form makes.
     fn assert_normalizer_matches_enumeration(cfg: &SolveConfig) {
         let g = NlheGame::new(cfg).expect("builds");
         let board = cfg.board_cards().unwrap();
@@ -1170,12 +1187,12 @@ mod tests {
         let brute: f64 = match board.len() {
             5 => mass_on(0),
             4 => {
-                let p = 1.0 / deck.len() as f64;
+                let p = 1.0 / (deck.len() - 4) as f64;
                 deck.iter().map(|&r| p * mass_on(cards::card_mask(r))).sum()
             }
             3 => {
-                let pt = 1.0 / deck.len() as f64;
-                let pr = 1.0 / (deck.len() - 1) as f64;
+                let pt = 1.0 / (deck.len() - 4) as f64;
+                let pr = 1.0 / (deck.len() - 1 - 4) as f64;
                 deck.iter()
                     .map(|&t| {
                         let tm = cards::card_mask(t);
@@ -1201,6 +1218,114 @@ mod tests {
             (got - brute).abs() / brute < 1e-5,
             "normalizer {got} != enumerated {brute}"
         );
+    }
+
+    // =====================================================================
+    // Chance-weight convention (corrected 2026-09-01)
+    // =====================================================================
+
+    /// Board As Ks Qs, OOP JsTs — a made royal flush, immortal on every runout — versus
+    /// IP 2c2d, drawing stone dead. Pot 10, stack 10, one 100%-pot sizing, so OOP's bet
+    /// is the whole stack and IP's only correct reply is to fold.
+    ///
+    /// OOP takes the 10-chip pot on every line, so its zero-sum EV is exactly +5 whether
+    /// the solve starts on the flop, the turn or the river, and checking and shoving are
+    /// exactly indifferent. None of the four hole cards is on the board, so every chance
+    /// node blocks exactly four of its outcomes for this pair — the case the old uniform
+    /// `1/outcomes` weights got wrong.
+    fn immortal_royal_cfg(board: &str) -> SolveConfig {
+        let mut cfg = SolveConfig {
+            board: board.to_string(),
+            oop_range: "JsTs".to_string(),
+            ip_range: "2c2d".to_string(),
+            effective_stack: 10.0,
+            starting_pot: 10.0,
+            raise_cap: 0,
+            ..SolveConfig::default()
+        };
+        for p in [0u8, 1] {
+            let s = if p == 0 { &mut cfg.sizings.oop } else { &mut cfg.sizings.ip };
+            s.flop.bet = Sizings::new(&[100.0], false);
+            s.turn.bet = Sizings::new(&[100.0], false);
+            s.river.bet = Sizings::new(&[100.0], false);
+        }
+        cfg
+    }
+
+    /// REGRESSION. Terminals above a chance node must be measured on the same scale as
+    /// terminals below it. With uniform `1/outcomes` weights they were not: a flop fold
+    /// kept a full unit of mass while a runout kept only `(45/49)(44/48)`, so this spot
+    /// reported EV(OOP) = 5.9394 on a flop start (5 * (49*48)/(45*44)) and 5.4545 on a
+    /// turn start, and the free choice between checking and shoving collapsed to a
+    /// forced shove.
+    #[test]
+    fn immortal_royal_is_worth_half_the_pot_at_every_chance_depth() {
+        for board in ["As Ks Qs", "As Ks Qs 3h", "As Ks Qs 3h 4d"] {
+            let cfg = immortal_royal_cfg(board);
+            let (s, _) = solve(&cfg, 1_000, 0);
+            let g = s.game();
+            assert_eq!((g.combo_count(0, 0), g.combo_count(0, 1)), (1, 1));
+
+            let (v0, v1) = (s.expected_value(0), s.expected_value(1));
+            println!(
+                "royal on {board:>14}: EV(OOP) {v0:.6}  EV(IP) {v1:.6}  sum {:.9}  (theory +5/-5)",
+                v0 + v1
+            );
+            assert!((v0 - 5.0).abs() < 1e-3, "{board}: OOP EV {v0} != +5, half the pot");
+            assert!((v0 + v1).abs() < 1e-3, "{board}: not zero-sum: {v0} + {v1}");
+
+            // Indifference: both lines end with OOP taking the same 10 chips.
+            let ip_reach = g.root_weights(1);
+            let avg = s.average();
+            let ev_of = |child: u32| {
+                let mut v = vec![0.0f32; 1];
+                br::subtree_values(g, child, 0, &avg, ip_reach, false, &mut v);
+                v[0] / g.compatible_mass(0, 0, ip_reach)[0]
+            };
+            let ev_check = ev_of(action(g, 0, ActionLabel::Check));
+            let ev_shove = ev_of(action(g, 0, ActionLabel::AllIn));
+            println!("royal on {board:>14}: EV(check) {ev_check:.6}  EV(shove) {ev_shove:.6}");
+            assert!(
+                (ev_check - ev_shove).abs() < 1e-2,
+                "{board}: check {ev_check} and shove {ev_shove} are not indifferent"
+            );
+        }
+    }
+
+    /// Runout mass a single compatible pair accumulates below `node`, by multiplying the
+    /// deal weights along every runout the pair can actually see. Both ranges must hold
+    /// exactly one combo, so "the pair survives this deal" is just "the child is nonempty".
+    fn enumerated_runout_mass(g: &NlheGame, node: u32) -> f64 {
+        match g.node(node) {
+            NodeInfo::Terminal => 1.0,
+            NodeInfo::Decision { .. } => enumerated_runout_mass(g, g.child(node, 0)),
+            NodeInfo::Chance { num_outcomes } => (0..num_outcomes)
+                .map(|k| {
+                    let e = g.chance_outcome(node, k);
+                    if e.parent_of_child[0].is_empty() || e.parent_of_child[1].is_empty() {
+                        0.0
+                    } else {
+                        e.weight as f64 * enumerated_runout_mass(g, e.child)
+                    }
+                })
+                .sum(),
+        }
+    }
+
+    /// REGRESSION. The invariant the old weights violated: one compatible pair
+    /// accumulates exactly one unit of runout mass, at every chance depth, so a terminal
+    /// above the chance nodes and a terminal below them are directly comparable.
+    #[test]
+    fn one_compatible_pair_accumulates_exactly_one_unit_of_runout_mass() {
+        for board in ["As Kd 7h", "As Kd 7h 3c"] {
+            let mut cfg = flop_checkdown_cfg("AhKh", "7s7d");
+            cfg.board = board.to_string();
+            let g = NlheGame::new(&cfg).expect("builds");
+            assert_eq!((g.combo_count(0, 0), g.combo_count(0, 1)), (1, 1));
+            let mass = enumerated_runout_mass(&g, g.root());
+            println!("enumerated runout mass on {board:>11}: {mass:.9} (must be exactly 1)");
+            assert!((mass - 1.0).abs() < 1e-6, "{board}: runout mass {mass} != 1");
+        }
     }
 
     #[test]
@@ -1324,12 +1449,11 @@ mod tests {
         assert!(g.root_weights(0).iter().all(|&w| w > 0.0));
     }
 
-    /// Regression: on flop/turn boards, per-combo EVs must divide by the runout
-    /// chance mass as well as the compatible opponent mass, or they under-report
-    /// chip EV by 44/48 (turn) / (45*44)/(49*48) (flop). The identity that pins
-    /// it: the (weight * mass)-weighted mean of root_combo_evs equals
-    /// expected_value(hero) exactly. Caught on a turn spot by the WASM smoke
-    /// test 2026-09-01; the original test was river-only, where the factor is 1.
+    /// Regression: on flop/turn boards, per-combo EVs must be on the same chip scale as
+    /// the aggregate. The identity that pins it, and which holds under any chance-weight
+    /// convention: the (weight * mass)-weighted mean of `root_combo_evs` equals
+    /// `expected_value(hero)`. Caught on a turn spot by the WASM smoke test 2026-09-01;
+    /// the original test was river-only, where every convention agrees.
     #[test]
     fn root_combo_evs_weighted_mean_matches_expected_value_on_a_turn_board() {
         let mut cfg = flop_checkdown_cfg("QQ+,AKs,AQs,KJs", "TT+,AJs+,KQs");

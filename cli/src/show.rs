@@ -56,6 +56,26 @@ pub fn run(args: ShowArgs) -> Result<(), String> {
         format!("node {node} is a decision node but has no strategy recorded in this solution file")
     })?;
 
+    // The solution file's own self-consistency (strategy.len() == actions * its
+    // own combo_count) is checked at load time by `Solution::validate_structure`,
+    // but that never compares against this rebuilt tree's actual live-combo count
+    // for this node. A stale or hand-edited file can pass that check yet still
+    // disagree with reality, which would otherwise index `ns.strategy`
+    // out of bounds below. Guard it here, once, before either display path reads it.
+    let live_combo_count = game.live_combos(node, *player).len();
+    let expected_len = actions.len() * live_combo_count;
+    if ns.strategy.len() != expected_len {
+        return Err(format!(
+            "node {node}: solution file strategy length {} does not match {} actions x {} live \
+             combos (expected {expected_len}); the file's combo_count ({}) disagrees with this \
+             config's rebuilt tree — it is stale or was hand-edited",
+            ns.strategy.len(),
+            actions.len(),
+            live_combo_count,
+            ns.combo_count,
+        ));
+    }
+
     match &args.combo {
         Some(combo) => print_combo(tree, node, *player, actions, ns, &game, combo),
         None => {
@@ -267,7 +287,9 @@ fn print_rank_grid(
             } else if g_row < g_col {
                 (rank_row, rank_col, true)
             } else {
-                (rank_row, rank_col, false)
+                // Offsuit half: rank_row < rank_col here, but `bucket_key` always
+                // orders its tuple (high_rank, low_rank) — match that order.
+                (rank_col, rank_row, false)
             };
             let cell = match buckets.get(&key) {
                 None => "--".to_string(),
@@ -285,7 +307,9 @@ fn print_rank_grid(
                             best_a = a;
                         }
                     }
-                    format!("{:<4}{:>3.0}%", codes[best_a], best_freq * 100.0)
+                    // Explicit separator: a 4-char code (e.g. "B100") plus a 3-digit
+                    // frequency (100%) would otherwise touch with no gap.
+                    format!("{:<4} {:>3.0}%", codes[best_a], best_freq * 100.0)
                 }
             };
             print!("{cell:>COL_WIDTH$}");

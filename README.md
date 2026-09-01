@@ -81,7 +81,12 @@ cargo run --release -p solver-cli -- solve \
 Overrides available on the command line: `--board`, `--oop-range`,
 `--ip-range`, `--stack`, `--pot`, `--max-iterations`,
 `--target-exploitability`, `--report-every` (default 100), `--threads`
-(rayon pool size; default all logical CPUs), `--out`.
+(rayon pool size; default all logical CPUs), `--storage f32|i16` (i16 roughly
+halves peak memory at the cost of a quantization floor on exploitability),
+`--out`.
+
+Config-only extras: `regret_floor = true` enables the CFR+-style floor at
+zero on cumulative regrets (default off, plain DCFR discounting).
 
 If `turn_chance_sampling` is set in the config, `solve` refuses to run rather
 than silently approximating: exact search (full enumeration) is the only

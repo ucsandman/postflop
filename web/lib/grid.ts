@@ -96,9 +96,16 @@ export function buildGrid(
     cell.weight += combos[i].weight;
   }
 
+  // Reach that's small relative to this node's own scale is real (a node deep in a
+  // long line can have every combo's reach diluted); reach that's small relative to
+  // the OTHER cells at this same node is float noise from a dead line the engine
+  // still backfills with an exactly-uniform strategy. So the guard is relative to
+  // the node's own max cell weight, not an absolute cutoff.
+  const maxCellWeight = Math.max(0, ...cells.map((c) => c.weight));
+  const NO_REACH_REL_EPS = 1e-6;
   for (const cell of cells) {
     if (cell.slots.length === 0) continue;
-    const useReach = cell.weight > 1e-12;
+    const useReach = cell.weight > NO_REACH_REL_EPS * maxCellWeight;
     cell.noReach = !useReach;
     const bucket = acc[cell.row * 13 + cell.col];
     let denom = 0;

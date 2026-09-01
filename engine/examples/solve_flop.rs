@@ -126,7 +126,10 @@ fn main() {
         maps,
         mb(maps)
     );
+    #[cfg(feature = "parallel")]
     println!("threads: {}", rayon::current_num_threads());
+    #[cfg(not(feature = "parallel"))]
+    println!("threads: 1 (parallel feature off)");
 
     let mut solver = Solver::new(game);
     let t1 = Instant::now();

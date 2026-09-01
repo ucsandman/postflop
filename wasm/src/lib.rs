@@ -614,20 +614,14 @@ impl SolutionHandle {
     /// The opponent's reach vector at `id` is walked down from the root (range weights,
     /// times the opponent's average-strategy probabilities on the path, compacted and
     /// weighted across each chance edge) and handed to `br::subtree_values` with
-    /// `maximize = false`. Each combo's raw counterfactual value is then divided by two
-    /// things:
+    /// `maximize = false`. Each combo's raw counterfactual value is then divided by that
+    /// combo's **compatible opponent mass** at this node — without it a hand that blocks
+    /// most of the opponent's range would look small purely because less mass reaches it.
     ///
-    /// 1. that combo's **compatible opponent mass** at this node — without it a hand
-    ///    that blocks most of the opponent's range would look small purely because less
-    ///    mass reaches it; and
-    /// 2. the **residual runout mass**, [`runout_mass`] of the board length here. Deal
-    ///    weights are `1 / (52 - board)` over every card not on the board, but four of
-    ///    those cards are in the two players' hands, so the runouts a given pair can
-    ///    actually see carry only `44/48` of the weight on a turn and
-    ///    `(45/49)(44/48)` on a flop. Skipping this leaves every EV short by that
-    ///    factor. It is the same constant the engine folds into `Game::normalizer`,
-    ///    which is why dividing by it makes the aggregate below come out exactly on
-    ///    `root_evs`.
+    /// That is the whole denominator. The engine's deal weights are conditional
+    /// (`1 / (unseen - 4)`, since four of the unseen cards are in the two players' hands),
+    /// so every pair carries exactly one unit of runout mass at every chance depth and
+    /// there is no residual runout factor left to divide out.
     ///
     /// # Zero mass
     ///
@@ -652,9 +646,8 @@ impl SolutionHandle {
             &mut values,
         );
         let mass = self.game.compatible_mass(id, player, &opp_reach);
-        let runout = runout_mass(self.game.board_at(id).len()) as f32;
         for (v, m) in values.iter_mut().zip(&mass) {
-            *v = if *m > 0.0 { *v / (*m * runout) } else { f32::NAN };
+            *v = if *m > 0.0 { *v / *m } else { f32::NAN };
         }
         Ok(values)
     }
@@ -685,24 +678,6 @@ impl SolutionHandle {
         self.sol.to_writer(&mut out).map_err(err)?;
         String::from_utf8(out).map_err(|e| err(e.to_string()))
     }
-}
-
-/// Fraction of the runouts below a board of `board_len` cards that a given hole-card
-/// pair can actually see: every compatible pair burns four cards none of which are on
-/// the board, so `(unseen - 4) / unseen` per street still to come. Flop
-/// `(45/49)(44/48)`, turn `44/48`, river `1` — the same factor the engine folds into
-/// `Game::normalizer` (`nlhe::chance_mass_factor`, which is private, hence this copy).
-///
-/// It is the same constant for every pair, which is why dividing a counterfactual value
-/// by it is a rescale rather than a per-combo correction.
-fn runout_mass(board_len: usize) -> f64 {
-    let mut f = 1.0f64;
-    let mut unseen = (NUM_CARDS - board_len) as f64;
-    for _ in 0..(5 - board_len) {
-        f *= (unseen - 4.0) / unseen;
-        unseen -= 1.0;
-    }
-    f
 }
 
 /// The stored strategies read back as a fixed profile for the best-response walk.
