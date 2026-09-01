@@ -3,8 +3,16 @@ name = "engine"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["parallel"]
+# Fork the CFR traversal across chance-node outcomes with rayon. Off for
+# wasm32-unknown-unknown, where thread spawning panics; the sequential branch in
+# `cfr::Cfr::walk` is then the only path and results are unchanged (the parallel
+# branch is bit-identical to it by construction — see the `cfr` module docs).
+parallel = ["dep:rayon"]
+
 [dependencies]
-rayon = "1"
+rayon = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"

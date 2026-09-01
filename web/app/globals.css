@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #070a11;
+  --color-panel: #0f141d;
+  --color-raised: #161d29;
+  --color-line: #222b3a;
+  --color-line-soft: #1a2230;
+  --color-text: #dce2ee;
+  --color-muted: #8791a6;
+  --color-dim: #5b6577;
+  --color-accent: #e0aa4e;
+  --color-accent-dim: #8a6a2f;
+  --color-card-s: #dfe5f0;
+  --color-card-h: #e4736f;
+  --color-card-d: #6ba6e2;
+  --color-card-c: #62c58c;
+
+  --font-sans: ui-sans-serif, "Segoe UI", Inter, -apple-system, system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+
+html,
+body {
+  background: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular numerals everywhere a figure sits in a column. */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+}
+
+.label {
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-dim);
+  font-weight: 600;
+}
+
+input[type="text"],
+input[type="number"],
+textarea {
+  background: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: 4px;
+  padding: 4px 7px;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  width: 100%;
+}
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--color-accent-dim);
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: #263041;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

@@ -452,8 +452,11 @@ impl NlheGame {
             &mut cfv,
         );
         let mass = self.compatible_mass(root, hero, self.root_weights(1 - hero));
+        // Counterfactual values carry the runout chance mass (deal weights over
+        // cards the pair can't hold), so chips-per-hand must divide by it too.
+        let f = chance_mass_factor(self.board_at(root).len()) as f32;
         for (v, m) in cfv.iter_mut().zip(&mass) {
-            *v = if *m > 0.0 { *v / *m } else { 0.0 };
+            *v = if *m > 0.0 { *v / (*m * f) } else { 0.0 };
         }
         cfv
     }
@@ -1319,6 +1322,43 @@ mod tests {
         let g = NlheGame::new(&cfg).expect("builds");
         assert_eq!(g.combo_count(0, 0), 3 + 4, "A4s at weight 0 must be absent");
         assert!(g.root_weights(0).iter().all(|&w| w > 0.0));
+    }
+
+    /// Regression: on flop/turn boards, per-combo EVs must divide by the runout
+    /// chance mass as well as the compatible opponent mass, or they under-report
+    /// chip EV by 44/48 (turn) / (45*44)/(49*48) (flop). The identity that pins
+    /// it: the (weight * mass)-weighted mean of root_combo_evs equals
+    /// expected_value(hero) exactly. Caught on a turn spot by the WASM smoke
+    /// test 2026-09-01; the original test was river-only, where the factor is 1.
+    #[test]
+    fn root_combo_evs_weighted_mean_matches_expected_value_on_a_turn_board() {
+        let mut cfg = flop_checkdown_cfg("QQ+,AKs,AQs,KJs", "TT+,AJs+,KQs");
+        cfg.board = "Qs Jh 2h 8c".to_string();
+        let g = NlheGame::new(&cfg).expect("builds");
+        let mut solver = crate::cfr::Solver::new(g);
+        solver.run(50, &crate::cfr::DcfrParams::default(), 0, |_, _, _| {});
+        for hero in 0..2u8 {
+            let evs = solver
+                .game()
+                .root_combo_evs(hero, &solver.average());
+            let mass = solver.game().compatible_mass(
+                0,
+                hero,
+                solver.game().root_weights(1 - hero),
+            );
+            let w = solver.game().root_weights(hero);
+            let (mut num, mut den) = (0.0f64, 0.0f64);
+            for i in 0..evs.len() {
+                num += (w[i] * mass[i] * evs[i]) as f64;
+                den += (w[i] * mass[i]) as f64;
+            }
+            let mean = (num / den) as f32;
+            let ev = solver.expected_value(hero);
+            assert!(
+                (mean - ev).abs() < 2e-3,
+                "player {hero}: weighted mean of per-combo EVs {mean} != range EV {ev}"
+            );
+        }
     }
 
     #[test]

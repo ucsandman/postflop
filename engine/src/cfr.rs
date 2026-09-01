@@ -16,6 +16,12 @@
 //!
 //! # Parallelism (rayon), and why it is bit-deterministic
 //!
+//! Gated behind the default-on `parallel` feature. Building with
+//! `--no-default-features` drops rayon entirely and leaves the sequential chance branch
+//! as the only path — required for `wasm32-unknown-unknown`, where rayon cannot spawn
+//! threads. Because the parallel branch is bit-identical to the sequential one (below),
+//! turning the feature off changes speed and nothing else.
+//!
 //! The traversal forks at **chance nodes** — the 49 turn cards, the 48 river cards —
 //! and only at the *outermost* one on any path ([`PAR_MIN_OUTCOMES`] outcomes or more),
 //! which on a flop tree is a turn node with 49 fat, well-balanced subtrees. Inner
@@ -38,6 +44,7 @@
 
 use std::slice;
 
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 use crate::br::{self, ExploitReport, StrategyProfile};
@@ -435,6 +442,9 @@ struct Cfr<'a, G: Game> {
     /// Whether this context is still allowed to fork at a chance node. True on the main
     /// thread, false inside a task — only the outermost chance node on a path forks, so
     /// there is exactly one fork level and the disjointness argument in [`Store`] holds.
+    ///
+    /// Only the `parallel` feature reads it; without rayon every walk is sequential.
+    #[cfg_attr(not(feature = "parallel"), allow(dead_code))]
     fork: bool,
 }
 
@@ -461,6 +471,7 @@ impl<G: Game + Sync> Cfr<'_, G> {
                 let (r, w) = read_write(&mut self.scratch.buf, o_off, on, out, hn);
                 g.terminal_utility(node, hero, r, w);
             }
+            #[cfg(feature = "parallel")]
             NodeInfo::Chance { num_outcomes } if self.fork && num_outcomes >= PAR_MIN_OUTCOMES => {
                 // PARALLEL MAP: one task per outcome, each with its own arena and its own
                 // node-disjoint slice of storage (see `Store`). `map_init` keeps one arena

@@ -35,6 +35,8 @@ cli/src/
 cli/tests/
   cli.rs        real-binary integration test (spawns the built `solver` exe)
   fixtures/     tiny TOML configs for that test
+wasm/           the engine compiled to WebAssembly (see wasm/src/lib.rs)
+web/            the browser UI (Next.js) — see "Web UI" below
 ```
 
 ## Build
@@ -122,18 +124,69 @@ per combo (weight 1 each — the same convention the engine's own tests use).
 With `--combo AhKh`, it prints that exact combo's full action distribution
 instead.
 
+## Web UI
+
+`web/` is a Next.js (App Router, TypeScript, Tailwind) front end for the same
+engine, compiled to WebAssembly. It loads and inspects saved solutions, and can
+run small solves in the browser.
+
+### Run it
+
+```
+wasm-pack build wasm --target web --out-dir pkg
+cd web
+npm install
+npm run dev            # http://localhost:3000
+```
+
+`npm run dev` and `npm run build` both run `scripts/sync-wasm.mjs` first, which
+copies the wasm-pack output into `web/vendor/solver-wasm/` (glue + types, for
+the bundler) and `web/public/wasm/` (glue + binary, served over HTTP for the
+solve worker), and copies `fixture-turn.json` / `fixture-river.json` into
+`web/public/fixtures/` for the sample buttons. All three directories are
+generated and gitignored. If `wasm/pkg` is missing the script fails loudly with
+the `wasm-pack` command to run.
+
+### What it does
+
+- **Load** a solution written by `solver solve`, or exported from the page.
+  Loading rebuilds the tree structure and reads the stored strategies; it never
+  re-solves. Bad files surface the engine's own error text.
+- **Inspect.** A 13x13 grid for the acting player, each cell a stacked bar of
+  action frequencies weighted by live combo reach; click a cell for the
+  per-combo action distribution and per-hand EV. A tree navigator walks the
+  action line, and chance nodes offer a 52-card runout selector with dead cards
+  disabled. The opponent's reach-weighted range is shown alongside.
+- **Solve.** A form builds the same TOML the CLI reads, runs `tree_stats` as a
+  preflight (warning above ~300 MB predicted storage, hard confirm above 1 GB),
+  then solves with a live exploitability curve. Results open in the inspector.
+- **Export** the loaded or freshly solved solution back to JSON. That file
+  reloads here and reads in the CLI.
+
+### Threading
+
+The browser build is **single-threaded**. `engine`'s rayon parallelism is behind
+the default-on `parallel` feature; `solver-wasm` depends on the engine with
+`default-features = false` because rayon cannot spawn threads on
+`wasm32-unknown-unknown`. The CLI uses every core, the browser uses one. Solving
+runs in a Web Worker (`web/public/solve-worker.js`) because `solve_spot` blocks
+its thread for the whole run — that is what keeps the progress curve live rather
+than arriving in one lump after the solve finishes.
+
+Screenshots of the running UI: `web/docs/screens/`.
+
 ## Tests
 
 ```
-cargo test -p engine --release --lib
-cargo test -p solver-cli --release
+cargo test --release --workspace
 ```
 
-`--lib` on the engine test run is required right now: `engine/examples/` has
-an untracked, currently-broken example file (unrelated to this milestone —
-not owned or touched here) that `cargo test` otherwise tries to build as part
-of the default target set. `-p engine --release --lib` restricts the run to
-the library's own unit tests and skips it.
+Two heavyweight verifications are `#[ignore]`d and run explicitly:
+
+```
+cargo test -p engine --release verify_1m -- --ignored --nocapture   # evaluator vs oracle, 1M hands
+cargo test -p engine --release milestone4 -- --ignored --nocapture  # full flop solve (~3 min, ~1.5 GB)
+```
 
 `cli`'s test is a real-binary integration test: it spawns the actual built
 `solver` executable via `std::process::Command` (using
