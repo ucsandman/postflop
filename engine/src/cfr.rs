@@ -13,10 +13,42 @@
 //!
 //! Convergence is measured by exploitability from [`crate::br`], never by regret
 //! magnitude.
+//!
+//! # Parallelism (rayon), and why it is bit-deterministic
+//!
+//! The traversal forks at **chance nodes** — the 49 turn cards, the 48 river cards —
+//! and only at the *outermost* one on any path ([`PAR_MIN_OUTCOMES`] outcomes or more),
+//! which on a flop tree is a turn node with 49 fat, well-balanced subtrees. Inner
+//! per-combo loops stay flat sequential `f32` loops so they keep vectorizing; nothing
+//! below the fork is parallel.
+//!
+//! Two properties make the result **bit-identical to the sequential walk**, and hence
+//! identical for any thread count:
+//!
+//! 1. **Parallel map, sequential reduce.** Each outcome writes its counterfactual value
+//!    vector into its own buffer. The expansion back into the parent's slots
+//!    (`out[parent_of_child[k]] += child[k]`) then runs on the main thread in ascending
+//!    outcome order — exactly the order the sequential loop used. Float addition is not
+//!    associative, so this fixed order is the whole game.
+//! 2. **Disjoint storage writes.** See [`Store`]. No atomics, no locks, no reduction
+//!    over regrets.
+//!
+//! The best-response walk in [`crate::br`] is still sequential; with a coarse
+//! `report_every` it is a small share of a solve.
+
+use std::slice;
+
+use rayon::prelude::*;
 
 use crate::br::{self, ExploitReport, StrategyProfile};
 use crate::config::SolveConfig;
 use crate::game::{Game, NodeInfo};
+
+/// Fork a chance node across threads only when it has at least this many outcomes.
+///
+/// Real runouts have 48 or 49; toy games (and any future 2- or 3-way chance node) stay
+/// on the sequential path, where rayon's fork overhead would swamp the subtree.
+pub const PAR_MIN_OUTCOMES: usize = 8;
 
 /// Discounting schedule. Defaults are the DCFR paper's recommended `1.5 / 0 / 2`.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -103,6 +135,71 @@ pub(crate) fn read_write(
     }
 }
 
+/// Shared handle on the solver's two per-node storage arrays, handed by value to
+/// parallel subtree tasks.
+///
+/// # Why raw pointers, and why this is sound
+///
+/// A `&mut [f32]` cannot be split across chance outcomes with `split_at_mut` — the
+/// regions a subtree touches are scattered by node id, not contiguous — and a
+/// `Mutex`/`RefCell` per node in the hot path would cost more than the parallelism buys.
+/// So the two arrays travel as raw pointers and every access materializes a `&mut [f32]`
+/// covering **one decision node's region only** (`offsets[node] .. + sizes[node]`).
+///
+/// Those per-node regions never alias across concurrent tasks:
+///
+/// * The solver lays storage out with one disjoint `[off, off + size)` block per
+///   decision node (see [`Solver::new`]), so two distinct nodes never share a slot.
+/// * Tasks are forked one per outcome of a single chance node, and the tree builds a
+///   **distinct subtree per chance outcome** — no node is reachable from two outcomes of
+///   the same chance node. So task `k` writes only nodes in subtree `k`, and the subtrees
+///   are node-disjoint.
+/// * Alternating updates mean a half-iteration writes only the *traversing* player's
+///   nodes, which shrinks the write set further but is not needed for the argument.
+/// * The parent's own frames (`self.scratch`, the reduction buffer) are never handed to a
+///   task; each task allocates its own [`Scratch`].
+///
+/// Hence at most one live `&mut` exists for any byte at any time, which is what the
+/// aliasing rules actually require. Widening the fork beyond one chance node's outcomes
+/// — e.g. forking two chance nodes at once, or reusing a `Store` across a decision edge
+/// — would break the second bullet and is not done anywhere.
+#[derive(Clone, Copy)]
+pub(crate) struct Store {
+    regrets: *mut f32,
+    strat: *mut f32,
+    len: usize,
+}
+
+// SAFETY: `Store` is only ever shared under the disjointness argument documented above.
+unsafe impl Send for Store {}
+unsafe impl Sync for Store {}
+
+impl Store {
+    fn new(regrets: &mut [f32], strat: &mut [f32]) -> Store {
+        debug_assert_eq!(regrets.len(), strat.len());
+        Store { regrets: regrets.as_mut_ptr(), strat: strat.as_mut_ptr(), len: regrets.len() }
+    }
+
+    /// Cumulative regret for one node's region.
+    ///
+    /// # Safety
+    /// `off..off + n` must be that node's own region, and no other live reference may
+    /// cover it. See the type docs for why concurrent tasks satisfy this.
+    #[inline]
+    unsafe fn regrets(&self, off: usize, n: usize) -> &'static mut [f32] {
+        debug_assert!(off + n <= self.len);
+        slice::from_raw_parts_mut(self.regrets.add(off), n)
+    }
+
+    /// Cumulative strategy for one node's region. Same safety contract as
+    /// [`Store::regrets`].
+    #[inline]
+    unsafe fn strat(&self, off: usize, n: usize) -> &'static mut [f32] {
+        debug_assert!(off + n <= self.len);
+        slice::from_raw_parts_mut(self.strat.add(off), n)
+    }
+}
+
 /// Fills `out` (action-major, `n_act * n_combo`) with regret matching over `regrets`:
 /// `sigma(a) ∝ max(R(a), 0)`, uniform when no action has positive regret.
 pub(crate) fn regret_matching(regrets: &[f32], n_act: usize, n_combo: usize, out: &mut [f32]) {
@@ -177,6 +274,34 @@ impl<G: Game> Solver<G> {
         self.iteration
     }
 
+    /// DCFR discounting, applied once per full iteration `t` (1-based):
+    /// positive regrets by `t^a / (t^a + 1)`, negative by `t^b / (t^b + 1)`, and the
+    /// cumulative strategy by `(t / (t + 1))^g` so that iteration `t`'s contribution
+    /// carries weight proportional to `t^g`.
+    fn discount(&mut self, params: &DcfrParams) {
+        let t = self.iteration as f64;
+        let pos = {
+            let ta = t.powf(params.alpha);
+            (ta / (ta + 1.0)) as f32
+        };
+        let neg = {
+            let tb = t.powf(params.beta);
+            (tb / (tb + 1.0)) as f32
+        };
+        let strat = (t / (t + 1.0)).powf(params.gamma) as f32;
+        for r in self.regrets.iter_mut() {
+            *r *= if *r > 0.0 { pos } else { neg };
+        }
+        for s in self.strat_sum.iter_mut() {
+            *s *= strat;
+        }
+    }
+}
+
+/// The iteration itself. `Sync` is required because the traversal hands `&G` to rayon
+/// tasks at chance nodes; every `Game` in this crate satisfies it (they are plain
+/// read-only tables built once).
+impl<G: Game + Sync> Solver<G> {
     /// Runs `iterations` DCFR iterations.
     ///
     /// When `report_every > 0`, `report` is called after every `report_every`-th
@@ -218,40 +343,20 @@ impl<G: Game> Solver<G> {
         self.scratch.buf[h_off..h_off + hn].copy_from_slice(self.game.root_weights(hero));
         self.scratch.buf[o_off..o_off + on].copy_from_slice(self.game.root_weights(opp));
 
+        let store = Store::new(&mut self.regrets, &mut self.strat_sum);
         let mut ctx = Cfr {
             game: &self.game,
-            regrets: &mut self.regrets,
-            strat: &mut self.strat_sum,
+            store,
             offsets: &self.offsets,
             scratch: &mut self.scratch,
             floor: params.floor_regrets_at_zero,
+            fork: true,
         };
         ctx.walk(root, hero, h_off, hn, o_off, on, out);
     }
+}
 
-    /// DCFR discounting, applied once per full iteration `t` (1-based):
-    /// positive regrets by `t^a / (t^a + 1)`, negative by `t^b / (t^b + 1)`, and the
-    /// cumulative strategy by `(t / (t + 1))^g` so that iteration `t`'s contribution
-    /// carries weight proportional to `t^g`.
-    fn discount(&mut self, params: &DcfrParams) {
-        let t = self.iteration as f64;
-        let pos = {
-            let ta = t.powf(params.alpha);
-            (ta / (ta + 1.0)) as f32
-        };
-        let neg = {
-            let tb = t.powf(params.beta);
-            (tb / (tb + 1.0)) as f32
-        };
-        let strat = (t / (t + 1.0)).powf(params.gamma) as f32;
-        for r in self.regrets.iter_mut() {
-            *r *= if *r > 0.0 { pos } else { neg };
-        }
-        for s in self.strat_sum.iter_mut() {
-            *s *= strat;
-        }
-    }
-
+impl<G: Game> Solver<G> {
     /// Gamma-weighted average strategy at `node`, action-major
     /// (`[a * combo_count + i]`), normalized per combo.
     ///
@@ -323,14 +428,17 @@ impl<G: Game> StrategyProfile for AverageStrategy<'_, G> {
 /// mutably-borrowed struct), so chance-edge slices stay valid across recursive calls.
 struct Cfr<'a, G: Game> {
     game: &'a G,
-    regrets: &'a mut [f32],
-    strat: &'a mut [f32],
+    store: Store,
     offsets: &'a [u32],
     scratch: &'a mut Scratch,
     floor: bool,
+    /// Whether this context is still allowed to fork at a chance node. True on the main
+    /// thread, false inside a task — only the outermost chance node on a path forks, so
+    /// there is exactly one fork level and the disjointness argument in [`Store`] holds.
+    fork: bool,
 }
 
-impl<G: Game> Cfr<'_, G> {
+impl<G: Game + Sync> Cfr<'_, G> {
     /// Writes hero's counterfactual value vector for the subtree at `node` into
     /// `scratch[out .. out + hn]`, updating hero's regrets and strategy sums on the way.
     ///
@@ -352,6 +460,48 @@ impl<G: Game> Cfr<'_, G> {
             NodeInfo::Terminal => {
                 let (r, w) = read_write(&mut self.scratch.buf, o_off, on, out, hn);
                 g.terminal_utility(node, hero, r, w);
+            }
+            NodeInfo::Chance { num_outcomes } if self.fork && num_outcomes >= PAR_MIN_OUTCOMES => {
+                // PARALLEL MAP: one task per outcome, each with its own arena and its own
+                // node-disjoint slice of storage (see `Store`). `map_init` keeps one arena
+                // per rayon worker alive across the outcomes it happens to take, so the
+                // steady state allocates only the returned value vectors.
+                let (store, offsets, floor) = (self.store, self.offsets, self.floor);
+                let parent: &[f32] = &self.scratch.buf;
+                let results: Vec<Vec<f32>> = (0..num_outcomes)
+                    .into_par_iter()
+                    .map_init(Scratch::new, |sc, k| {
+                        let edge = g.chance_outcome(node, k);
+                        let map_h = edge.parent_of_child[hero as usize];
+                        let map_o = edge.parent_of_child[(1 - hero) as usize];
+                        let (chn, con) = (map_h.len(), map_o.len());
+                        sc.top = 0;
+                        let ch = sc.alloc(chn);
+                        let co = sc.alloc(con);
+                        let cout = sc.alloc(chn);
+                        for (t, &p) in map_h.iter().enumerate() {
+                            sc.buf[ch + t] = parent[h_off + p as usize];
+                        }
+                        for (t, &p) in map_o.iter().enumerate() {
+                            sc.buf[co + t] = parent[o_off + p as usize] * edge.weight;
+                        }
+                        let mut ctx =
+                            Cfr { game: g, store, offsets, scratch: sc, floor, fork: false };
+                        ctx.walk(edge.child, hero, ch, chn, co, con, cout);
+                        sc.buf[cout..cout + chn].to_vec()
+                    })
+                    .collect();
+
+                // SEQUENTIAL REDUCE, ascending outcome order — the same order and the same
+                // additions the sequential branch below performs, so the sum is bit-identical
+                // however the tasks were scheduled.
+                self.scratch.zero(out, hn);
+                for (k, vals) in results.iter().enumerate() {
+                    let map_h = g.chance_outcome(node, k).parent_of_child[hero as usize];
+                    for (t, &p) in map_h.iter().enumerate() {
+                        self.scratch.buf[out + p as usize] += vals[t];
+                    }
+                }
             }
             NodeInfo::Chance { num_outcomes } => {
                 self.scratch.zero(out, hn);
@@ -384,8 +534,12 @@ impl<G: Game> Cfr<'_, G> {
                 let base = self.scratch.top;
                 let sig = self.scratch.alloc(size);
                 let evs = self.scratch.alloc(size);
+                // SAFETY: `off..off + size` is exactly this node's own region, and this
+                // task is the only one that reaches this node (see `Store`).
+                let regrets = unsafe { self.store.regrets(off, size) };
+                let strat = unsafe { self.store.strat(off, size) };
                 regret_matching(
-                    &self.regrets[off..off + size],
+                    regrets,
                     num_actions,
                     hn,
                     &mut self.scratch.buf[sig..sig + size],
@@ -410,12 +564,12 @@ impl<G: Game> Cfr<'_, G> {
                 for a in 0..num_actions {
                     for i in 0..hn {
                         let regret = self.scratch.buf[evs + a * hn + i] - self.scratch.buf[out + i];
-                        let slot = &mut self.regrets[off + a * hn + i];
+                        let slot = &mut regrets[a * hn + i];
                         *slot += regret;
                         if self.floor && *slot < 0.0 {
                             *slot = 0.0;
                         }
-                        self.strat[off + a * hn + i] +=
+                        strat[a * hn + i] +=
                             self.scratch.buf[h_off + i] * self.scratch.buf[sig + a * hn + i];
                     }
                 }
@@ -427,8 +581,10 @@ impl<G: Game> Cfr<'_, G> {
                 let size = num_actions * on;
                 let base = self.scratch.top;
                 let sig = self.scratch.alloc(size);
+                // SAFETY: read-only use of this node's own region; see `Store`.
+                let regrets = unsafe { self.store.regrets(off, size) };
                 regret_matching(
-                    &self.regrets[off..off + size],
+                    regrets,
                     num_actions,
                     on,
                     &mut self.scratch.buf[sig..sig + size],

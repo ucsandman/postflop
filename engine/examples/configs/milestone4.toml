@@ -1,0 +1,32 @@
+# MILESTONE 4 — a full multi-street flop solve.
+#
+# Qs Jh 2h, single-raised pot: BTN opened, BB defended, 6 chips in the middle and 97
+# behind. Two flop sizings and a raise for both players, one sizing per later street,
+# with the all-in threshold collapsing anything near a shove into the shove.
+board = "Qs Jh 2h"
+oop_range = "22+,A2s+,K7s+,Q8s+,J8s+,T8s+,97s+,86s+,75s+,65s,54s,A9o+,KTo+,QTo+,JTo"
+ip_range = "55+,A2s+,K9s+,QTs+,JTs,T9s,98s,ATo+,KJo+,QJo"
+effective_stack = 97.0
+starting_pot = 6.0
+allin_threshold = 67.0
+raise_cap = 2
+alpha = 1.5
+beta = 0.0
+gamma = 2.0
+
+[sizings.oop.flop]
+bet = { percents = [33.0, 75.0] }
+raise = { percents = [60.0] }
+[sizings.ip.flop]
+bet = { percents = [33.0, 75.0] }
+raise = { percents = [60.0] }
+
+[sizings.oop.turn]
+bet = { percents = [75.0] }
+[sizings.ip.turn]
+bet = { percents = [75.0] }
+
+[sizings.oop.river]
+bet = { percents = [75.0], allin = true }
+[sizings.ip.river]
+bet = { percents = [75.0], allin = true }
