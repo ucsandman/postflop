@@ -6,10 +6,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   DEFAULT_FORM,
+  ICM_WORK_BUDGET,
   PAYOUT_PRESETS,
   PRESETS,
   actionToken,
+  checkTournament,
   findPresetId,
+  icmWorkEstimate,
   loadForm,
   saveForm,
   seedTournament,
@@ -415,6 +418,63 @@ assert.equal(findPresetId(edited), "", "a hand-edited form matches no preset");
     assert.equal(loadForm(), null, `${why} -> null, not a half-valid form`);
   }
   console.log("  tournament form: round trip + legacy form + 5 malformed blocks rejected");
+}
+
+// --- checkTournament: the live check the panel shows, and the two rules that exist
+// --- only because their loose form shipped a wrong answer ---------------------------
+{
+  const at = (over: Partial<TournamentForm>): TournamentForm => ({
+    payouts: "500, 300, 200",
+    stacks: "100, 250, 150, 120",
+    seats: [0, 1],
+    ...over,
+  });
+  assert.equal(checkTournament(at({}), "100"), null, "the seeded shape is accepted");
+
+  // A ladder longer than the LIVE field, not longer than the seat list: three seats
+  // still hold chips, so a fourth prize can never be awarded. `icm::equity` would hand
+  // it to nobody while the CSTE scale still divides by the whole pool, and every payoff
+  // would come out short by that ratio. The seat-count form of this rule accepted it.
+  const busted = at({ stacks: "100, 250, 150, 0", payouts: "500, 400, 300, 200" });
+  const bustedErr = checkTournament(busted, "100");
+  assert.match(
+    String(bustedErr),
+    /4 places paid but only 3 of the 4 seats/,
+    `a ladder past the live field must be rejected, got ${bustedErr}`,
+  );
+  assert.equal(
+    checkTournament(at({ stacks: "100, 250, 150, 0" }), "100"),
+    null,
+    "three prizes over three live seats is still fine",
+  );
+
+  // Cost, not correctness: 16 seats paying 6 passes every other rule and takes 1.32 s
+  // in the engine to price the bubble-factor matrix -- on the browser's main thread.
+  const heavy = at({
+    stacks: ["100", "250", ...Array(14).fill("150")].join(", "),
+    payouts: "600, 500, 400, 300, 200, 100",
+  });
+  const heavyErr = checkTournament(heavy, "100");
+  assert.match(
+    String(heavyErr),
+    /past the .* budget/,
+    `16 seats paying 6 must be rejected on cost, got ${heavyErr}`,
+  );
+  // ...and a real ten-handed final table paying every place still fits.
+  const ten = at({
+    stacks: ["100", "250", ...Array(8).fill("150")].join(", "),
+    payouts: Array.from({ length: 10 }, (_, i) => 100 - i * 5).join(", "),
+  });
+  assert.equal(checkTournament(ten, "100"), null, "10 seats paying 10 is inside the budget");
+
+  // The estimate is the engine's, exactly: sum_{k<places} C(alive,k) * seats * (2n^2+1).
+  assert.equal(icmWorkEstimate(4, 3, 3), (1 + 3 + 3) * 4 * (2 * 16 + 1), "4 seats, 3 alive, 3 paid");
+  assert.equal(icmWorkEstimate(10, 10, 10), 1023 * 10 * 201, "10 seats paying 10");
+  console.log(
+    `  checkTournament: 6 cases · budget ${ICM_WORK_BUDGET.toExponential(0)} · ` +
+      `10x10 costs ${icmWorkEstimate(10, 10, 10).toExponential(3)}, ` +
+      `16x6 costs ${icmWorkEstimate(16, 16, 6).toExponential(3)}`,
+  );
 }
 
 console.log("PASS: config.test.ts");

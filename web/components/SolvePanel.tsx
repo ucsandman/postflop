@@ -16,6 +16,7 @@ import {
   type SpotContext,
   type TournamentForm,
   WARN_BYTES,
+  checkTournament,
   findPresetId,
   loadForm,
   parseNums,
@@ -626,33 +627,7 @@ function TournamentEditor({
     } catch (e) {
       return { bad: e instanceof Error ? e.message : String(e), payouts: [] as number[], stacks: [] as number[] };
     }
-    const eff = Number(form.effective_stack);
-    const [a, b] = t.seats;
-    const bad =
-      stacks.length < 2 || stacks.length > 32
-        ? `seat stacks: need between 2 and 32 seats, got ${stacks.length}`
-        : stacks.some((v) => v < 0)
-          ? "seat stacks: every stack must be zero or more"
-          : payouts.length === 0
-            ? "payouts: at least one prize"
-            : payouts.some((v, i) => i > 0 && v > payouts[i - 1])
-              ? "payouts: places must not pay more than the place above"
-              : payouts.some((v) => v < 0) || payouts.reduce((x, y) => x + y, 0) <= 0
-                ? "payouts: all non-negative and the pool above zero"
-                : payouts.length > stacks.length
-                  ? `payouts: ${payouts.length} places paid but only ${stacks.length} seats at the table`
-                  : a === b
-                    ? "seats: OOP and IP must be different seats"
-                    : a >= stacks.length || b >= stacks.length
-                      ? `seats: index out of range for ${stacks.length} seats`
-                      : !Number.isFinite(eff)
-                        ? null
-                        : Math.min(stacks[a], stacks[b]) < eff - 1e-9
-                          ? `seats: the shorter in-hand seat has ${Math.min(stacks[a], stacks[b])} behind, less than the ${eff} effective stack above`
-                          : Math.abs(Math.min(stacks[a], stacks[b]) - eff) > 1e-9
-                            ? `seats: the shorter in-hand seat must hold exactly the ${eff} effective stack (it has ${Math.min(stacks[a], stacks[b])}); the covering seat may hold more`
-                            : null;
-    return { bad, payouts, stacks };
+    return { bad: checkTournament(t, form.effective_stack), payouts, stacks };
   })();
 
   return (
@@ -814,10 +789,11 @@ function LocksPanel({
         <>
           <p className="p-3 text-[11px] text-muted">
             A lock names its node by the line walked from the root, so it only means anything
-            against the tree it was read from. Change the board, ranges, stack or pot and the lock
-            below is marked <span style={{ color: "var(--color-err)" }}>stale</span> and the solve
-            refuses to run until it is removed. The same line on another board would resolve
-            silently and freeze the wrong strategy.
+            against the tree it was read from. Change the board, ranges, stack, pot or the payout
+            structure and the lock below is marked{" "}
+            <span style={{ color: "var(--color-err)" }}>stale</span> and the solve refuses to run
+            until it is removed. The same line on another board would resolve silently and freeze
+            the wrong strategy.
           </p>
           <ul>
             {locks.map((l) => (
@@ -838,7 +814,7 @@ function LocksPanel({
                   <span
                     className="label shrink-0"
                     style={{ color: "var(--color-err)" }}
-                    title="Captured on a different board/ranges/stack/pot than the form above"
+                    title="Captured on a different board/ranges/stack/pot or payout structure than the form above"
                   >
                     stale
                   </span>

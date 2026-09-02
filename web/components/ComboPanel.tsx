@@ -148,7 +148,7 @@ export default function ComboPanel({
 
       <div className="border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
         {unit === "cste"
-          ? "EV is tournament equity in CSTE chips, measured against the start of the solve, both players on the solved average strategy. It is not zero-sum: equity leaks to the rest of the table."
+          ? "EV is tournament equity in CSTE chips, measured against the start of the solve, both players on the solved average strategy. It is not zero-sum: the pair leaks equity to the rest of the table when the hand pushes their stacks apart, and draws equity back from it when the hand pulls them together."
           : "EV is zero-sum net big blinds from the start of the solve, both players on the solved average strategy."}{" "}
         “—” means the EV is undefined here, not zero.
       </div>

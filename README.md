@@ -206,8 +206,8 @@ NashConv: 0.014386 cste chips  0.1439% of pot  [measured]
   (both players' unilateral best-response gains, summed; the game is general-sum, so zero does not certify a minimum EV)
 OOP EV: zero-sum -1.1330  pot-share 25.4120  [measured]
 IP  EV: zero-sum 0.2960  pot-share 35.3722  [measured]
-OOP seat 0 (20 chips)  gain 0.003019 cste chips  bubble factor vs seat 1 1.5062 (required equity 60.10%)  [measured]
-IP  seat 1 (32 chips)  gain 0.011367 cste chips  bubble factor vs seat 0 1.3241 (required equity 56.97%)  [measured]
+OOP seat 0 (20 chips, 25 with this pot)  gain 0.003019 cste chips  bubble factor vs seat 1 1.6165 (required equity 61.78%)  [measured]
+IP  seat 1 (32 chips, 37 with this pot)  gain 0.011367 cste chips  bubble factor vs seat 0 1.3996 (required equity 58.33%)  [measured]
 icm: 6 seats, 3 paid, 7 terminals mapped  [measured]
 ```
 
@@ -215,7 +215,17 @@ Only the shape of the ladder matters — the engine divides by the prize pool, s
 `[50, 30, 20]` and `[$5000, $3000, $2000]` solve to the same strategy. The
 shorter of the two in-hand seats must hold exactly `effective_stack`; the
 covering seat may hold more, and its excess rides through every terminal as a
-constant. Rake plus ICM is rejected: tournament pots are not raked.
+constant. Rake plus ICM is rejected: tournament pots are not raked. Two more
+rejections worth knowing before you write a structure file: the ladder is bounded
+by the seats that still **have chips**, not by the length of `stacks`, because a
+prize nobody can finish for would leak out of the model; and seats times paid
+places is bounded by what the ICM subset DP can actually finish, because it is
+exponential in the places — 16 seats paying 6 takes 1.3 s to price one bubble-factor
+matrix and 18 paying 18 takes 72 s, so both are refused with the cost named.
+
+The bubble factors are quoted at the stacks **with this pot already in** (the
+second figure on each seat line), which is the table the payoff map is centred on.
+Quoting them off the raw `stacks` reads 1.5062 / 1.3241 here — a different table.
 
 **The headline number changes, and that is the honest part.** Under ICM the two
 players' equities do not sum to a constant — equity leaks to the frozen field,

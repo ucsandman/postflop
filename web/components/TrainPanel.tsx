@@ -683,7 +683,7 @@ export default function TrainPanel({
               <span className="num text-[13px] text-dim-inv">
                 a random board in a random 100bb scenario, solved on this page in a few seconds ·
                 you get a random combo at a decision node · pick an action · graded in big blinds
-                against the solve, instantly
+                against the solve, instantly (CSTE chips on a tournament solve)
               </span>
               <button
                 onClick={deal}
@@ -822,7 +822,7 @@ export default function TrainPanel({
                     {TIER_LABEL[result.grade.tier]}
                   </span>
                   <div>
-                    <div className="label">EV loss · bb</div>
+                    <div className="label">EV loss · {payoffUnit === "cste" ? "cste" : "bb"}</div>
                     <div
                       className={`fig fig-1 ${
                         result.grade.evLoss === 0
@@ -849,7 +849,9 @@ export default function TrainPanel({
                   <div className="grid grid-cols-[1fr_120px_84px_46px] gap-x-2 border-b-2 border-ink bg-paper-2 px-1.5 py-1">
                     <span className="label">solver mix for this hand</span>
                     <span className="label">frequency</span>
-                    <span className="label text-right">EV (bb)</span>
+                    <span className="label text-right">
+                      EV ({payoffUnit === "cste" ? "cste" : "bb"})
+                    </span>
                     <span className="label text-right">d100</span>
                   </div>
                   {spot.actions.map((a, i) => {
@@ -973,8 +975,9 @@ export default function TrainPanel({
             <div className="px-3 py-3">
               <div className="label">0 hands graded</div>
               <p className="num mt-1 text-[11px] text-muted">
-                every action you pick is scored on the big blinds it costs against the solve and lands
-                here, worst first.
+                every action you pick is scored on the{" "}
+                {payoffUnit === "cste" ? "CSTE tournament chips" : "big blinds"} it costs against
+                the solve and lands here, worst first.
               </p>
             </div>
           ) : (

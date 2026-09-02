@@ -288,6 +288,14 @@ pub struct SolutionHandle {
     by_node: HashMap<u32, usize>,
     /// Node index -> (parent, edge taken). `None` at the root.
     parents: Vec<Option<(u32, Edge)>>,
+    /// Every ordered pair's bubble factor, or `None` for a chip solve. Built once
+    /// here rather than per `meta()` call: the matrix costs `2n^2+1` ICM subset DPs,
+    /// `meta()` runs on the browser's main thread, and a UI calls it on every render
+    /// of the stat band.
+    ///
+    /// Measured at [`NlheGame::icm_base_stacks`] -- the stacks the payoff map is
+    /// centred on -- not at the raw `tournament.stacks` of the config.
+    bubble_factors: Option<Vec<Vec<f64>>>,
 }
 
 impl SolutionHandle {
@@ -347,7 +355,10 @@ impl SolutionHandle {
             }
         }
 
-        Ok(SolutionHandle { sol, game, by_node, parents })
+        let bubble_factors = game.icm_base_stacks().map(|base| {
+            icm::bubble_factors(base, &sol.config.tournament.as_ref().expect("icm").payouts)
+        });
+        Ok(SolutionHandle { sol, game, by_node, parents, bubble_factors })
     }
 
     fn profile(&self) -> FileProfile<'_> {
@@ -453,6 +464,12 @@ impl SolutionHandle {
     /// pair's effective risk. A cell is `null` where the factor is not finite (a seat
     /// that already holds every prize the structure pays).
     ///
+    /// `stacks` is the structure as written; the factors are measured one step later,
+    /// at the stacks the payoff map is centred on (each in-hand seat credited half the
+    /// starting pot), because that is the table the solve actually scored. On the
+    /// shipped river/bubble fixtures the two reference points differ in the first
+    /// decimal of the factor.
+    ///
     /// `locks` is one `{node, player, line}` per frozen decision node, in config order —
     /// empty for an ordinary solve. Those nodes' strategies are the locked distributions
     /// rather than solved ones, which is what a UI badge should say, and
@@ -474,10 +491,9 @@ impl SolutionHandle {
                 "stacks": t.stacks,
                 "payouts": t.payouts,
                 "seats": t.seats,
-                // ponytail: recomputed per meta() call. n^2 pairs x 2 ICM DPs, which is
-                // microseconds at a real final table (<= 10 seats); cache it on the
-                // handle if a 30-seat structure ever shows up in a profile.
-                "bubble_factors": icm::bubble_factors(&t.stacks, &t.payouts)
+                // Built once in `build`, not here: `meta()` runs on the browser main
+                // thread and a UI calls it on every render.
+                "bubble_factors": self.bubble_factors.as_ref().expect("an ICM solve has one")
                     .iter()
                     .map(|row| row
                         .iter()

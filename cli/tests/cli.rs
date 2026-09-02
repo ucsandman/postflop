@@ -393,4 +393,43 @@ stderr:
         bad_stderr.contains("tournament.seats[1] is 9"),
         "the error must name the offending seat: {bad_stderr}"
     );
+
+    // A structure file with a solve key in it is rejected rather than silently
+    // dropping that key, and the rejection reads as a sentence: this arm carried a
+    // run of 14 stray spaces from a string literal joined without a continuation.
+    let stray = bin()
+        .args([
+            "solve",
+            "--config",
+            fixture().to_str().unwrap(),
+            "--tournament",
+            tournament_fixture("stray-key.toml").to_str().unwrap(),
+        ])
+        .output()
+        .expect("run solve with a tournament file that has a stray key");
+    let stray_stderr = String::from_utf8_lossy(&stray.stderr);
+    assert!(
+        !stray.status.success(),
+        "expected a non-zero exit for keys outside [tournament]: {}",
+        String::from_utf8_lossy(&stray.stdout)
+    );
+    assert!(
+        stray_stderr.contains("has keys outside [tournament] (effective_stack)"),
+        "the error must name the stray key: {stray_stderr}"
+    );
+    assert!(
+        stray_stderr.contains("carries the prize structure"),
+        "the message must read as one sentence, no swallowed continuation: {stray_stderr}"
+    );
+    for line in stray_stderr.lines() {
+        assert!(
+            !line.trim().contains("   "),
+            "a user-facing message must not carry a run of stray spaces: {line:?}"
+        );
+    }
+    println!(
+        "cli --tournament: 1 accepted structure, 2 rejected files, {} bubble factors \
+         checked",
+        factors.len()
+    );
 }

@@ -115,9 +115,14 @@
 //!   worth strictly more than half of winning it plus half of losing it. That is why
 //!   [`TermData`] states `chop` rather than deriving it; under chips the two agree.
 //! * **The game is general-sum.** Chips moving between two seats changes the frozen
-//!   field's equity too, so `u0(i,j) + u1(j,i)` is negative and *varies* with how many
-//!   chips moved. [`Game::zero_sum`] returns `false` and `br::exploitability` reports
-//!   NashConv; see the `br` module docs for what that does and does not certify.
+//!   field's equity too, so `u0(i,j) + u1(j,i)` is non-zero and *varies* with how many
+//!   chips moved. Its sign is not fixed: the pair leaks equity to the field when the
+//!   hand pushes their two stacks apart, and drains equity out of the field when it
+//!   pulls them together, so a covering seat losing to the seat it covers can leave
+//!   the pair better off than before. On an even table every terminal leaks; with a
+//!   covering seat both signs appear at the same terminal. What never returns is a
+//!   *constant* to subtract. [`Game::zero_sum`] returns `false` and `br::exploitability`
+//!   reports NashConv; see the `br` module docs for what that does and does not certify.
 //! * **The covering seat's excess never enters the tree.** An all-in is capped at
 //!   `effective_stack`, so `stacks[seat] - effective_stack` rides through every
 //!   terminal as a constant added to that seat's final stack. Only the ICM vector sees
@@ -195,6 +200,12 @@ struct Icm {
     seats: [usize; 2],
     /// Chips behind per seat at the root of this node, straight from the config.
     stacks: Vec<f64>,
+    /// `stacks` with the starting pot credited half to each in-hand seat: the vector
+    /// `root` was measured at, and therefore the only stack vector the payoff map is
+    /// centred on. Anything quoted alongside these payoffs -- a bubble factor, a
+    /// required equity -- has to be measured here too, or it describes a table that
+    /// stopped existing when the preflop chips went in.
+    base: Vec<f64>,
     payouts: Vec<f64>,
 }
 
@@ -213,6 +224,7 @@ impl Icm {
             root: icm::equity(&base, &t.payouts),
             seats: t.seats,
             stacks: t.stacks.clone(),
+            base,
             payouts: t.payouts.clone(),
         }
     }
@@ -568,6 +580,24 @@ impl NlheGame {
         &self.tree
     }
 
+    /// The stack vector the ICM payoff map is centred on: `tournament.stacks` with
+    /// `starting_pot / 2` credited to each in-hand seat, the same re-centering the
+    /// chip convention uses. `None` for a chip solve.
+    ///
+    /// This, not `config().tournament.stacks`, is the reference point for any figure
+    /// displayed beside the payoffs. The two differ by the preflop money, which is
+    /// already in the pot: on the shipped `river.toml` + `bubble.toml` pair the raw
+    /// vector is `[20, 32, 45, 12, 8, 15]` and this one is `[25, 37, 45, 12, 8, 15]`.
+    /// Quoting bubble factors off the raw vector printed 1.5062 / 1.3241 where the map
+    /// actually prices 1.6165 / 1.3996 -- a disagreement in the first decimal, not the
+    /// fourth that the CLI and the web both show. Note the risk moves with the vector
+    /// too: the shorter in-hand seat holds exactly `effective_stack`, so its entry here
+    /// is `effective_stack + starting_pot / 2`, which is exactly the most either seat
+    /// can swing at this node.
+    pub fn icm_base_stacks(&self) -> Option<&[f64]> {
+        self.icm.as_ref().map(|i| i.base.as_slice())
+    }
+
     /// Pot, stacks and street at a node.
     pub fn node_at(&self, node: u32) -> &Node {
         self.tree.node(node)
@@ -745,8 +775,9 @@ impl Game for NlheGame {
     }
 
     fn zero_sum(&self) -> bool {
-        // An ICM spot is general-sum: the frozen field absorbs equity whenever chips
-        // move, and by a different amount at every terminal. See the module docs.
+        // An ICM spot is general-sum: the frozen field trades equity with the pair
+        // whenever chips move, by a different amount at every terminal and not always
+        // in the same direction. See the module docs.
         self.icm.is_none()
     }
 
@@ -1707,6 +1738,13 @@ mod tests {
     // has to *vary*: a constant-sum bug cannot hide in it.
 
     const T_STACKS: [f64; 10] = [1500.0; 10];
+    /// The same table with seat 1 covering seat 0. Rule 4 of `Tournament::validate`
+    /// permits it and the shipped `bubble.toml` fixture is shaped this way, so the
+    /// leakage invariant has to hold here too -- and it is here that the pair sum turns
+    /// positive, because a hand seat 0 wins pulls the two stacks *together*.
+    const COVERING: [f64; 10] = [
+        1500.0, 2400.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0,
+    ];
     /// A standard 10-man SNG ladder: the bubble is seat 4.
     const TOP_HEAVY: [f64; 3] = [500.0, 300.0, 200.0];
     /// Seven equal prizes out of ten seats: a satellite, where surviving is
@@ -1743,10 +1781,14 @@ mod tests {
     }
 
     fn with_payouts(payouts: &[f64]) -> SolveConfig {
+        with_table(payouts, &T_STACKS)
+    }
+
+    fn with_table(payouts: &[f64], stacks: &[f64]) -> SolveConfig {
         let mut cfg = bubble_cfg();
         cfg.tournament = Some(crate::config::Tournament {
             payouts: payouts.to_vec(),
-            stacks: T_STACKS.to_vec(),
+            stacks: stacks.to_vec(),
             seats: [0, 1],
         });
         cfg
@@ -1821,70 +1863,107 @@ mod tests {
         );
     }
 
-    /// The invariant that replaces zero-sum. Chips moving between two seats destroys
-    /// equity for the pair and hands it to the frozen field, so `u0 + u1 < 0` at every
-    /// terminal, and by a *different* amount at each because the terminals move
-    /// different numbers of chips. A constant-sum implementation (the mistake the
-    /// engine map made) passes a plain non-zero check and fails the variance one.
+    /// The invariant that replaces zero-sum. Chips moving between two seats changes
+    /// the frozen field's equity, so `u0 + u1` is non-zero and *varies* from terminal
+    /// to terminal because the terminals move different numbers of chips. A
+    /// constant-sum implementation (the mistake the engine map made) passes a plain
+    /// non-zero check and fails the variance one.
+    ///
+    /// What is deliberately *not* asserted is a sign. Malmuth-Harville equity is
+    /// concave in chips, so a pair loses equity to the field when the hand pushes their
+    /// two stacks apart and takes equity back from it when the hand pulls them
+    /// together. On an even table every outcome pushes them apart and every pair leaks.
+    /// With a covering seat -- rule 4 of `Tournament::validate` permits one, and the
+    /// shipped `bubble.toml` fixture is one -- the shorter seat winning *balances* the
+    /// table, and the pair sum comes out positive. Both tables are probed here, and the
+    /// covering one is required to produce both signs.
     #[test]
-    fn icm_leaks_equity_to_the_field() {
-        let g = NlheGame::new(&with_payouts(&TOP_HEAVY)).expect("builds");
-        let scale = T_CHIPS / TOP_HEAVY.iter().sum::<f64>();
-        let terminals: Vec<u32> = (0..g.num_nodes() as u32)
-            .filter(|&i| matches!(g.node(i), NodeInfo::Terminal))
-            .collect();
-        assert_eq!(terminals.len(), 5, "two folds and three showdowns");
+    fn icm_leakage_varies_with_the_chips_that_moved() {
+        for (label, stacks, want_both_signs) in [
+            ("even table", T_STACKS.to_vec(), false),
+            ("seat 1 covers seat 0", COVERING.to_vec(), true),
+        ] {
+            let cfg = with_table(&TOP_HEAVY, &stacks);
+            let g = NlheGame::new(&cfg).expect("builds");
+            let scale = (stacks.iter().sum::<f64>() + 300.0) / TOP_HEAVY.iter().sum::<f64>();
+            let terminals: Vec<u32> = (0..g.num_nodes() as u32)
+                .filter(|&i| matches!(g.node(i), NodeInfo::Terminal))
+                .collect();
+            assert_eq!(terminals.len(), 5, "two folds and three showdowns");
 
-        let mut per_terminal = Vec::new();
-        let mut pairs = 0usize;
-        let mut worst = 0.0f32;
-        for &t in &terminals {
-            let (n0, n1) = (g.combo_count(t, 0), g.combo_count(t, 1));
-            let mut sum_00 = 0.0f32;
-            for j in 0..n1 {
-                let mut reach1 = vec![0.0f32; n1];
-                reach1[j] = 1.0;
-                let mut u0 = vec![0.0f32; n0];
-                g.terminal_utility(t, 0, &reach1, &mut u0);
-                for i in 0..n0 {
-                    let mut reach0 = vec![0.0f32; n0];
-                    reach0[i] = 1.0;
-                    let mut u1 = vec![0.0f32; n1];
-                    g.terminal_utility(t, 1, &reach0, &mut u1);
-                    let leak = u0[i] + u1[j];
-                    pairs += 1;
-                    worst = worst.min(leak);
-                    assert!(
-                        leak < 0.0,
-                        "terminal {t} pair ({i},{j}): {} + {} = {leak}, not a loss to the field",
-                        u0[i],
-                        u1[j]
-                    );
-                    if i == 0 && j == 0 {
-                        sum_00 = leak;
+            let mut per_terminal = Vec::new();
+            let (mut pairs, mut pos, mut neg) = (0usize, 0usize, 0usize);
+            let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+            for &t in &terminals {
+                let (n0, n1) = (g.combo_count(t, 0), g.combo_count(t, 1));
+                let mut sum_00 = 0.0f32;
+                for j in 0..n1 {
+                    let mut reach1 = vec![0.0f32; n1];
+                    reach1[j] = 1.0;
+                    let mut u0 = vec![0.0f32; n0];
+                    g.terminal_utility(t, 0, &reach1, &mut u0);
+                    for i in 0..n0 {
+                        let mut reach0 = vec![0.0f32; n0];
+                        reach0[i] = 1.0;
+                        let mut u1 = vec![0.0f32; n1];
+                        g.terminal_utility(t, 1, &reach0, &mut u1);
+                        let leak = u0[i] + u1[j];
+                        pairs += 1;
+                        if leak > 0.0 {
+                            pos += 1;
+                        } else if leak < 0.0 {
+                            neg += 1;
+                        }
+                        lo = lo.min(leak);
+                        hi = hi.max(leak);
+                        assert!(
+                            leak != 0.0,
+                            "{label} terminal {t} pair ({i},{j}): {} + {} = 0, which is the \
+                             zero-sum identity ICM does not have",
+                            u0[i],
+                            u1[j]
+                        );
+                        if i == 0 && j == 0 {
+                            sum_00 = leak;
+                        }
                     }
                 }
+                per_terminal.push((t, g.node_at(t).pot, sum_00));
             }
-            per_terminal.push((t, g.node_at(t).pot, sum_00));
-        }
 
-        println!(
-            "icm leakage: {} terminals, {pairs} combo pairs probed, CSTE scale {scale:.4}",
-            terminals.len()
-        );
-        for (t, pot, leak) in &per_terminal {
             println!(
-                "  terminal {t:>2}  pot {pot:>7.1}  u0+u1 = {leak:+.4} CSTE ({:+.4} in payout units)",
-                *leak as f64 / scale
+                "{label}: {} terminals, {pairs} combo pairs probed, {pos} positive / {neg} \
+                 negative, CSTE scale {scale:.4}",
+                terminals.len()
             );
+            for (t, pot, leak) in &per_terminal {
+                println!(
+                    "  terminal {t:>2}  pot {pot:>7.1}  u0+u1 = {leak:+.4} CSTE ({:+.4} in \
+                     payout units)",
+                    *leak as f64 / scale
+                );
+            }
+            println!("  pair sums span {lo:+.4} .. {hi:+.4} CSTE");
+
+            let spread_lo = per_terminal.iter().map(|x| x.2).fold(f32::MAX, f32::min);
+            let spread_hi = per_terminal.iter().map(|x| x.2).fold(f32::MIN, f32::max);
+            assert!(
+                spread_hi - spread_lo > 1.0,
+                "{label}: leakage is nearly constant ({spread_lo} .. {spread_hi}); a \
+                 constant-sum bug looks like this"
+            );
+            assert!(neg > 0, "{label}: no pair lost equity to the field");
+            if want_both_signs {
+                assert!(
+                    pos > 0,
+                    "{label}: {pairs} pairs probed and none gained; a covering seat losing \
+                     to the seat it covers balances the table and must raise the pair's \
+                     equity"
+                );
+            } else {
+                assert_eq!(pos, 0, "{label}: an even table only ever loses to the field");
+            }
         }
-        let lo = per_terminal.iter().map(|x| x.2).fold(f32::MAX, f32::min);
-        let hi = per_terminal.iter().map(|x| x.2).fold(f32::MIN, f32::max);
-        println!("  spread {lo:+.4} .. {hi:+.4} CSTE, worst pair {worst:+.4}");
-        assert!(
-            hi - lo > 1.0,
-            "leakage is nearly constant ({lo} .. {hi}); a constant-sum bug looks like this"
-        );
     }
 
     /// Negative control on the whole feature: a payoff map that quietly did nothing

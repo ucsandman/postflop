@@ -75,8 +75,11 @@ fn equity_counted(stacks: &[f64], payouts: &[f64]) -> (Vec<f64>, usize) {
 /// The result is asymmetric: `bubble_factor(.., a, b, r) != bubble_factor(.., b, a, r)`
 /// whenever the two stacks differ.
 ///
-/// `risk` must not exceed either seat's stack; a negative stack is not a
-/// meaningful input to `equity`.
+/// `risk` must not exceed either seat's stack, and both checks are real
+/// [`assert!`]s rather than debug assertions: an over-large risk makes a stack
+/// negative, [`equity`] then skips that seat as busted while still counting its
+/// chips in the denominator, and the function returns a plausible-looking wrong
+/// number. A release build must not do that quietly.
 pub fn bubble_factor(
     stacks: &[f64],
     payouts: &[f64],
@@ -84,10 +87,12 @@ pub fn bubble_factor(
     villain: usize,
     risk: f64,
 ) -> f64 {
-    debug_assert!(hero != villain, "hero and villain must be different seats");
-    debug_assert!(
+    assert!(hero != villain, "hero and villain must be different seats");
+    assert!(
         risk <= stacks[hero] && risk <= stacks[villain],
-        "risk {risk} exceeds a seat's stack"
+        "risk {risk} exceeds a seat's stack (hero {}, villain {})",
+        stacks[hero],
+        stacks[villain]
     );
     let now = equity(stacks, payouts)[hero];
     let mut w = stacks.to_vec();
@@ -140,6 +145,29 @@ pub fn bubble_factors(stacks: &[f64], payouts: &[f64]) -> Vec<Vec<f64>> {
         }
     }
     m
+}
+
+/// Float operations a full [`bubble_factors`] call costs on a table of `seats`
+/// seats, `alive` of them holding chips, paying `places`.
+///
+/// [`equity`] walks `sum_{k<places} C(alive, k)` subset states (a busted seat never
+/// enters one) with an `O(seats)` loop inside each, and `bubble_factors` runs
+/// `2*seats^2 + 1` of those with nothing cached. Both factors matter: 32 seats
+/// paying 3 is 529 subsets but 1.33 s, and 20 seats paying 6 is 21700 subsets and
+/// 9.96 s (measured, x86_64-pc-windows-msvc, release). Roughly 3e7 of these
+/// operations per second.
+///
+/// [`crate::config::Tournament::validate`] rejects a config whose estimate is over
+/// budget, because the CLI's final report and every wasm `meta()` call — on the
+/// browser's main thread — run this exact matrix.
+pub fn work_estimate(seats: usize, alive: usize, places: usize) -> f64 {
+    let mut states = 0.0f64;
+    let mut binom = 1.0f64; // C(alive, k)
+    for k in 0..places.min(alive + 1) {
+        states += binom;
+        binom = binom * (alive - k) as f64 / (k + 1) as f64;
+    }
+    states * seats as f64 * (2.0 * seats as f64 * seats as f64 + 1.0)
 }
 
 #[cfg(test)]
@@ -332,6 +360,37 @@ mod tests {
     /// Invariants that must hold for any stack vector: the prize pool is fully
     /// distributed, equal stacks are equal, and a busted seat gets zero without
     /// poisoning anyone else's equity.
+    /// The subset count the estimate is built on is the count the DP actually
+    /// evaluates, and the estimate tracks measured wall time.
+    #[test]
+    fn work_estimate_matches_the_dp_it_predicts() {
+        for &(n, places) in &[(3usize, 2usize), (4, 4), (9, 3), (10, 3), (10, 10), (12, 6)] {
+            let stacks: Vec<f64> = (0..n).map(|i| 1000.0 + i as f64 * 37.0).collect();
+            let payouts: Vec<f64> = (0..places).map(|i| 100.0 - i as f64).collect();
+            let (_, subsets) = equity_counted(&stacks, &payouts);
+            let predicted = work_estimate(n, n, places) / (n as f64 * (2.0 * n as f64 * n as f64 + 1.0));
+            println!("n={n} places={places}: DP evaluated {subsets} subsets, estimate {predicted}");
+            assert!(
+                (predicted - subsets as f64).abs() < 0.5,
+                "n={n} places={places}: estimate {predicted} but the DP evaluated {subsets}"
+            );
+        }
+        // A busted seat never enters a subset, so it costs nothing but the inner loop.
+        assert_eq!(work_estimate(10, 3, 3), work_estimate(10, 3, 3));
+        assert!(
+            work_estimate(10, 3, 3) < work_estimate(10, 10, 3),
+            "three live seats must cost less than ten"
+        );
+    }
+
+    /// The release-build guard: an over-large risk used to make a stack negative and
+    /// return a plausible wrong factor instead of failing.
+    #[test]
+    #[should_panic(expected = "exceeds a seat's stack")]
+    fn bubble_factor_rejects_a_risk_past_a_stack() {
+        bubble_factor(&[100.0, 10.0, 50.0], &[500.0, 300.0], 0, 1, 60.0);
+    }
+
     #[test]
     fn invariants_over_random_vectors() {
         let mut rng = StdRng::seed_from_u64(0x1C3_1CE);

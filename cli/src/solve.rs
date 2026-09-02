@@ -222,7 +222,7 @@ fn print_final_report(solver: &Solver<NlheGame>, wall_seconds: f64) {
             "exploitability: {:.6} chips  {:.4}% of pot  [measured]",
             report.chips, report.pct_of_pot
         ),
-        // Tournament equity: the game is general-sum (the frozen field absorbs
+        // Tournament equity: the game is general-sum (the frozen field trades
         // equity), so the same slot holds NashConv and is never called
         // exploitability. See the `engine::br` module docs.
         Some(_) => {
@@ -251,9 +251,15 @@ fn print_final_report(solver: &Solver<NlheGame>, wall_seconds: f64) {
 /// The tournament half of the final report: which table seats are in the hand, what
 /// each player gains by deviating alone, how the two seats price a flip against each
 /// other, and the volume the ICM map covered.
+///
+/// The bubble factors are measured at [`NlheGame::icm_base_stacks`], not at the raw
+/// `tournament.stacks` of the file: the payoff map is centred on the stacks with the
+/// starting pot credited half to each in-hand seat, and the preflop money moves the
+/// quoted factor well inside the four decimals printed here.
 fn print_icm_block(game: &NlheGame, t: &Tournament, gain: [f32; 2]) {
     let counts = game.tree().counts();
-    let bf = icm::bubble_factors(&t.stacks, &t.payouts);
+    let base = game.icm_base_stacks().expect("an ICM solve has a base stack vector");
+    let bf = icm::bubble_factors(base, &t.payouts);
     let paid = t.payouts.len().min(t.stacks.len());
     for (p, g) in gain.iter().enumerate() {
         let who = if p == 0 { "OOP" } else { "IP " };
@@ -261,9 +267,10 @@ fn print_icm_block(game: &NlheGame, t: &Tournament, gain: [f32; 2]) {
         let other = t.seats[1 - p];
         let f = bf[seat][other];
         println!(
-            "{who} seat {seat} ({} chips)  gain {:.6} cste chips  \
+            "{who} seat {seat} ({} chips, {} with this pot)  gain {:.6} cste chips  \
              bubble factor vs seat {other} {f:.4} (required equity {:.2}%)  [measured]",
             t.stacks[seat],
+            base[seat],
             g,
             100.0 * f / (f + 1.0)
         );
@@ -290,7 +297,8 @@ fn read_tournament(path: &Path) -> Result<Tournament, String> {
     if !doc.is_empty() {
         let keys: Vec<&str> = doc.keys().map(String::as_str).collect();
         return Err(format!(
-            "{path:?} has keys outside [tournament] ({}); a tournament file carries the              prize structure and the table's stacks, nothing else",
+            "{path:?} has keys outside [tournament] ({}); a tournament file carries the \
+             prize structure and the table's stacks, nothing else",
             keys.join(", ")
         ));
     }

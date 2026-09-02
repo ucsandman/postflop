@@ -580,6 +580,11 @@ export default function Workbench() {
     return { row: best.row, col: best.col, label: best.label };
   }, [view]);
 
+  /** What a graded number is denominated in on the loaded solve. The tour bodies below
+   *  read it rather than asserting big blinds: on an ICM solve every EV, regret and
+   *  trainer grade is in CSTE tournament chips. */
+  const payoffLabel = meta?.payoff_unit === "cste" ? "CSTE tournament chips" : "big blinds";
+
   const tourSteps: TourStep[] = [
     {
       id: "welcome",
@@ -639,7 +644,7 @@ export default function Workbench() {
       id: "combo",
       target: '[data-tour="combo-panel"]',
       title: "Inside one cell",
-      body: `${tourCell.label}, opened. A hand class is an average; underneath it every combo has its own mix and its own EV in big blinds, down to the exact two cards.`,
+      body: `${tourCell.label}, opened. A hand class is an average; underneath it every combo has its own mix and its own EV in ${payoffLabel}, down to the exact two cards.`,
       prepare: () => {
         setTab("inspect");
         goRoot();
@@ -650,7 +655,7 @@ export default function Workbench() {
       id: "modes",
       target: '[data-tour="grid-mode"]',
       title: "Three lenses on the same grid",
-      body: "Beyond strategy, two more lenses: EV of the best action, and regret, the big blinds a hand gives up by mixing instead of always taking its best action. Regret shows where a mistake is cheap and where it is expensive.",
+      body: `Beyond strategy, two more lenses: EV of the best action, and regret, the ${payoffLabel} a hand gives up by mixing instead of always taking its best action. Regret shows where a mistake is cheap and where it is expensive.`,
       prepare: () => {
         setTab("inspect");
         goRoot();
@@ -695,7 +700,7 @@ export default function Workbench() {
       id: "train",
       target: '[data-tour="train-drill"]',
       title: "Train against the solve",
-      body: "The trainer deals you hands out of a solved spot. Pick an action and it is graded on the big blinds it costs against the solve; the full solver mix and a d100 roll are revealed after you answer. Random spot solves a fresh board right here first.",
+      body: `The trainer deals you hands out of a solved spot. Pick an action and it is graded on the ${payoffLabel} it costs against the solve; the full solver mix and a d100 roll are revealed after you answer. Random spot solves a fresh board right here first.`,
       prepare: () => {
         goRoot();
         setSelected(null);
@@ -1289,8 +1294,11 @@ function StatBand({
         <span className="fig fig-2">{rootEvs.zero_sum[0].toFixed(4)}</span>
         <span className="num text-dim-inv"> / {rootEvs.zero_sum[1].toFixed(4)}</span>
         {icm && (
-          <span className="num mt-1 block text-[11px] text-dim-inv">
-            not zero-sum: equity leaks to the field
+          <span
+            className="num mt-1 block text-[11px] text-dim-inv"
+            title="Malmuth-Harville equity is concave in chips: the pair loses equity to the frozen field when the hand pushes their two stacks apart, and takes equity back from it when the hand pulls them together. What never holds is a constant sum."
+          >
+            not zero-sum: equity leaks to or from the field
           </span>
         )}
       </StatTile>

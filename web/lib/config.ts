@@ -71,6 +71,75 @@ export function seedTournament(effectiveStack: string): TournamentForm {
   };
 }
 
+/**
+ * Float operations a full pairwise bubble-factor matrix costs on a table of `seats`
+ * seats, `alive` of them holding chips, paying `places`. Mirror of the engine's
+ * `icm::work_estimate`: the ICM subset DP walks `sum_{k<places} C(alive, k)` states
+ * with an O(seats) loop inside each, and the matrix runs `2*seats^2 + 1` of them.
+ */
+export function icmWorkEstimate(seats: number, alive: number, places: number): number {
+  let states = 0;
+  let binom = 1;
+  for (let k = 0; k < Math.min(places, alive + 1); k++) {
+    states += binom;
+    binom = (binom * (alive - k)) / (k + 1);
+  }
+  return states * seats * (2 * seats * seats + 1);
+}
+
+/** Engine `config.rs` `ICM_WORK_BUDGET`. Keep the two in step. */
+export const ICM_WORK_BUDGET = 1e7;
+
+/**
+ * The engine's seven `Tournament::validate` rules, re-stated in the same words so a
+ * rejected config is diagnosed on the page with nothing to run. `null` means the block
+ * would be accepted.
+ *
+ * Lives here rather than in the panel so it can be tested: two of these rules exist
+ * only because a config that passed the loose version of them either leaked prize
+ * money out of the ICM model or hung the browser tab for a minute.
+ */
+export function checkTournament(t: TournamentForm, effectiveStack: string): string | null {
+  let payouts: number[];
+  let stacks: number[];
+  try {
+    payouts = parseNums("payouts", t.payouts);
+    stacks = parseNums("seat stacks", t.stacks);
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+  const eff = Number(effectiveStack);
+  const [a, b] = t.seats;
+  // Busted seats cannot finish anywhere, so the ladder is bounded by the live field,
+  // not by the seat count: a longer ladder leaves prize money unawarded while the CSTE
+  // scale still divides by the whole pool.
+  const alive = stacks.filter((v) => v > 0).length;
+  const work = icmWorkEstimate(stacks.length, alive, payouts.length);
+  if (stacks.length < 2 || stacks.length > 32)
+    return `seat stacks: need between 2 and 32 seats, got ${stacks.length}`;
+  if (stacks.some((v) => v < 0)) return "seat stacks: every stack must be zero or more";
+  if (alive < 2) return `seat stacks: only ${alive} of ${stacks.length} seats still have chips`;
+  if (payouts.length === 0) return "payouts: at least one prize";
+  if (payouts.some((v, i) => i > 0 && v > payouts[i - 1]))
+    return "payouts: places must not pay more than the place above";
+  if (payouts.some((v) => v < 0) || payouts.reduce((x, y) => x + y, 0) <= 0)
+    return "payouts: all non-negative and the pool above zero";
+  if (payouts.length > alive)
+    return `payouts: ${payouts.length} places paid but only ${alive} of the ${stacks.length} seats still have chips, so the extra prize money would leak out of the model`;
+  if (a === b) return "seats: OOP and IP must be different seats";
+  if (a >= stacks.length || b >= stacks.length)
+    return `seats: index out of range for ${stacks.length} seats`;
+  if (work > ICM_WORK_BUDGET)
+    return `payouts: ${stacks.length} seats paying ${payouts.length} places costs about ${work.toExponential(2)} operations to price every pair's bubble factor, past the ${ICM_WORK_BUDGET.toExponential(0)} budget — the solve would hang this tab. Cut the paid places or the seats listed`;
+  if (!Number.isFinite(eff)) return null;
+  const shorter = Math.min(stacks[a], stacks[b]);
+  if (shorter < eff - 1e-9)
+    return `seats: the shorter in-hand seat has ${shorter} behind, less than the ${eff} effective stack above`;
+  if (Math.abs(shorter - eff) > 1e-9)
+    return `seats: the shorter in-hand seat must hold exactly the ${eff} effective stack (it has ${shorter}); the covering seat may hold more`;
+  return null;
+}
+
 /** The profile one seat's range models. `vpip`/`pfr` are display strings ("24"), empty
  *  when nothing is modeled — the engine solves ranges, these label where they came from. */
 export interface SeatProfile {

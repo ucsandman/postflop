@@ -52,8 +52,10 @@
 //! [`Game::zero_sum`] reports whether the identity above actually holds. It does for
 //! every chip game in this crate. It does **not** under a tournament (ICM) payoff map:
 //! moving chips between two seats changes the equity of the *frozen field* as well, so
-//! the two in-hand players' utilities sum to a number that is negative and that varies
-//! from terminal to terminal. There is no constant to subtract, and
+//! the two in-hand players' utilities sum to a non-zero number that varies from
+//! terminal to terminal. Its sign varies too: the pair loses equity to the field when
+//! the hand pushes their stacks apart and takes equity back from it when the hand pulls
+//! them together. There is no constant to subtract, and
 //! `best_response(0) + best_response(1)` measures nothing.
 //!
 //! What replaces it is NashConv: each player's own unilateral gain `BR_i - EV_i`,

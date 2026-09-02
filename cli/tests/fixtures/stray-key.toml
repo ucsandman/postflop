@@ -1,0 +1,9 @@
+# A tournament file that also tries to set a solve key. The flag merges only the
+# [tournament] block, so anything else here would be read and silently dropped;
+# `read_tournament` rejects the file instead and names the stray keys.
+effective_stack = 999.0
+
+[tournament]
+payouts = [500.0, 300.0, 200.0]
+stacks = [20.0, 32.0, 45.0, 12.0, 8.0, 15.0]
+seats = [0, 1]

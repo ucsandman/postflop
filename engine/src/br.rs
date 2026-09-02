@@ -28,10 +28,12 @@
 //!
 //! # NashConv, when the game is general-sum
 //!
-//! Under a tournament (ICM) payoff map the two utilities sum to a *varying* negative
-//! number rather than a constant one ([`crate::game::Game::zero_sum`] returns `false`),
-//! so `BR_0 + BR_1` is not an exploitability, not an upper bound, and not offset by
-//! anything you can subtract. What is still well defined is each player's **unilateral
+//! Under a tournament (ICM) payoff map the two utilities sum to a number that varies
+//! from terminal to terminal rather than a constant one, and whose sign is not fixed
+//! either -- equity leaks to the frozen field when the hand pushes the two stacks
+//! apart and drains from it when the hand pulls them together
+//! ([`crate::game::Game::zero_sum`] returns `false`). So `BR_0 + BR_1` is not an
+//! exploitability, not an upper bound, and not offset by anything you can subtract. What is still well defined is each player's **unilateral
 //! gain**
 //!
 //! ```text

@@ -203,6 +203,14 @@ impl Rake {
 /// bitmask ([`crate::icm::equity`]), which caps there.
 pub const MAX_SEATS: usize = 32;
 
+/// Largest [`crate::icm::work_estimate`] a [`Tournament`] may cost. Measured on
+/// x86_64-pc-windows-msvc in release: this machine runs roughly 3e7 of those
+/// operations per second, so 1e7 is about a quarter second for the pairwise
+/// bubble-factor matrix the CLI report and every wasm `meta()` call build. It
+/// admits a 10-seat table paying all 10 and a 32-seat table paying 2; it rejects
+/// 16 seats paying 6 (1.32 s measured) and 18 paying 18 (72 s).
+const ICM_WORK_BUDGET: f64 = 1e7;
+
 /// How close a stack has to be to `effective_stack` to count as equal to it. Both
 /// numbers are read from the same TOML file by hand, so this only absorbs float
 /// noise, never a genuine difference.
@@ -244,10 +252,12 @@ pub struct Tournament {
 }
 
 impl Tournament {
-    /// The six rules, in order, each naming the value it rejected. `effective_stack`
+    /// The seven rules, in order, each naming the value it rejected. `effective_stack`
     /// and `rake_percent` come from the enclosing [`SolveConfig`]: rules 4-6 are
     /// about the fit between this block and the rest of the config, not about the
-    /// block alone.
+    /// block alone. Rule 7 is about cost, not correctness: the ICM DP is exponential
+    /// in the paid places, and a config the other six accept can hang the CLI for
+    /// minutes and freeze a browser tab.
     fn validate(&self, effective_stack: f64, rake_percent: f64) -> Result<(), String> {
         // 1. The table.
         let n = self.stacks.len();
@@ -275,10 +285,15 @@ impl Tournament {
         if self.payouts.is_empty() {
             return Err("tournament.payouts is empty; list at least first prize".to_string());
         }
-        if self.payouts.len() > n {
+        // Against `alive`, not `n`: a busted seat cannot finish anywhere, so a ladder
+        // longer than the live field leaves prizes unawarded. `icm::equity` hands them
+        // to nobody while the CSTE scale still divides by the whole pool, so every
+        // payoff, NashConv and pot-share figure would come out short by that ratio.
+        if self.payouts.len() > alive {
             return Err(format!(
-                "tournament.payouts lists {} places but tournament.stacks has only {n} seats; \
-                 nobody can finish in the extra places",
+                "tournament.payouts lists {} places but only {alive} of the {n} seats still \
+                 have chips; the extra places can never be awarded and their prize money \
+                 would leak out of the model",
                 self.payouts.len()
             ));
         }
@@ -350,6 +365,22 @@ impl Tournament {
             return Err(format!(
                 "rake.percent is {rake_percent} and [tournament] is set; tournament pots are not \
                  raked, so the two cannot be combined"
+            ));
+        }
+
+        // 7. The DP has to finish. Seat count and paid places are each harmless alone
+        //    and not together: the subset walk is exponential in the places, and
+        //    `icm::bubble_factors` runs 2n^2+1 of them with nothing cached, on the
+        //    browser main thread. 16 seats paying 6 measures at 1.32 s, 20 paying 6 at
+        //    9.96 s, 18 paying 18 at 72 s -- all six rules above accept every one.
+        let work = crate::icm::work_estimate(n, alive, self.payouts.len());
+        if work > ICM_WORK_BUDGET {
+            return Err(format!(
+                "tournament.stacks has {n} seats ({alive} with chips) and tournament.payouts \
+                 pays {} places, which costs about {work:.3e} float operations to price \
+                 every pair's bubble factor; the budget is {ICM_WORK_BUDGET:.0e}, about a \
+                 quarter second. Cut the paid places or the seats listed",
+                self.payouts.len()
             ));
         }
         Ok(())
@@ -1089,7 +1120,7 @@ seats = [0, 1]
         // Every case is the valid config with exactly one thing wrong, so the needle
         // identifies which rule fired.
         let with = |t: Tournament| SolveConfig { tournament: Some(t), ..ok.clone() };
-        let cases: [(SolveConfig, &str, &str); 12] = [
+        let cases: [(SolveConfig, &str, &str); 14] = [
             // 1. the table
             (
                 with(Tournament { stacks: vec![100.0], seats: [0, 0], ..good.clone() }),
@@ -1117,8 +1148,19 @@ seats = [0, 1]
                     payouts: vec![500.0, 400.0, 300.0, 200.0, 100.0],
                     ..good.clone()
                 }),
-                "nobody can finish in the extra places",
+                "5 places but only 3 of the 4 seats still have chips",
                 "rule 2: more places than seats",
+            ),
+            // The leak the seat-count form of this rule missed: four places is inside
+            // the four listed seats but outside the three that still hold chips, so
+            // fourth prize is never awarded while the CSTE scale still divides by it.
+            (
+                with(Tournament {
+                    payouts: vec![500.0, 400.0, 300.0, 200.0],
+                    ..good.clone()
+                }),
+                "4 places but only 3 of the 4 seats still have chips",
+                "rule 2: more places than live seats",
             ),
             (
                 with(Tournament { payouts: vec![500.0, 300.0, 400.0], ..good.clone() }),
@@ -1165,6 +1207,21 @@ seats = [0, 1]
                 "tournament pots are not raked",
                 "rule 6: rake plus tournament",
             ),
+            // 7. cost: 16 seats paying 6 passes every rule above and takes 1.32 s to
+            //    price the bubble-factor matrix; 18 paying 18 takes 72 s.
+            (
+                with(Tournament {
+                    payouts: vec![600.0, 500.0, 400.0, 300.0, 200.0, 100.0],
+                    stacks: {
+                        let mut v = vec![100.0, 250.0];
+                        v.extend(std::iter::repeat(150.0).take(14));
+                        v
+                    },
+                    ..good.clone()
+                }),
+                "float operations to price every pair",
+                "rule 7: the ICM DP would hang",
+            ),
         ];
         for (cfg, needle, label) in &cases {
             let err = cfg.validate().expect_err(label);
@@ -1172,9 +1229,23 @@ seats = [0, 1]
         }
         // The baseline itself must pass, or every case above proves nothing.
         ok.validate().expect("the valid tournament config validates");
+        // The budget admits a real final table: ten seats paying all ten places.
+        let ten = with(Tournament {
+            payouts: (0..10).map(|i| 100.0 - i as f64 * 5.0).collect(),
+            stacks: {
+                let mut v = vec![100.0, 250.0];
+                v.extend(std::iter::repeat(150.0).take(8));
+                v
+            },
+            ..good.clone()
+        });
+        ten.validate().expect("10 seats paying 10 is inside the ICM work budget");
         println!(
-            "tournament validate(): {} rejection cases over 6 rules, 1 accepted config",
-            cases.len()
+            "tournament validate(): {} rejection cases over 7 rules, 2 accepted configs \
+             (work estimates: baseline {:.3e}, 10x10 {:.3e}, budget {ICM_WORK_BUDGET:.0e})",
+            cases.len(),
+            crate::icm::work_estimate(4, 3, 3),
+            crate::icm::work_estimate(10, 10, 10),
         );
     }
 
