@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Cards, ComboCards } from "@/components/Card";
 import SolvePanel from "@/components/SolvePanel";
-import { actionColors, cellOf, comboFreqs, rangeFreqs } from "@/lib/grid";
+import { cellOf, comboFreqs, hatched, rangeFreqs } from "@/lib/grid";
 import {
   CORRECT_PCT_POT,
   TIER_LABEL,
@@ -38,8 +38,8 @@ const MAX_DEALS = 40;
 /** Hard stop on one walk, so a malformed tree can never spin the UI. */
 const MAX_STEPS = 60;
 
-/** Verdict colour on paper. `TIER_COLOR` is a grid-fill ramp — its lightest bet red is the
- *  lowest-contrast pairing there is against bone — so the tiers read as semantic tokens here. */
+/** Verdict colour. An action ink is a fill and never text, so a verdict word is set in a
+ *  semantic token (ok / warn / err), never in the bet or check ink it grades. */
 const TIER_TEXT: Record<Tier, string> = {
   best: "text-ok",
   correct: "text-ok",
@@ -47,7 +47,7 @@ const TIER_TEXT: Record<Tier, string> = {
   wrong: "text-err",
   blunder: "text-err",
 };
-/** The verdict word's ground: a block only at the two ends of the ramp. */
+/** The verdict word's ground: a recessed block only at the two ends of the ramp. */
 const TIER_BLOCK: Record<Tier, string> = {
   best: "bg-ok-bg",
   correct: "",
@@ -56,17 +56,31 @@ const TIER_BLOCK: Record<Tier, string> = {
   blunder: "bg-err-bg",
 };
 
+/**
+ * The three action inks. Inside one of these rectangles an ink is an ACTION; on a card
+ * face the same three hues are SUITS. Never both in one rectangle. Check carries the 45
+ * degree overprint so the mix reads in greyscale and without colour vision.
+ */
+const ACTION_INK: Record<string, string> = {
+  fold: "var(--color-fold)",
+  check: "var(--color-check)",
+  call: "var(--color-check)",
+};
+const inkOf = (label: string) => ACTION_INK[label] ?? "var(--color-bet)";
+/* Every fill below is painted with `backgroundColor`, never the `background`
+   shorthand: an inline shorthand resets background-image and would erase the
+   `.hatch` overprint that `hatched()` asks for. */
+
 interface Spot {
   node: NodeInfo;
   hero: 0 | 1;
   actions: NodeAction[];
-  colors: string[];
   /** Hero's dealt combo, e.g. `"AsKd"`. */
   cards: string;
   cell: { row: number; col: number };
   /** That combo's EV under each action, all defined (`makeSpot` guarantees it). */
   actionEvs: number[];
-  /** The solved mix for that combo — hidden until the user has answered. */
+  /** The solved mix for that combo, hidden until the user has answered. */
   freqs: number[];
   /** Breadcrumb labels from the root down to this node. */
   history: string[];
@@ -81,7 +95,7 @@ type Walk =
  *
  * Chance nodes deal uniformly at random from the live cards (minus the hero's own two,
  * once they are known). Every action node in between is sampled from that player's
- * *range-wide* solved frequencies — we do not know which hand the opponent holds, so
+ * *range-wide* solved frequencies: we do not know which hand the opponent holds, so
  * their whole range at that node is the honest distribution to sample from.
  *
  * `stopP` is the chance of stopping at a hero decision rather than sampling hero's own
@@ -144,7 +158,7 @@ function walkToHero(
  *
  * `cards` fixes the hand (continuing a hand hero is already holding); otherwise the combo
  * is drawn weighted by its reach at this node, among combos whose every action EV is
- * defined — a `NaN` action EV is not gradeable, so those hands are never dealt.
+ * defined: a `NaN` action EV is not gradeable, so those hands are never dealt.
  */
 function makeSpot(
   handle: SolutionHandle,
@@ -161,7 +175,7 @@ function makeSpot(
   if (combos.length === 0) return null;
 
   // Action edges deal no card, so every child shares this node's live-combo list and slot
-  // order exactly — the same invariant buildEvGrid relies on.
+  // order exactly, the same invariant buildEvGrid relies on.
   const evs = actions.map((a) => handle.combo_evs(a.child, hero));
   const at = (slot: number) => evs.map((e) => e[slot]);
 
@@ -186,7 +200,6 @@ function makeSpot(
     node,
     hero,
     actions,
-    colors: actionColors(actions),
     cards: combos[slot].cards,
     cell: cellOf(combos[slot].cards),
     actionEvs: at(slot),
@@ -446,7 +459,7 @@ export default function TrainPanel({
   };
 
   /** Starting stacks/pot from the solution itself, plus each range's width (share of all
-   *  1326 combos, weight-summed) — an honest per-spot VPIP analogue computed at the root. */
+   *  1326 combos, weight-summed), an honest per-spot VPIP analogue computed at the root. */
   const spotInfo = useMemo(() => {
     if (!handle) return null;
     const meta = JSON.parse(handle.meta()) as Meta;
@@ -527,8 +540,8 @@ export default function TrainPanel({
               spellCheck={false}
               aria-invalid={fixedHand === false}
               aria-describedby={fixedHand === false ? "train-hand-error" : undefined}
-              className={`num w-36 border-2 bg-raised px-2 py-1 text-text placeholder:text-dim ${
-                fixedHand === false ? "border-err" : "border-ink"
+              className={`num w-36 border bg-raised px-2 py-1 text-text placeholder:text-dim ${
+                fixedHand === false ? "border-err" : "border-line-strong"
               }`}
             />
             {fixedHand === false && (
@@ -595,10 +608,10 @@ export default function TrainPanel({
                 >
                   <div className="flex flex-1 flex-col gap-2 p-4">
                     <div
-                      className="uppercase text-text-inv"
+                      className="text-text"
                       style={{
-                        font: "900 clamp(20px,1.6vw,28px)/1 var(--font-sans)",
-                        letterSpacing: "-.03em",
+                        font: "800 clamp(20px,1.6vw,28px)/1.05 var(--font-sans)",
+                        letterSpacing: "-.02em",
                       }}
                     >
                       {s.name}
@@ -634,8 +647,8 @@ export default function TrainPanel({
 
         {note && (
           <p
-            className="rule-b bg-accent px-3 py-2 uppercase text-ink"
-            style={{ font: "800 11px/1.4 var(--font-sans)", letterSpacing: ".04em" }}
+            className="rule-b bg-accent px-3 py-2 text-accent-ink"
+            style={{ font: "600 12.5px/1.45 var(--font-sans)" }}
           >
             {note}
           </p>
@@ -672,26 +685,27 @@ export default function TrainPanel({
               <button
                 onClick={() => void randomSpot()}
                 disabled={fixedHand === false || !!randoming}
-                className="text-left uppercase text-text-inv"
-                style={{ font: "900 clamp(40px,5vw,96px)/0.92 var(--font-sans)", letterSpacing: "-.045em" }}
+                className="text-left text-text"
+                style={{ font: "800 clamp(40px,5vw,96px)/0.95 var(--font-sans)", letterSpacing: "-.03em", textWrap: "balance" }}
               >
                 {randoming ? "Solving…" : "Random spot"}{" "}
-                <span className="bg-accent text-[#101010]" style={{ padding: "0 .12em" }}>
+                <span className="bg-accent text-accent-ink" style={{ padding: "0 .12em" }}>
                   →
                 </span>
               </button>
-              <span className="num text-[13px] text-dim-inv">
-                a random board in a random 100bb scenario, solved on this page in a few seconds ·
-                you get a random combo at a decision node · pick an action · graded in big blinds
-                against the solve, instantly (CSTE chips on a tournament solve)
+              <span className="max-w-[68ch] text-[13px] text-dim-inv">
+                A random board in a random 100bb scenario, solved on this page in a few seconds.
+                You get a random combo at a decision node, you pick an action, and it is graded in
+                big blinds against the solve, instantly, or in chip-scaled tournament equity
+                (CSTE) on a tournament solve.
               </span>
               <button
                 onClick={deal}
                 disabled={fixedHand === false || !!randoming}
-                className="btn-inv border-2 px-4 py-2.5 uppercase"
-                style={{ font: "800 12px/1 var(--font-sans)", letterSpacing: ".06em" }}
+                className="btn"
+                style={{ padding: "10px 16px", fontSize: 13 }}
               >
-                or deal on the loaded board
+                Or deal on the loaded board
               </button>
             </div>
           </>
@@ -763,7 +777,7 @@ export default function TrainPanel({
                 spot.history.map((label, i) => (
                   <span key={i} className="flex items-center gap-1">
                     {i > 0 && <span className="text-dim">›</span>}
-                    <span className="num border-2 border-ink bg-raised px-1.5 py-0.5 text-[11px]">
+                    <span className="num border border-line bg-raised px-1.5 py-0.5 text-[11px]">
                       {label}
                     </span>
                   </span>
@@ -781,29 +795,39 @@ export default function TrainPanel({
               className="flex flex-wrap gap-1.5 p-3"
               style={
                 result === null
-                  ? { outline: "3px solid var(--color-live)", outlineOffset: "-3px" }
+                  ? { outline: "2px solid var(--color-live)", outlineOffset: "-2px" }
                   : undefined
               }
             >
+              {/* Each answer is the same printed object as a grid cell: a caption strip
+                  over its action ink. The ink is a fill, so every label keeps stock white
+                  on the raised ground at 15.7:1. The answer taken is knocked out with the
+                  2px inset stock-white outline, never a colour change. */}
               {spot.actions.map((a, i) => (
                 <button
                   key={i}
                   disabled={result !== null}
                   onClick={() => answer(i)}
-                  className={`btn flex items-center gap-2 ${
-                    result !== null && result.chosen !== i ? "opacity-40" : ""
-                  }`}
-                  style={
-                    result?.chosen === i
-                      ? { background: "var(--color-accent)", color: "var(--color-ink)" }
-                      : undefined
-                  }
+                  className="flex min-w-[112px] flex-col"
+                  style={{
+                    border: "var(--rule) solid var(--color-line)",
+                    background: "var(--color-raised)",
+                    cursor: result === null ? "pointer" : "default",
+                    ...(result?.chosen === i
+                      ? { outline: "2px solid var(--color-live)", outlineOffset: "-2px" }
+                      : null),
+                  }}
                 >
-                  <span className="h-1 w-4 shrink-0" style={{ background: spot.colors[i] }} />
-                  <span className="num">{a.text}</span>
-                  {a.percent_of_pot != null && (
-                    <span className="num text-dim">{a.percent_of_pot.toFixed(0)}%</span>
-                  )}
+                  <span className="flex flex-1 items-baseline gap-2 px-2.5 py-2">
+                    <span className="num text-text">{a.text}</span>
+                    {a.percent_of_pot != null && (
+                      <span className="num text-dim">{a.percent_of_pot.toFixed(0)}%</span>
+                    )}
+                  </span>
+                  <span
+                    className={`block h-[14px] w-full ${hatched(a.label) ? "hatch" : ""}`}
+                    style={{ backgroundColor: inkOf(a.label) }}
+                  />
                 </button>
               ))}
             </div>
@@ -812,10 +836,10 @@ export default function TrainPanel({
               <div className="rule-t p-3">
                 <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
                   <span
-                    className={`uppercase ${TIER_BLOCK[result.grade.tier]}`}
+                    className={TIER_BLOCK[result.grade.tier]}
                     style={{
-                      font: "900 30px/1 var(--font-sans)",
-                      letterSpacing: "-.03em",
+                      font: "800 30px/1 var(--font-sans)",
+                      letterSpacing: "-.025em",
                       padding: TIER_BLOCK[result.grade.tier] ? "4px 10px" : 0,
                     }}
                   >
@@ -846,7 +870,7 @@ export default function TrainPanel({
                 </div>
 
                 <div className="mt-3 grid gap-1">
-                  <div className="grid grid-cols-[1fr_120px_84px_46px] gap-x-2 border-b-2 border-ink bg-paper-2 px-1.5 py-1">
+                  <div className="rule-b grid grid-cols-[1fr_120px_84px_46px] gap-x-2 bg-paper-2 px-1.5 py-1">
                     <span className="label">solver mix for this hand</span>
                     <span className="label">frequency</span>
                     <span className="label text-right">
@@ -862,21 +886,21 @@ export default function TrainPanel({
                         className="grid h-[26px] grid-cols-[1fr_120px_84px_46px] items-center gap-x-2 px-1.5"
                       >
                         <span className="flex items-center gap-1.5">
-                          <span className="h-1 w-4 shrink-0" style={{ background: spot.colors[i] }} />
+                          <span
+                            className={`h-[11px] w-[11px] shrink-0 ${hatched(a.label) ? "hatch" : ""}`}
+                            style={{ backgroundColor: inkOf(a.label) }}
+                          />
                           <span className="num">{a.text}</span>
                           {i === result.grade.bestAction && <span className="label text-ok">best EV</span>}
                           {i === result.chosen && <span className="label text-muted">you</span>}
                         </span>
                         <span className="flex items-center gap-1.5">
-                          <span
-                            className="h-2.5 flex-1 overflow-hidden bg-paper-2"
-                            style={{ outline: "1px solid var(--color-ink)", outlineOffset: "-1px" }}
-                          >
+                          <span className="h-2.5 flex-1 overflow-hidden bg-ink-2">
                             <span
-                              className="block h-full"
+                              className={`block h-full ${hatched(a.label) ? "hatch" : ""}`}
                               style={{
                                 width: `${spot.freqs[i] * 100}%`,
-                                background: spot.colors[i],
+                                backgroundColor: inkOf(a.label),
                               }}
                             />
                           </span>
@@ -891,8 +915,8 @@ export default function TrainPanel({
                   })}
                 </div>
 
-                <p className="num mt-2 text-[11px] text-muted">
-                  Randomizer: rolled <span className="text-text">{result.roll}</span> of 100.{" "}
+                <p className="mt-2 text-[11px] text-muted">
+                  Randomizer: rolled <span className="num text-text">{result.roll}</span> of 100.{" "}
                   {rollAction(spot.freqs, result.roll) < 0
                     ? "The solver has no frequency here."
                     : `At the table, that picks ${
@@ -931,7 +955,11 @@ export default function TrainPanel({
 
         <div className="rule-b bg-paper-2 px-3 py-3">
           <div className="label">best or correct</div>
-          <div className="fig fig-1 mt-1">{(stats.accuracy * 100).toFixed(0)}%</div>
+          {/* A dash, not 0%, before anything is graded: this app says elsewhere that a
+              dash means no data and that zero is a different statement. */}
+          <div className="fig fig-1 mt-1">
+            {stats.hands === 0 ? "–" : `${(stats.accuracy * 100).toFixed(0)}%`}
+          </div>
           <div className="num mt-1 text-[11px] text-muted">
             {stats.correct} of {stats.hands} graded decisions
           </div>
@@ -944,11 +972,13 @@ export default function TrainPanel({
           </div>
           <div className="rule-l flex-1 px-3 py-2">
             <div className="label">mean EV loss</div>
-            <div className="num mt-1 text-[15px]">{(stats.avgLossPct * 100).toFixed(2)}%</div>
+            <div className="num mt-1 text-[15px]">
+              {stats.hands === 0 ? "–" : `${(stats.avgLossPct * 100).toFixed(2)}%`}
+            </div>
           </div>
         </div>
 
-        <div className="border-t-2 border-ink bg-paper-2 px-3 py-2 text-[11px] text-muted">
+        <div className="rule-t bg-paper-2 px-3 py-2 text-[11px] text-muted">
           Grades are EV loss against the solve, not frequency matching: on a mixed node every
           action the solver is indifferent between costs nothing.
         </div>
@@ -974,8 +1004,8 @@ export default function TrainPanel({
           {listed.length === 0 ? (
             <div className="px-3 py-3">
               <div className="label">0 hands graded</div>
-              <p className="num mt-1 text-[11px] text-muted">
-                every action you pick is scored on the{" "}
+              <p className="mt-1 text-[11px] text-muted">
+                Every action you pick is scored on the{" "}
                 {payoffUnit === "cste" ? "CSTE tournament chips" : "big blinds"} it costs against
                 the solve and lands here, worst first.
               </p>
@@ -986,10 +1016,10 @@ export default function TrainPanel({
                 key={`${r.node}-${r.cards}-${i}`}
                 onClick={() => onReview(r.node, { row: r.row, col: r.col })}
                 title={`node ${r.node} · ${r.board} · ${r.action}`}
-                className={`grid h-[28px] w-full grid-cols-[62px_minmax(0,1fr)_52px] items-center gap-x-2 px-2.5 text-left hover:bg-[color-mix(in_srgb,var(--color-accent)_22%,transparent)] ${
+                className={`grid h-[28px] w-full grid-cols-[62px_minmax(0,1fr)_52px] items-center gap-x-2 px-2.5 text-left hover:bg-ink-2 ${
                   i % 2 === 1 ? "bg-paper-2" : ""
                 }`}
-                style={{ borderBottom: "1px solid rgba(16,16,16,.14)" }}
+                style={{ borderBottom: "var(--rule) solid var(--color-line-soft)" }}
               >
                 <ComboCards cards={r.cards} className="text-[13px]" />
                 <span className={`num truncate text-[11px] ${TIER_TEXT[r.tier]}`}>
@@ -1002,7 +1032,7 @@ export default function TrainPanel({
           )}
         </div>
 
-        <div className="border-t-2 border-ink bg-paper-2 px-3 py-2 text-[11px] text-muted">
+        <div className="rule-t bg-paper-2 px-3 py-2 text-[11px] text-muted">
           Clicking a hand opens that node and hand class in the inspector.
         </div>
       </section>

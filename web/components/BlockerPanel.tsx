@@ -14,7 +14,6 @@ interface Props {
   /** Opponent's strategy at their next decision node; null when none is reachable. */
   oppStrategy: Float32Array | null;
   oppActions: NodeAction[];
-  oppColors: string[];
   oppPlayer: string;
 }
 
@@ -27,7 +26,6 @@ export default function BlockerPanel({
   oppCombos,
   oppStrategy,
   oppActions,
-  oppColors,
   oppPlayer,
 }: Props) {
   const [actionIdx, setActionIdx] = useState(0);
@@ -38,8 +36,8 @@ export default function BlockerPanel({
         <h2 className="bar bar-blockers">Blockers</h2>
         <div className="p-3">
           <div className="label mb-1.5">No {oppPlayer} decision reachable</div>
-          <p className="num text-[12px] text-muted">
-            every action from this node lands on a chance or terminal node, so there is no{" "}
+          <p className="text-[12px] text-muted">
+            Every action from this node lands on a chance or terminal node, so there is no{" "}
             {oppPlayer} strategy here to score removal against.
           </p>
         </div>
@@ -53,6 +51,9 @@ export default function BlockerPanel({
     .map((c) => ({ combo: c, score: blockerScores(oppCombos, oppStrategy, numActions, c.cards) }))
     .sort((a, b) => b.score.delta[idx] - a.score.delta[idx])
     .slice(0, TOP_N);
+
+  /** Longest bar in the ranked list, so the tracks read as one scale. */
+  const maxRanked = Math.max(1e-9, ...ranked.map((r) => Math.abs(r.score.delta[idx])));
 
   const selRows = cell
     ? cell.slots.map((slot) => {
@@ -73,32 +74,38 @@ export default function BlockerPanel({
       </h2>
 
       {cell && (
-        <div className="border-b-2 border-ink px-2.5 py-2">
+        <div className="rule-b px-2.5 py-2">
           <div className="label mb-1.5">
             {cell.label}: shift in {oppPlayer} frequencies
           </div>
           {selRows.map(({ slot, combo, score }) => (
-            <div key={slot} className="py-1" style={{ borderBottom: "1px solid rgba(16,16,16,.1)" }}>
-              <ComboCards cards={combo.cards} className="text-[13px]" />
-              <div className="mt-0.5 flex gap-1">
+            <div key={slot} className="rule-b py-1.5">
+              <ComboCards cards={combo.cards} variant="stock" size={10} />
+              <div className="mt-1 flex gap-1">
                 {oppActions.map((a, i) => {
                   const d = score.delta[i];
                   const mag = Math.min(1, Math.abs(d) / maxAbsDelta);
                   return (
-                    <span
-                      key={i}
-                      className="relative h-[14px] flex-1 overflow-hidden bg-paper-2"
-                      title={`${a.text}: ${pct(d)}`}
-                    >
+                    /* The figure sits beside the track, never on it: the bar diverges
+                       from the centre line, so a centred number was always cut in half
+                       by its own fill. */
+                    <span key={i} className="flex flex-1 items-center gap-1.5" title={`${a.text}: ${pct(d)}`}>
+                      <span className="relative h-[16px] min-w-0 flex-1 overflow-hidden bg-ink-2">
+                        <span
+                          className="absolute top-0 h-full"
+                          style={{
+                            left: d >= 0 ? "50%" : `${50 - mag * 50}%`,
+                            width: `${mag * 50}%`,
+                            /* The diamond plate, not the action ink: this bar is a
+                               magnitude, not an action. */
+                            background: "var(--color-plate-d)",
+                          }}
+                        />
+                      </span>
                       <span
-                        className="absolute top-0 h-full"
-                        style={{
-                          left: d >= 0 ? "50%" : `${50 - mag * 50}%`,
-                          width: `${mag * 50}%`,
-                          background: oppColors[i],
-                        }}
-                      />
-                      <span className="num absolute inset-0 flex items-center justify-center text-[10px]">
+                        className="num w-11 shrink-0 text-right text-text"
+                        style={{ fontSize: 10.5 }}
+                      >
                         {pct(d)}
                       </span>
                     </span>
@@ -110,7 +117,7 @@ export default function BlockerPanel({
         </div>
       )}
 
-      <div className="flex items-center gap-2 border-b-2 border-ink px-2.5 py-2">
+      <div className="flex items-center gap-2 rule-b px-2.5 py-2">
         <span className="label">rank by</span>
         <span className="seg">
           {oppActions.map((a, i) => (
@@ -125,21 +132,32 @@ export default function BlockerPanel({
         <div className="label mb-1">
           best {oppActions[idx].label} blockers{cell ? "" : " · whole range"}
         </div>
-        {ranked.map(({ combo, score }, ri) => (
+        {ranked.map(({ combo, score }) => (
           <div
             key={combo.index}
-            className={`flex h-[24px] items-center justify-between px-1 ${ri % 2 === 1 ? "bg-paper-2" : ""}`}
+            className="grid h-[26px] grid-cols-[52px_minmax(0,1fr)_54px] items-center gap-2.5 px-1"
           >
-            <ComboCards cards={combo.cards} className="text-[13px]" />
-            <span className="num text-[11px] font-bold">{pct(score.delta[idx])}</span>
+            <ComboCards cards={combo.cards} className="text-[11px]" />
+            <span className="block h-[9px] bg-ink-2">
+              <span
+                className="block h-[9px]"
+                style={{
+                  width: `${(maxRanked > 0 ? Math.min(1, Math.abs(score.delta[idx]) / maxRanked) : 0) * 100}%`,
+                  background: "var(--color-card-d)",
+                }}
+              />
+            </span>
+            <span className="num text-right text-[11px] text-dim">{pct(score.delta[idx])}</span>
           </div>
         ))}
       </div>
 
-      <p className="border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
+      <p className="rule-t bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
+        <span className="block max-w-[68ch]">
         Delta is {oppPlayer}&apos;s reach-weighted action frequency once combos that share a
         card with the hero hand are excluded, minus the frequency over their whole range:
         how much holding those two cards moves that action.
+        </span>
       </p>
     </div>
   );

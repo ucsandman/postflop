@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="web/public/marketing/readme.gif" width="600" height="315" alt="postflop: exploitability falling from 0.40% to 0.12% of pot, every report tagged [measured]">
-</p>
-
 <h1 align="center">postflop</h1>
 
 <p align="center"><strong>A heads-up no-limit hold'em postflop GTO solver whose convergence is measured, never asserted. ChipEV or tournament ICM.</strong></p>
@@ -361,19 +357,6 @@ cd web && npm test               # web unit tests (grid/range/trainer/config mat
 cargo test -p engine --release verify_1m -- --ignored --nocapture   # evaluator vs oracle, 1M hands
 cargo test -p engine --release milestone4 -- --ignored --nocapture  # full flop solve (~3 min, ~1.5 GB)
 ```
-
-## Media kit
-
-Everything for writing about or presenting postflop lives in
-[`web/public/marketing/`](web/public/marketing/): the 77-second launch film
-with captions, a 3-second logo reveal, short clips cut for X and LinkedIn, the
-1200x630 link-preview image and its 8-second loop, 18 stat cards (one per proof
-point, square and 4:5), and a paste-ready postkit per platform with caption,
-alt text, and thumbnail. Every number in the copy traces to a benchmark in
-this README. The narration and music are synthetic; the product footage is a
-real screen recording. See the folder's
-[README](web/public/marketing/README.md) and
-[DISCLOSURE](web/public/marketing/postkit/DISCLOSURE.md) before publishing.
 
 ## Not yet implemented
 

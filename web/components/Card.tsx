@@ -4,8 +4,11 @@ import { SUIT_CLASS, SUIT_GLYPH } from "@/lib/grid";
 
 /**
  * One card. `glyph` (default) is the dense inline form, e.g. `"Qs"` -> `Q♠` in the
- * suit colour. `stock` renders a small paper playing card — rank over suit inside a
- * 2px ink frame — sized by `size` (the font size in px; the card is 2.2em × 3em).
+ * suit colour. `stock` renders a card face: a cold-white stock chip with the rank in
+ * Barlow 700 top-left and the pip bottom-right, sized by `size` (the font size in px;
+ * the card is 2.2em × 3em). The face carries the ON-STOCK suit inks (#171A18 #C8102E
+ * #1240C4 #00713F), set as literals in `.cardstock`, the `--color-card-*` tokens are
+ * the lit inks for dark chrome and would print near-white on a white face.
  */
 export default function Card({
   card,

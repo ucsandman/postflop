@@ -8,8 +8,8 @@
 <meta property="og:title" content="postflop">
 <meta property="og:description" content="A heads-up NLHE postflop GTO solver in Rust. Exploitability measured, never asserted.">
 <meta property="og:image" content="https://postflop.vercel.app/og.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
+<meta property="og:image:width" content="2400">
+<meta property="og:image:height" content="1260">
 <meta property="og:image:alt" content="postflop: convergence is measured, never asserted. Open-source heads-up NLHE solver.">
 <meta property="og:video" content="https://postflop.vercel.app/og.mp4">
 <meta property="og:video:type" content="video/mp4">
@@ -23,7 +23,7 @@
 <meta name="twitter:description" content="A heads-up NLHE postflop GTO solver in Rust. Exploitability measured, never asserted.">
 <meta name="twitter:image" content="https://postflop.vercel.app/og.png">
 <link rel="canonical" href="https://postflop.vercel.app/">
-<meta name="theme-color" content="#E9E5DA">
+<meta name="theme-color" content="#171A18">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -38,346 +38,418 @@
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
 </script>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23FFE000'/%3E%3Cpath fill='%23101010' d='M16 3C13 9 6 13 6 19c0 3.3 2.5 5.5 5.5 5.5 1.7 0 3.2-.7 4.5-2.1V27h-4v2h8v-2h-2v-4.6c1.3 1.4 2.8 2.1 4.5 2.1 3 0 5.5-2.2 5.5-5.5 0-6-7-10-12-16z'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='16' height='16' fill='%233A403A'/%3E%3Crect x='16' width='16' height='16' fill='%23FF4D5A'/%3E%3Crect y='16' width='16' height='16' fill='%235B8CFF'/%3E%3Crect x='16' y='16' width='16' height='16' fill='%2325C97A'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;500;700&family=Barlow:wght@400;600;700;800&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --paper:#E9E5DA; --paper-2:#DDD8C9; --paper-3:#F4F1E8;
-  --ink:#101010; --ink-2:#1C1C1A; --ink-3:#2A2A26;
-  --text:#101010; --text-inv:#F4F1E8; --muted:#55524A; --dim:#625E58; --dim-inv:#9A968C;
-  --hi:#FFE000; --hi-deep:#C7AE00; --live:#FF2D9B;
-  --ok:#128A4A; --err:#D8232A;
-  --spade:#101010; --heart:#D8232A; --diamond:#1746D9; --club:#128A4A;
-  --font-display:"Archivo",system-ui,sans-serif;
-  --font-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
-  --rule:3px; --rule-thin:2px;
-  --gutter:clamp(20px,3vw,56px);
+  /* ---- the four plates (riso drum inks) ---- */
+  --spade:#171A18; --heart:#B00D26; --diamond:#1240C4; --club:#00603F;
+  --spade-2:#1E221C; --spade-3:#262B24; --panel:#12150F; --panel-2:#0E110D;
+  --heart-lit:#FF4D5A; --diamond-lit:#5B8CFF; --club-lit:#25C97A;
+  --mark-spade:#3A403A; --spade-lit:#E4E9E4;
+  /* stock: cold machine white, never cream */
+  --stock:#F0F3F0; --dim:#9AA69C;
+  /* action inks: only ever a fill inside a strategy cell */
+  --bet:#E8202F; --chk:#00A95C; --fld:#3B6BFF;
+
+  --f-ui:"Barlow",system-ui,sans-serif;
+  --f-cond:"Barlow Condensed",system-ui,sans-serif;
+  --f-num:"Azeret Mono",ui-monospace,Consolas,monospace;
+
+  /* per-ground tokens, re-pointed by the plate classes below */
+  --fg:#F0F3F0; --fg2:#9AA69C; --hair:#333930; --ground:#171A18;
+  /* a hairline separates, but it cannot be the only edge of a control: #333930
+     is 1.5:1 on the plate. --ctl is the control boundary, 3.7:1 or better. */
+  --ctl:#6E766D;
+  --gut:clamp(20px,5vw,72px);
+  /* type: three prose steps and one caps tracking, nothing between them */
+  --t-body:1rem; --t-lede:1.125rem; --t-lh:1.6; --track-caps:.14em;
 }
+.on-heart{--ground:#B00D26;--fg2:#FBE7EA;--hair:rgba(240,243,240,.34);--ctl:var(--stock)}
+.on-diamond{--ground:#1240C4;--fg2:#DCE4FF;--hair:rgba(240,243,240,.38);--ctl:var(--stock)}
+.on-club{--ground:#00603F;--fg2:#D3EDE0;--hair:rgba(240,243,240,.34);--ctl:var(--stock)}
+
 *{margin:0;padding:0;box-sizing:border-box;border-radius:0!important;box-shadow:none!important}
 html{scroll-behavior:smooth}
-@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
-body{background:var(--paper);color:var(--text);font:400 16px/1.5 var(--font-display);-webkit-font-smoothing:antialiased}
-::selection{background:var(--hi);color:var(--ink)}
-
-a{color:var(--text);text-decoration-thickness:2px;text-decoration-color:var(--hi-deep);text-underline-offset:3px}
-a:hover{text-decoration-color:var(--ink)}
-:focus-visible{outline:3px solid var(--live);outline-offset:0}
-
-h1,h2,h3{text-wrap:balance;line-height:1.08;font-weight:900}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{background:var(--spade);color:var(--stock);font:400 var(--t-body)/1.55 var(--f-ui);-webkit-font-smoothing:antialiased}
+::selection{background:var(--stock);color:var(--spade)}
+img{max-width:100%;height:auto;display:block}
+h1,h2,h3{font-weight:800;letter-spacing:-.018em;text-wrap:balance}
+h1,h2{line-height:1.03}
+h3{line-height:1.16}
 p{text-wrap:pretty}
-code,pre,.mono{font-family:var(--font-mono)}
-img{max-width:100%}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--stock);outline-offset:2px}
+code,pre,.mono{font-family:var(--f-num)}
+.mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
 
-.wrap{padding-inline:var(--gutter);width:100%}
-.label{font:800 10px/1.3 var(--font-display);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-.on-ink{background:var(--ink-2);color:var(--text-inv)}
-.on-ink .label{color:var(--dim-inv)}
-.on-ink a,.qs-step a{color:var(--text-inv);text-decoration-color:var(--hi)}
-.on-ink a:hover,.qs-step a:hover{text-decoration-color:var(--text-inv)}
+/* ---------- the plate chip: the mark ---------- */
+.chip{display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);width:22px;height:22px;flex:none}
+.chip i{display:block}
+.chip i:nth-child(1){background:var(--mark-spade)}
+.chip i:nth-child(2){background:var(--heart-lit)}
+.chip i:nth-child(3){background:var(--diamond-lit)}
+.chip i:nth-child(4){background:var(--club-lit)}
+.chip.reg i{animation:reg .42s cubic-bezier(.2,.8,.2,1) both}
+.chip.reg i:nth-child(1){--dx:-4px;--dy:-4px}
+.chip.reg i:nth-child(2){--dx:4px;--dy:-4px;animation-delay:.05s}
+.chip.reg i:nth-child(3){--dx:-4px;--dy:4px;animation-delay:.1s}
+.chip.reg i:nth-child(4){--dx:4px;--dy:4px;animation-delay:.15s}
+@keyframes reg{from{transform:translate(var(--dx),var(--dy));opacity:.35}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.chip.reg i{animation:none}}
 
-/* ---------- nav ---------- */
-header{position:sticky;top:0;z-index:50;background:var(--ink)}
-.nav{display:flex;align-items:stretch;height:56px;padding-left:var(--gutter)}
-.wordmark{
-  display:flex;align-items:center;gap:7px;
-  font:900 20px/1 var(--font-display);letter-spacing:-.03em;
-  color:var(--text-inv);text-decoration:none;padding-right:clamp(16px,2vw,32px);
-}
-.wordmark .tick{width:6px;height:6px;background:var(--hi);display:block}
-.nav-links{display:flex;align-items:stretch;margin-right:auto}
-.nav-links a{
-  display:flex;align-items:center;padding:0 14px;text-decoration:none;
-  font:800 12px/1 var(--font-display);letter-spacing:.06em;text-transform:uppercase;color:var(--dim-inv);
-}
-.nav-links a:hover{color:var(--text-inv)}
-.nav-cta{display:flex;align-items:stretch}
-.nav-cta a{display:flex;align-items:center;text-decoration:none;padding:0 18px;white-space:nowrap}
-.nav-ghost{
-  border:var(--rule-thin) solid var(--ink-3);color:var(--text-inv);
-  font:800 12px/1 var(--font-display);letter-spacing:.06em;text-transform:uppercase;
-}
-.nav-ghost:hover{border-color:var(--dim-inv)}
-.nav-hi{
-  background:var(--hi);color:var(--ink);
-  font:800 13px/1 var(--font-display);letter-spacing:.06em;text-transform:uppercase;
-}
-.nav-hi:hover{background:var(--ink);color:var(--hi)}
+/* ---------- registration marks ---------- */
+.reg-corner{position:absolute;width:11px;height:11px;opacity:.55;pointer-events:none}
+.reg-corner::before,.reg-corner::after{content:"";position:absolute;background:currentColor}
+.reg-corner::before{left:5px;top:0;width:1px;height:11px}
+.reg-corner::after{top:5px;left:0;height:1px;width:11px}
+.rc-tl{left:6px;top:6px}.rc-tr{right:6px;top:6px}.rc-br{right:6px;bottom:6px}
 
-/* ---------- hero ---------- */
-.hero-head{background:var(--paper);padding:clamp(40px,6vw,96px) var(--gutter) clamp(32px,4vw,64px)}
-.hero h1{
-  font:900 clamp(38px,8.5vw,168px)/.9 var(--font-display);
-  letter-spacing:-.045em;text-transform:uppercase;
-  overflow-wrap:anywhere;
-}
-.hero h1 .measured{background:var(--hi);color:var(--ink);padding:0 .06em;box-decoration-break:clone;-webkit-box-decoration-break:clone}
-.hero .lede{margin-top:clamp(24px,3vw,40px);font-size:18px;color:var(--muted);max-width:74ch}
-.hero .lede strong{color:var(--text);font-weight:700}
-.hero-ctas{margin-top:32px;display:flex;gap:0;flex-wrap:wrap}
-.hero-ctas a{
-  display:inline-flex;align-items:center;text-decoration:none;
-  font:800 14px/1 var(--font-display);letter-spacing:.06em;text-transform:uppercase;
-  padding:14px 22px;
-}
-.cta-hi{background:var(--hi);color:var(--ink)}
-.cta-hi:hover{background:var(--ink);color:var(--hi)}
-.cta-flat{background:var(--paper-3);color:var(--text);border:var(--rule-thin) solid var(--ink);margin-left:14px}
-.cta-flat:hover{background:var(--paper-2)}
-.hero-sub{margin-top:22px;font:800 10px/1.6 var(--font-display);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+/* ---------- top bar + plate ribbon ---------- */
+header{position:sticky;top:0;z-index:50}
+.bar{height:56px;background:var(--spade);border-bottom:1px solid var(--hair);
+  display:flex;align-items:center;gap:22px;padding-inline:var(--gut)}
+.wordmark{display:flex;align-items:center;gap:10px;font:800 21px/1 var(--f-ui);
+  letter-spacing:-.03em;color:var(--stock);text-decoration:none}
+.bar nav{display:flex;gap:20px;margin-right:auto}
+.bar nav a{font:600 12px/1 var(--f-cond);letter-spacing:var(--track-caps);text-transform:uppercase;
+  color:var(--dim);text-decoration:none;padding-block:8px}
+.bar nav a:hover{color:var(--stock)}
+.bar nav a[aria-current]{color:var(--stock);
+  background:linear-gradient(var(--stock),var(--stock)) bottom/100% 2px no-repeat}
+.bar .right{display:flex;gap:10px;align-items:center;margin-left:auto}
+.ribbon{display:flex;height:4px}
+.ribbon i{flex:1}
+.ribbon i:nth-child(1){background:var(--mark-spade)}
+.ribbon i:nth-child(2){background:var(--heart-lit)}
+.ribbon i:nth-child(3){background:var(--diamond-lit)}
+.ribbon i:nth-child(4){background:var(--club-lit)}
 
-.hero-split{border-top:var(--rule) solid var(--ink);display:grid;grid-template-columns:minmax(0,1fr)}
-@media (min-width:1000px){.hero-split{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
-.hero-split>*+*{border-inline-start:var(--rule) solid var(--ink)}
-@media (max-width:999px){.hero-split>*+*{border-inline-start:0;border-top:var(--rule) solid var(--ink)}}
+/* ---------- buttons ---------- */
+.btn{font:600 13px/1 var(--f-ui);letter-spacing:.01em;text-decoration:none;
+  padding:9px 16px;display:inline-block;border:0;cursor:pointer}
+.btn-club{background:var(--club-lit);color:#04140C;font-weight:700}
+.btn-ghost{border:1px solid var(--ctl);color:var(--fg)}
+.btn-stock{background:var(--stock);color:var(--spade);font-weight:700}
+.btn-out{border:1px solid var(--ctl);color:var(--stock)}
+.btn-lg{font-size:15px;padding:14px 24px}
+.ctas{display:flex;gap:12px;flex-wrap:wrap}
+.btn-club:hover{background:#1BA862}
+.btn-stock:hover,.copy:hover,.play:hover{background:var(--spade-lit)}
+.btn-ghost:hover,.btn-out:hover{background:var(--stock);color:var(--spade)}
+.btn:active,.copy:active,.play:active{translate:0 1px}
 
-/* solve log terminal */
-.term{background:var(--ink-2);overflow:hidden;display:flex;flex-direction:column}
-.term-bar{
-  background:var(--ink);color:var(--dim-inv);
-  font:400 13px/1 var(--font-mono);padding:11px 16px;
-}
-.term-body{
-  padding:20px 16px 24px;font:400 15px/1.7 var(--font-mono);color:var(--text-inv);
-  white-space:pre;overflow-x:auto;scrollbar-width:none;flex:1;
-}
-.term-body::-webkit-scrollbar{display:none}
-.term-body .row{opacity:0}
-.term-body .row.on{opacity:1;transition:opacity .25s ease}
-.term-body .it{color:var(--dim-inv)}
-.term-body .val{color:var(--text-inv);font-weight:700}
-.term-body .pct{color:var(--hi)}
-.term-body .tag{background:var(--hi);color:var(--ink);font-size:11px;font-weight:700;padding:1px 5px}
-.term-body .hd{color:#37C97D;font-weight:700}
-@media (prefers-reduced-motion: reduce){.term-body .row{opacity:1;transition:none}}
+/* ---------- shared section furniture ---------- */
+section{scroll-margin-top:64px;background:var(--ground);color:var(--fg)}
+.plate-tag{display:flex;align-items:center;gap:9px;font:600 11px/1 var(--f-cond);
+  letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--fg2);margin-bottom:26px}
+.plate-tag b{display:block;width:9px;height:9px;background:var(--stock);flex:none}
+.sec-head{padding:60px var(--gut) 34px;display:grid;
+  grid-template-columns:minmax(0,1fr) 460px;gap:48px;align-items:end}
+.sec-head h2,.film-side h2{font-size:clamp(32px,4.2vw,52px)}
+.sec-head>p{font-size:var(--t-lede);line-height:1.55;color:var(--fg2)}
+.sec-head p strong{color:var(--fg);font-weight:600}
+.sec-head p code,.sec-head p .path{font-family:var(--f-num);font-weight:500;font-size:13.4px;color:var(--fg)}
+/* a hairline is only needed where one spade section meets another */
+#correctness,#quickstart{border-top:1px solid var(--hair)}
 
-.hero-shot{display:flex;flex-direction:column;background:var(--paper)}
-.hero-shot .frame{border:var(--rule) solid var(--ink);flex:1;display:block;overflow:hidden}
-.hero-shot img{display:block;width:100%;height:100%;object-fit:cover;object-position:top}
-.hero-shot figcaption{padding:10px 0 0}
+/* ============ FOLD 1 - HERO, PLATE 1 / SPADE ============ */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) 700px;align-items:stretch;
+  border-bottom:1px solid var(--hair)}
+.hero-l{padding:64px var(--gut) 52px;display:flex;flex-direction:column}
+.hero h1{font-size:clamp(36px,4.9vw,63px);margin-bottom:22px}
+.hero h1 em{font-style:normal;color:var(--heart-lit);background:linear-gradient(rgba(255,77,90,.32),rgba(255,77,90,.32)) bottom/100% 6px no-repeat}
+.lede{font-size:var(--t-lede);line-height:1.55;color:var(--dim);max-width:480px}
+.lede strong{color:var(--stock);font-weight:600}
+.hero .ctas{margin-top:28px}
+.hero-sub{margin-top:20px;font:400 11.6px/1.7 var(--f-num);color:var(--dim);letter-spacing:-.025em}
+.hero-r{position:relative;border-left:1px solid var(--hair);background:var(--panel);
+  display:grid;grid-template-rows:auto 1fr}
 
-/* ---------- sections ---------- */
-section{padding:0;scroll-margin-top:56px}
-section+section{border-top:var(--rule) solid var(--ink)}
-.section-head{padding-block:clamp(40px,6vw,80px) clamp(24px,3vw,40px)}
-.section-head h2{font:900 clamp(32px,4vw,64px)/.96 var(--font-display);letter-spacing:-.04em;text-transform:uppercase}
-.section-head p{margin-top:20px;color:var(--muted);font-size:17px;max-width:74ch}
-.section-head p strong{color:var(--text);font-weight:700}
+/* terminal */
+.term{background:var(--spade-2);border-bottom:1px solid var(--hair)}
+.term-bar{display:flex;align-items:center;gap:10px;height:32px;padding-inline:16px;
+  background:var(--panel-2);border-bottom:1px solid var(--hair);
+  font:500 11.5px/1 var(--f-num);color:var(--dim)}
+.term-bar b{width:8px;height:8px;background:var(--club-lit);display:block;flex:none}
+.term-body{padding:12px 16px;font:400 11.7px/1.72 var(--f-num);min-height:248px;overflow-x:auto}
+.term-body .l{white-space:pre;color:var(--dim)}
+.term-body .l u{text-decoration:none;color:var(--stock)}
+.term-body .l s{text-decoration:none;color:var(--heart-lit)}
+.term-body .l q{quotes:none;color:var(--club-lit)}
+.term-body .l k{color:var(--diamond-lit)}
 
-/* ---------- film ---------- */
-#film{background:var(--paper-2)}
-.film{display:grid;grid-template-columns:minmax(0,1fr)}
-@media (min-width:1100px){.film{grid-template-columns:minmax(0,1fr) minmax(300px,.34fr)}.film>*+*{border-left:var(--rule) solid var(--ink)}}
-@media (max-width:1099px){.film>*+*{border-top:var(--rule) solid var(--ink)}}
-.film-frame{padding:var(--gutter)}
-.film-frame video{display:block;width:100%;height:auto;aspect-ratio:16/9;background:var(--ink);border:var(--rule) solid var(--ink)}
-.film-side{padding:var(--gutter);display:flex;flex-direction:column;gap:18px}
-.film-side h3{font:900 24px/1.05 var(--font-display);letter-spacing:-.03em;text-transform:uppercase}
-.film-side p{color:var(--muted);font-size:15px}
-.film-side dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font:500 13px/1.5 var(--font-mono)}
-.film-side dt{color:var(--dim);text-transform:uppercase;letter-spacing:.08em;font:800 10px/2 var(--font-display)}
-.film-side dd{color:var(--text)}
-.film-side .hero-ctas{margin-top:auto}
+/* live 13x13, the new cell grammar */
+.gridwrap{position:relative;padding:20px 20px 22px}
+.gw-head{display:flex;align-items:baseline;gap:12px;margin-bottom:10px;
+  font:600 11px/1 var(--f-cond);letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--dim)}
+.gw-head span{margin-left:auto;font-family:var(--f-num);font-size:10.5px;letter-spacing:0;text-transform:none}
+.rankrow{display:grid;grid-template-columns:repeat(13,1fr);gap:2px;margin-bottom:3px;
+  margin-left:19px;max-width:486px}
+.gridbody{display:grid;grid-template-columns:16px 1fr;gap:3px;max-width:486px}
+.rankcol{display:grid;grid-template-rows:repeat(13,1fr);gap:2px}
+.rk{font:500 9.5px/1 var(--f-num);color:var(--dim);display:grid;place-items:center}
+#hgrid{display:grid;grid-template-columns:repeat(13,1fr);gap:2px}
+.cell{background:var(--spade-2);aspect-ratio:1;display:grid;grid-template-rows:1fr 11px;overflow:hidden}
+.cell .lab{font:500 9.4px/1 var(--f-num);color:var(--stock);display:grid;place-items:center;letter-spacing:-.04em}
+.cell.dead{background:#191D17}
+.cell.dead .lab{color:#828B81}
+.cell .sbar{display:flex}
+.cell .sbar i{display:block;height:11px}
+.sBet{background:var(--bet)}
+.sChk{background:var(--chk);background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.34) 0 1px,transparent 1px 3px)}
+.sFld{background:var(--fld)}
 
-/* ---------- start here ---------- */
-.start-cols{display:grid;grid-template-columns:minmax(0,1fr);border-top:var(--rule) solid var(--ink)}
-.start-cols>*+*{border-top:var(--rule) solid var(--ink)}
-@media (min-width:1100px){
-  .start-cols{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .start-cols>*+*{border-left:var(--rule) solid var(--ink);border-top:0}
-}
-.start-col{padding:var(--gutter);display:flex;flex-direction:column}
-.start-col h3{font:900 24px/1.05 var(--font-display);letter-spacing:-.03em;text-transform:uppercase}
-.start-col p{margin-top:16px;color:var(--muted);font-size:15px}
-.start-col dl{margin-top:6px}
-.start-col dt{margin-top:18px;font:800 13px/1.3 var(--font-display);letter-spacing:.06em;text-transform:uppercase;color:var(--text)}
-.start-col dd{margin-top:6px;color:var(--muted);font-size:15px}
+/* the ink key: the law of the palette, pinned to the bottom of the hero column */
+.key{margin-top:auto;padding-top:34px;display:grid;grid-template-columns:auto 1px auto;
+  gap:26px;align-items:start}
+.key .key-h{font:600 10.5px/1 var(--f-cond);letter-spacing:var(--track-caps);text-transform:uppercase;
+  color:var(--dim);margin-bottom:12px}
+.key .div{background:var(--hair);width:1px;align-self:stretch}
+.keyrow{display:flex;gap:20px}
+.ki{display:flex;align-items:center;gap:8px;font:500 12px/1 var(--f-num);color:var(--stock);letter-spacing:-.02em}
+.ki b{width:18px;height:18px;display:block;flex:none}
+.pip{display:flex;align-items:center;gap:7px}
+.pip b{width:18px;height:18px;display:grid;place-items:center;background:var(--stock);
+  font:700 13px/1 var(--f-ui);flex:none}
+/* the heart and diamond glyphs are drawn short: scale them back up to the spade */
+.su-h{font-size:1.10em}.su-d{font-size:1.22em}
+.key-note{grid-column:1/-1;margin-top:16px;font:400 12.5px/1.5 var(--f-ui);color:var(--dim);max-width:62ch}
+.key-note b{color:var(--stock);font-weight:600}
+
+/* ============ FOLD 2 - FILM, PLATE 2 / HEART ============ */
+.film{padding:56px var(--gut) 60px;display:grid;
+  grid-template-columns:minmax(0,1fr) 400px;gap:44px;align-items:start}
+.film-frame{position:relative;background:#7A0819;border:1px solid var(--hair);isolation:isolate}
+.film-frame video{display:block;width:100%;height:auto;aspect-ratio:16/9;
+  filter:grayscale(1) contrast(1.42) brightness(.94);mix-blend-mode:multiply}
+.film-frame::after{content:"";position:absolute;inset:0;background:var(--heart);
+  mix-blend-mode:screen;opacity:.30;pointer-events:none}
+.film-frame.playing video{filter:none;mix-blend-mode:normal}
+.film-frame.playing::after,.film-frame.playing .play{display:none}
+.play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:3;
+  width:78px;height:78px;background:var(--stock);display:grid;place-items:center;border:0;cursor:pointer}
+.play::after{content:"";border-left:22px solid var(--heart);border-top:14px solid transparent;
+  border-bottom:14px solid transparent;margin-left:5px}
+.film-cap{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:12px;
+  font:400 11.5px/1.4 var(--f-num);color:var(--fg2)}
+.film-side h2{margin-bottom:14px}
+.film-side h3{font-size:21px;font-weight:700;margin-bottom:10px}
+.film-side p{font-size:var(--t-body);line-height:var(--t-lh);color:var(--fg2);margin-bottom:20px}
+.spec{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--hair);
+  border:1px solid var(--hair);margin-bottom:22px}
+.spec div{background:var(--ground);padding:11px 13px}
+.spec dt{font:600 10.5px/1 var(--f-cond);letter-spacing:var(--track-caps);text-transform:uppercase;
+  color:#F6C6CD;margin-bottom:6px}
+.spec dd{font:500 14px/1.3 var(--f-num);color:var(--stock)}
+
+/* ============ FOLD 3 - START, PLATE 4 / CLUB ============ */
+.start-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  border-top:1px solid var(--hair)}
+.start-col{padding:34px var(--gut) 44px;display:flex;flex-direction:column}
+.start-cols>*+*{border-left:1px solid var(--hair)}
+.start-col h3{font-size:21px;margin-bottom:14px}
+.start-col p{font-size:var(--t-body);line-height:var(--t-lh);color:var(--fg2);margin-bottom:14px}
+.start-col dt{margin-top:16px;font:600 11px/1 var(--f-cond);letter-spacing:var(--track-caps);
+  text-transform:uppercase;color:var(--stock)}
+.start-col dd{margin-top:7px;font-size:var(--t-body);line-height:var(--t-lh);color:var(--fg2)}
 .start-cta{padding-top:26px}
-.start-cta .hero-ctas{margin-top:0}
-.start-sub{margin-top:14px;font-size:15px;color:var(--muted)}
+.start-sub{margin-top:14px;font-size:var(--t-body);color:var(--fg2)}
+.start-sub a{color:var(--stock)}
 
-/* ---------- engine ---------- */
-#engine{background:var(--paper-2)}
-.shot-frame{border:var(--rule) solid var(--ink);display:block;background:var(--paper-3)}
-.shot-frame img{display:block;width:100%;height:auto}
-.shot-caption{padding:12px var(--gutter) clamp(24px,3vw,40px);font:800 10px/1.6 var(--font-display);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-.shot-caption b{color:var(--text);font-weight:800}
+/* ============ ENGINE, PLATE 1 / SPADE ============ */
+.figure-full{border-top:1px solid var(--hair);padding:0 var(--gut) 30px}
+.figure-full .frame{border:1px solid var(--hair);background:var(--panel);display:block;
+  margin-top:30px;overflow:hidden}
+.figure-full img{width:100%;height:auto}
+.figcap{display:block;padding-top:12px;font:600 11px/1.5 var(--f-cond);letter-spacing:var(--track-caps);
+  text-transform:uppercase;color:var(--fg2)}
+.figcap b{color:var(--fg);font-weight:700}
+.engine-row{display:grid;grid-template-columns:64px minmax(0,.4fr) minmax(0,1fr);
+  border-top:1px solid var(--hair);align-items:start;padding-inline:var(--gut)}
+.engine-row:last-child{border-bottom:1px solid var(--hair)}
+.row-n{width:64px;height:64px;display:grid;place-items:center;
+  font:500 15px/1 var(--f-num);letter-spacing:.02em;color:var(--dim);background:var(--panel)}
+.engine-row h3{font-size:21px;padding:18px 24px 18px 20px}
+.engine-row p{color:var(--dim);font-size:var(--t-body);line-height:var(--t-lh);
+  max-width:58ch;padding:18px 0 24px}
+.engine-row p code{font-size:12.6px;color:var(--stock);background:var(--panel);
+  border:1px solid var(--hair);padding:1px 6px}
+.engine-row p strong{color:var(--stock);font-weight:600}
 
-.engine-rows{margin-top:clamp(32px,4vw,56px)}
-.engine-row{
-  display:grid;grid-template-columns:64px minmax(0,.36fr) minmax(0,1fr);
-  border-top:var(--rule) solid var(--ink);align-items:start;
-}
-.engine-row:last-child{border-bottom:var(--rule) solid var(--ink)}
-.suit-sq{width:64px;height:64px;background:var(--ink);display:grid;place-items:center;font-size:30px;line-height:1}
-.s-spade{color:#F4F1E8}
-.s-heart{color:#FF6B62}
-.s-diamond{color:#6AA5FF}
-.s-club{color:#37C97D}
-.engine-row h3{font:800 20px/1.25 var(--font-display);padding:18px 24px 18px 20px}
-.engine-row p{color:var(--muted);font-size:15px;padding:18px var(--gutter) 24px 0}
-.engine-row p code{font-size:13px;color:var(--text);background:var(--paper-3);border:1px solid var(--ink);padding:1px 6px}
-.engine-row p strong{color:var(--text);font-weight:700}
+/* ============ NUMBERS, PLATE 3 / DIAMOND ============ */
+.rows{border-top:1px solid var(--hair)}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 300px 356px;align-items:center;
+  gap:28px;padding:0 var(--gut);border-bottom:1px solid var(--hair);min-height:92px}
+.row .what{font-size:16px;line-height:1.42;color:var(--fg2);padding-block:18px;max-width:40ch}
+.row .what b{color:var(--stock);font-weight:600}
+.row .src{font:400 11.4px/1.5 var(--f-num);color:#B8C6FF;letter-spacing:-.02em;
+  border-left:1px solid var(--hair);padding:6px 0 6px 20px}
+.row .src b{display:block;color:var(--stock);font-weight:500}
+.row .res{justify-self:stretch;display:flex;align-items:baseline;gap:12px;
+  background:var(--stock);color:var(--diamond);padding:12px 18px;justify-content:space-between}
+.row .res .v{font:700 clamp(22px,2.3vw,31px)/1 var(--f-num);font-variant-numeric:tabular-nums;letter-spacing:-.045em}
+.row .res .u{font:600 11px/1.25 var(--f-cond);letter-spacing:var(--track-caps);text-transform:uppercase;
+  color:#2A3F8C;text-align:right;max-width:112px}
+.repro{margin:26px var(--gut) 60px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  font:400 12px/1.5 var(--f-num);color:var(--fg2)}
+.repro code{background:#0B2E90;color:var(--stock);padding:9px 12px;display:inline-block;
+  border:1px solid var(--hair);font-size:11.6px;overflow-x:auto;max-width:100%}
+.repro .tag{background:var(--stock);color:var(--diamond);font:700 10.5px/1 var(--f-cond);
+  letter-spacing:var(--track-caps);text-transform:uppercase;padding:6px 9px;flex:none}
 
-/* ---------- measured numbers ---------- */
-.bench{overflow-x:auto}
-.bench table{width:100%;border-collapse:collapse;min-width:560px}
-.bench th{
-  background:var(--ink);color:var(--text-inv);text-align:left;
-  font:800 10px/1.3 var(--font-display);letter-spacing:.14em;text-transform:uppercase;
-  padding:8px 14px;
-}
-.bench th:first-child{padding-left:var(--gutter)}
-.bench th:last-child{text-align:right;padding-right:var(--gutter)}
-.bench tr{border-bottom:var(--rule-thin) solid var(--ink)}
-.bench tbody tr:nth-child(even){background:var(--paper-2)}
-.bench td{vertical-align:baseline}
-.bench td.what{color:var(--text);font-size:15px;padding:14px 20px 14px var(--gutter)}
-.bench td.num{
-  font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:700;font-size:28px;
-  color:var(--text);text-align:right;white-space:nowrap;padding:14px var(--gutter) 14px 20px;
-}
-.bench td.num .unit{
-  display:block;margin-top:4px;white-space:normal;
-  font:800 10px/1.4 var(--font-display);letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
-}
-.bench-note{
-  background:var(--paper-2);border-top:var(--rule) solid var(--ink);
-  padding:16px var(--gutter);font:400 13px/1.7 var(--font-mono);color:var(--muted);
-}
-.bench-note code{background:var(--paper-3);border:1px solid var(--ink);padding:2px 6px;color:var(--text)}
+/* ============ WORKBENCH, PLATE 1 / SPADE ============ */
+.jump{display:flex;flex-wrap:wrap;gap:0;padding:0 var(--gut) 30px}
+.jump a{border:1px solid var(--hair);color:var(--stock);text-decoration:none;
+  font:600 10.5px/1 var(--f-cond);letter-spacing:var(--track-caps);text-transform:uppercase;
+  padding:10px 12px;margin:0 -1px -1px 0}
+.jump a:hover{background:var(--stock);color:var(--spade)}
+.shots{border-top:1px solid var(--hair)}
+.shot{border-bottom:1px solid var(--hair);padding:34px var(--gut) 38px;scroll-margin-top:64px}
+.shot h3{font-size:21px;margin-bottom:14px}
+.shot .copy-col{max-width:58ch;margin-bottom:24px}
+.shot p{color:var(--fg2);font-size:var(--t-body);line-height:var(--t-lh);margin-top:12px;max-width:58ch}
+.shot p code{font-size:12.6px;color:var(--stock);background:var(--panel);
+  border:1px solid var(--hair);padding:1px 6px}
+.shot p b,.shot p strong{color:var(--stock);font-weight:600}
+.shot p em{font-style:italic;color:var(--stock)}
+.shot .frame{border:1px solid var(--hair);background:var(--panel);display:block;
+  overflow:hidden;width:fit-content;max-width:100%}
+/* the wide editor and its weight-brush detail, divided by a hairline, no gutter to stare across */
+.shot .frame.pair{display:grid;grid-template-columns:minmax(0,1fr) 312px;align-items:start}
+.shot .frame.pair img+img{border-left:1px solid var(--hair)}
+/* a portrait panel sits beside its copy instead of leaving a dead column */
+.shot.side{display:grid;grid-template-columns:minmax(0,1fr) 700px;gap:34px;align-items:start}
+.shot.side .copy-col{margin-bottom:0}
+.shot-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:34px}
+.shot-2>div{scroll-margin-top:64px}
+/* the tour changes plate halfway: the second half of it prints on club */
+.plate-run{background:var(--ground);color:var(--fg)}
+.plate-run .shot p code{background:transparent}
 
-/* ---------- workbench ---------- */
-.jump{display:flex;flex-wrap:wrap;margin-top:28px}
-.jump a{
-  border:var(--rule-thin) solid var(--ink);color:var(--text);text-decoration:none;
-  font:800 10px/1 var(--font-display);letter-spacing:.14em;text-transform:uppercase;
-  padding:10px 12px;margin:0 0 -2px -2px;
-}
-.jump a:hover,.jump a:focus-visible{background:var(--hi);color:var(--ink)}
-.media-row{display:grid;grid-template-columns:minmax(0,1fr);border-top:var(--rule) solid var(--ink);scroll-margin-top:56px}
-@media (min-width:1000px){
-  .media-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
-  .media-row.flip{direction:rtl}
-  .media-row.flip>*{direction:ltr}
-  .media-row>*+*{border-inline-start:var(--rule) solid var(--ink)}
-}
-@media (max-width:999px){.media-row>*+*{border-top:var(--rule) solid var(--ink)}}
-.media-copy{padding:var(--gutter);scroll-margin-top:56px}
-.media-copy h3{font:900 26px/1.05 var(--font-display);letter-spacing:-.03em;text-transform:uppercase}
-.media-copy p{margin-top:16px;color:var(--muted);font-size:15px;max-width:64ch}
-.media-copy p code{font-size:13px;color:var(--text);background:var(--paper-3);border:1px solid var(--ink);padding:1px 6px}
-.media-shot{background:var(--paper-3);overflow:hidden;display:block}
-.media-shot img{display:block;width:100%;height:auto}
-/* a narrower detail frame stacked under a wide one; capped at its own pixel
-   width so it is never upscaled, and sized before it loads so nothing shifts */
-.media-shot img+img{max-width:484px;border-top:var(--rule) solid var(--ink)}
-.media-shot.crop-top img{object-fit:cover;object-position:top;height:100%}
-.shot-full{border-top:var(--rule) solid var(--ink);display:block}
-.shot-full .frame{border:var(--rule) solid var(--ink);margin:var(--gutter) var(--gutter) 0;display:block;overflow:hidden;background:var(--paper-3)}
-.shot-full .frame img{display:block;width:100%;height:auto}
-.shot-full.crop-top .frame img{object-fit:cover;object-position:top;height:100%}
+/* ============ CORRECTNESS: four bands, one per ink ============ */
+.gate{padding:28px var(--gut) 32px;border-top:1px solid var(--hair);
+  display:grid;grid-template-columns:340px minmax(0,1fr);gap:36px;align-items:start}
+.gate-1{background:var(--panel);--hair:#333930}
+.gate-2{background:var(--heart);--fg2:#FBE7EA;--hair:rgba(240,243,240,.34)}
+.gate-3{background:var(--diamond);--fg2:#DCE4FF;--hair:rgba(240,243,240,.38)}
+.gate-4{background:var(--club);--fg2:#D3EDE0;--hair:rgba(240,243,240,.34)}
+.gate-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.gate-head h3{font-size:21px;color:var(--stock);flex:1 0 auto}
+.gate-pip{width:22px;height:22px;display:grid;place-items:center;background:var(--stock);
+  font:700 15px/1 var(--f-ui);flex:none}
+.gate-status{font:700 10.5px/1 var(--f-cond);letter-spacing:var(--track-caps);text-transform:uppercase;
+  color:var(--stock);border:1px solid var(--hair);padding:5px 8px}
+.gate p{font-size:var(--t-body);line-height:var(--t-lh);color:var(--fg2);max-width:58ch}
+.gate p code{font-family:var(--f-num);font-size:13px;color:var(--stock)}
+.beyond{padding:34px var(--gut) 56px;color:var(--dim);font-size:var(--t-body);line-height:var(--t-lh);max-width:62ch}
+.beyond .mono-stat{font-family:var(--f-num);color:var(--stock);font-variant-numeric:tabular-nums;font-weight:500}
 
-/* ---------- correctness ---------- */
-.gates{counter-reset:gate}
-.gate{
-  counter-increment:gate;display:grid;grid-template-columns:120px minmax(0,1fr);
-  border-top:var(--rule) solid var(--ink);
-}
-.gate:last-child{border-bottom:var(--rule) solid var(--ink)}
-.gate::before{
-  content:counter(gate,decimal-leading-zero);
-  background:var(--hi);color:var(--ink);
-  font:900 48px/1 var(--font-display);letter-spacing:-.045em;
-  display:grid;place-items:center;
-}
-.gate-body{background:var(--ink-2);color:var(--dim-inv);padding:22px var(--gutter)}
-.gate-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
-.gate-body h3{font:800 20px/1.2 var(--font-display);color:var(--text-inv);text-transform:uppercase;letter-spacing:.02em}
-.gate-status{font:700 11px/1 var(--font-mono);letter-spacing:.1em;text-transform:uppercase;color:#37C97D}
-.gate-body p{margin-top:10px;font-size:15px;max-width:78ch}
-.gate-body p code{font-family:var(--font-mono);font-size:13px;color:var(--text-inv)}
-.beyond{padding:clamp(28px,4vw,48px) var(--gutter);color:var(--muted);font-size:15px;max-width:90ch}
-.beyond .mono-stat{font-family:var(--font-mono);color:var(--text);font-variant-numeric:tabular-nums;font-weight:700}
-
-/* ---------- quick start ---------- */
-.qs-toml{border-top:var(--rule) solid var(--ink)}
-.qs-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px var(--gutter);border-bottom:var(--rule-thin) solid var(--ink-3)}
-.copy{
-  background:var(--hi);color:var(--ink);border:0;cursor:pointer;
-  font:800 11px/1 var(--font-display);letter-spacing:.1em;text-transform:uppercase;
-  padding:9px 14px;
-}
-.copy:hover{background:var(--hi-deep)}
-pre.code{font:400 15px/1.7 var(--font-mono);overflow-x:auto;color:var(--text-inv);padding:clamp(18px,2.5vw,32px) var(--gutter)}
-pre.code .c{color:var(--dim-inv)}
-pre.code .k{color:#6AA5FF}
-pre.code .s{color:#37C97D}
-pre.code .p{color:var(--dim-inv)}
-.qs-steps{display:grid;grid-template-columns:minmax(0,1fr);border-top:var(--rule) solid var(--ink)}
-@media (min-width:1100px){
-  .qs-steps{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .qs-steps>*+*{border-left:var(--rule) solid var(--ink);border-top:0}
-}
-.qs-step{background:var(--ink-2);color:var(--dim-inv);padding:24px 20px;display:flex;flex-direction:column}
-.qs-steps>*+*{border-top:var(--rule) solid var(--ink)}
-.qs-step h3{font:800 14px/1.3 var(--font-display);letter-spacing:.08em;text-transform:uppercase;color:var(--text-inv)}
-.qs-step p{margin-top:10px;font-size:15px}
-.qs-step pre.code{padding:14px 0 0;font-size:14px;flex:1}
-.qs-step .copy{align-self:flex-start;margin-top:16px}
-.flags{display:grid;grid-template-columns:minmax(0,1fr);padding:6px var(--gutter) clamp(24px,3vw,40px)}
-@media (min-width:900px){.flags{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:var(--gutter)}}
+/* ============ QUICKSTART, PLATE 1 / SPADE ============ */
+.codeblock{border-top:1px solid var(--hair);background:var(--panel)}
+.code-head{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:11px var(--gut);border-bottom:1px solid var(--hair)}
+.code-head .lbl{font:600 10.5px/1 var(--f-cond);letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--dim)}
+.copy{background:var(--stock);color:var(--spade);border:0;cursor:pointer;min-width:104px;
+  font:700 10.5px/1 var(--f-cond);letter-spacing:var(--track-caps);text-transform:uppercase;padding:8px 12px}
+pre.code{font:400 13.4px/1.7 var(--f-num);overflow-x:auto;color:var(--stock);padding:22px var(--gut)}
+pre.code .c{color:var(--dim)}
+pre.code .k{color:var(--diamond-lit)}
+pre.code .s{color:var(--club-lit)}
+.qs-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--hair)}
+.qs-steps>*+*{border-left:1px solid var(--hair)}
+.qs-step{padding:24px 20px;display:flex;flex-direction:column;background:var(--panel)}
+.qs-step h3{font:600 11px/1 var(--f-cond);letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--stock)}
+.qs-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.qs-step p{margin-top:12px;font-size:var(--t-body);line-height:var(--t-lh);color:var(--dim)}
+.qs-step p a{color:var(--stock)}
+.qs-step p code{font-family:var(--f-num);font-size:12.6px;color:var(--stock)}
+.qs-step pre.code{padding:14px 0 0;font-size:12.4px;flex:1}
+.flags{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:var(--gut);
+  padding:6px var(--gut) 36px}
 .flags>div{padding-top:18px}
-.flags dt{font:700 14px/1.4 var(--font-mono);color:var(--text-inv);overflow-wrap:anywhere}
-.flags dd{margin-top:5px;font-size:14px;line-height:1.5;color:var(--dim-inv)}
-.flags dd code{color:var(--text-inv)}
+.flags dt{font:500 13.4px/1.4 var(--f-num);color:var(--stock);overflow-wrap:break-word}
+.flags dd{margin-top:6px;font-size:var(--t-body);line-height:var(--t-lh);color:var(--dim);max-width:58ch}
+.flags dd code{font-family:var(--f-num);color:var(--stock)}
 
 /* ---------- footer ---------- */
-footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid var(--ink)}
-.foot{display:flex;justify-content:space-between;align-items:flex-start;gap:28px;flex-wrap:wrap;padding:var(--gutter)}
-.foot .suits{font-size:18px;letter-spacing:8px}
-.foot .suits .s1{color:#F4F1E8}
-.foot .suits .s2{color:#FF6B62}
-.foot .suits .s3{color:#6AA5FF}
-.foot .suits .s4{color:#37C97D}
-.foot .foot-line{margin-top:12px;font:800 10px/1.6 var(--font-display);letter-spacing:.14em;text-transform:uppercase;color:var(--dim-inv)}
-.foot nav{display:flex;gap:0;flex-wrap:wrap}
-.foot nav a{
-  border:var(--rule-thin) solid var(--dim-inv);color:var(--text-inv);text-decoration:none;
-  font:800 11px/1 var(--font-display);letter-spacing:.08em;text-transform:uppercase;
-  padding:11px 14px;margin:0 0 -2px -2px;
-}
-.foot nav a:hover{background:var(--hi);color:var(--ink);border-color:var(--ink)}
-.statusbar{
-  height:26px;background:var(--ink-2);border-top:var(--rule) solid var(--ink);
-  display:flex;align-items:center;overflow-x:auto;white-space:nowrap;padding:0 10px;
-  font:400 11px/1 var(--font-mono);color:var(--text-inv);
-}
-.skip{
-  position:absolute;left:-9999px;top:0;z-index:100;
-  background:var(--hi);color:var(--ink);font:800 13px/1 var(--font-display);
-  letter-spacing:.06em;text-transform:uppercase;padding:12px 18px;
-}
+footer{background:var(--panel-2);border-top:1px solid var(--hair)}
+.foot{display:flex;justify-content:space-between;align-items:flex-start;gap:28px;
+  flex-wrap:wrap;padding:38px var(--gut)}
+.foot-suits{display:flex;gap:8px;margin-bottom:14px}
+.foot-suits b{width:22px;height:22px;display:grid;place-items:center;background:var(--stock);
+  font:700 14px/1 var(--f-ui)}
+.foot-line{font:600 11px/1.6 var(--f-cond);letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--dim)}
+.foot nav{display:flex;flex-wrap:wrap}
+.foot nav a{border:1px solid var(--ctl);color:var(--stock);text-decoration:none;
+  font:600 10.5px/1 var(--f-cond);letter-spacing:var(--track-caps);text-transform:uppercase;
+  padding:11px 13px;margin:0 -1px -1px 0}
+.foot nav a:hover{background:var(--stock);color:var(--spade)}
+.statusbar{height:28px;background:var(--spade);border-top:1px solid var(--hair);display:flex;
+  align-items:center;overflow-x:auto;white-space:nowrap;padding:0 var(--gut);
+  font:400 11px/1 var(--f-num);color:var(--dim)}
+.statusbar .sep{display:inline-block;width:1px;height:9px;margin:0 10px;background:#4A5248;vertical-align:-1px;overflow:hidden;text-indent:-99px}
+.skip{position:absolute;left:-9999px;top:0;z-index:100;background:var(--stock);color:var(--spade);
+  font:700 12px/1 var(--f-cond);letter-spacing:var(--track-caps);text-transform:uppercase;padding:12px 18px}
 .skip:focus{left:0}
-.statusbar .sep{color:var(--ink-3);padding:0 10px}
 
-/* six section links plus two CTA blocks stop fitting on one row below this */
-@media (max-width:1200px){
-  .nav-links a.hide-sm{display:none}
+/* ---------- responsive: the two-column folds stack ---------- */
+@media (max-width:1180px){
+  /* the section nav survives: it drops to its own scrolling row under the bar */
+  .bar{height:auto;min-height:56px;flex-wrap:wrap;column-gap:16px;padding-bottom:4px}
+  .bar nav{order:3;flex-basis:100%;gap:0;margin-right:0;overflow-x:auto;scrollbar-width:none;
+    margin-inline:calc(var(--gut) * -1);padding-inline:var(--gut)}
+  .bar nav a{padding:10px 16px 10px 0;white-space:nowrap}
+  section,.shot,.shot-2>div{scroll-margin-top:104px}
 }
-@media (max-width:880px){
+@media (max-width:960px){
+  .hero{grid-template-columns:minmax(0,1fr)}
+  .hero-r{border-left:0;border-top:1px solid var(--hair)}
+  .rankrow,.gridbody{max-width:none}
+  .film{grid-template-columns:minmax(0,1fr);gap:34px}
+  .sec-head{grid-template-columns:minmax(0,1fr);gap:20px;align-items:start}
+  .start-cols{grid-template-columns:minmax(0,1fr)}
+  .start-cols>*+*{border-left:0;border-top:1px solid var(--hair)}
+  .row{grid-template-columns:minmax(0,1fr);gap:0;padding-block:20px}
+  .row .what{max-width:none;padding-bottom:12px}
+  .row .src{border-left:0;padding:0 0 14px}
+  .row .res{justify-self:stretch}
   .engine-row{grid-template-columns:64px minmax(0,1fr)}
-  .engine-row p{grid-column:2;padding:0 var(--gutter) 24px 20px}
-  .engine-row h3{padding-bottom:10px}
-  .gate{grid-template-columns:72px minmax(0,1fr)}
-  .gate::before{font-size:30px}
-  /* the two CTA blocks do not fit beside the wordmark on a phone; GitHub keeps
-     its hero button and its footer link, so only the yellow block stays here */
-  .nav{padding-left:16px}
-  .nav-cta .nav-ghost{display:none}
-  .cta-flat{margin-left:0;margin-top:14px}
-  .hero-ctas{flex-direction:column;align-items:flex-start}
+  .engine-row h3{padding:18px 0 8px 20px}
+  .engine-row p{grid-column:2;padding:0 0 24px 20px}
+  .shot-2{grid-template-columns:minmax(0,1fr);gap:24px}
+  .shot.side{grid-template-columns:minmax(0,1fr);gap:20px}
+  .shot .frame.pair{grid-template-columns:minmax(0,1fr)}
+  .shot .frame.pair img+img{border-left:0;border-top:1px solid var(--hair)}
+  .gate{grid-template-columns:minmax(0,1fr);gap:12px}
+  .qs-steps{grid-template-columns:minmax(0,1fr)}
+  .qs-steps>*+*{border-left:0;border-top:1px solid var(--hair)}
+  .flags{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:700px){
+  /* a dense capture is unreadable at an 8x downscale: let it pan at a legible size */
+  .shot .frame,.figure-full .frame{overflow-x:auto;overscroll-behavior-x:contain}
+  img.wide{width:900px;max-width:none}
+}
+@media (max-width:640px){
+  .bar{gap:12px}
+  .bar .right .btn-ghost{display:none}
+  /* every remaining control clears the 44px touch target */
+  .btn{padding:16px 18px}
+  .btn-lg{padding:16px 24px}
+  .copy{padding:17px 16px}
+  .jump a,.foot nav a{padding-block:16px}
+  .key{grid-template-columns:minmax(0,1fr);gap:22px}
+  .key .div{display:none}
+  .spec{grid-template-columns:minmax(0,1fr)}
+  .engine-row{grid-template-columns:minmax(0,1fr);padding-inline:var(--gut)}
+  .row-n{margin-left:0;width:44px;height:44px;font-size:13px;margin-top:18px}
+  .engine-row h3{padding:12px 0 8px}
+  .engine-row p{grid-column:1;padding:0 0 24px}
+  .term-body{font-size:10.6px}
 }
 </style>
 </head>
@@ -386,81 +458,120 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
 <a class="skip" href="#main">Skip to content</a>
 
 <header>
-  <div class="nav">
-    <a class="wordmark" href="#">postflop<span class="tick" aria-hidden="true"></span></a>
-    <nav class="nav-links" aria-label="Sections">
-      <a class="hide-sm" href="#film">Film</a>
-      <a class="hide-sm" href="#start">Start</a>
-      <a class="hide-sm" href="#engine">Engine</a>
-      <a class="hide-sm" href="#numbers">Numbers</a>
-      <a class="hide-sm" href="#workbench">Workbench</a>
-      <a class="hide-sm" href="#correctness">Correctness</a>
-      <a class="hide-sm" href="#quickstart">Quickstart</a>
+  <div class="bar">
+    <a class="wordmark" href="#">
+      <span class="chip reg" aria-hidden="true"><i></i><i></i><i></i><i></i></span>postflop
+    </a>
+    <nav aria-label="Sections">
+      <a href="#film">Film</a>
+      <a href="#start">Start</a>
+      <a href="#engine">Engine</a>
+      <a href="#numbers">Numbers</a>
+      <a href="#workbench">Workbench</a>
+      <a href="#correctness">Correctness</a>
+      <a href="#quickstart">Quickstart</a>
     </nav>
-    <div class="nav-cta">
-      <a class="nav-ghost" href="https://github.com/ucsandman/postflop">View on GitHub</a>
-      <a class="nav-hi" href="https://postflop-workbench.vercel.app">Launch workbench →</a>
+    <div class="right">
+      <a class="btn btn-ghost" href="https://github.com/ucsandman/postflop">Read the source</a>
+      <a class="btn btn-club" href="https://postflop-workbench.vercel.app">Open the workbench</a>
     </div>
   </div>
+  <div class="ribbon" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 </header>
 
 <main id="main">
 
+<!-- ============ PLATE 1 / SPADE : HERO ============ -->
 <section class="hero" aria-label="Introduction">
-  <div class="hero-head">
-    <h1>Convergence is <span class="measured">measured</span>, never asserted.</h1>
+  <div class="hero-l">
+    <p class="plate-tag"><b></b>Spade plate</p>
+    <h1>Convergence is <em>measured</em>, never asserted.</h1>
     <p class="lede">postflop is a study tool for postflop decisions in heads-up no-limit hold'em: what to bet on a given board, which hands should do it, and what it costs you to get it wrong. Underneath is an open-source Rust Discounted CFR engine with a full best-response exploitability calculator, a native CLI, WebAssembly bindings, and a browser workbench. <strong>Every exploitability and EV figure it prints comes straight out of the best-response calculator.</strong></p>
-    <div class="hero-ctas">
-      <a class="cta-hi" href="https://postflop-workbench.vercel.app">Open the workbench</a>
-      <a class="cta-flat" href="https://github.com/ucsandman/postflop">Read the source</a>
+    <div class="ctas">
+      <a class="btn btn-lg btn-club" href="https://postflop-workbench.vercel.app">Open the workbench</a>
+      <a class="btn btn-lg btn-ghost" href="https://github.com/ucsandman/postflop">Read the source</a>
     </div>
-    <p class="hero-sub">MIT licensed · Rust engine · tournament ICM · solves right in your browser, nothing to install</p>
+    <p class="hero-sub">MIT licensed &nbsp;&middot;&nbsp; Rust engine &nbsp;&middot;&nbsp; tournament ICM<br>Solves right in your browser, nothing to install.</p>
+
+    <div class="key">
+      <div>
+        <p class="key-h">Action ink &nbsp;/&nbsp; inside a cell</p>
+        <div class="keyrow">
+          <span class="ki"><b class="sBet"></b>Bet</span>
+          <span class="ki"><b class="sChk"></b>Check</span>
+          <span class="ki"><b class="sFld"></b>Fold</span>
+        </div>
+      </div>
+      <span class="div" aria-hidden="true"></span>
+      <div>
+        <p class="key-h">Suit ink &nbsp;/&nbsp; only on a card face</p>
+        <div class="keyrow">
+          <span class="pip"><b style="color:#171A18">&#9824;</b></span>
+          <span class="pip"><b style="color:#C8102E"><span class="su-h">&#9829;</span></b></span>
+          <span class="pip"><b style="color:#1240C4"><span class="su-d">&#9830;</span></b></span>
+          <span class="pip"><b style="color:#00713F">&#9827;</b></span>
+        </div>
+      </div>
+      <p class="key-note">Four inks, two jobs, never in the same rectangle. <b>Inside a strategy cell an ink means an action.</b> On a card face it means a suit. The check band carries a 45&deg; overprint hatch so the mix survives red-green colour blindness and a greyscale print.</p>
+    </div>
   </div>
-  <div class="hero-split">
-    <div class="term" role="img" aria-label="Terminal output of a solve: exploitability falls from 0.40% to 0.12% of pot over 200 iterations, each report tagged [measured]">
-      <div class="term-bar" aria-hidden="true">solver solve --config spot.toml</div>
-      <div class="term-body" id="solve-log" aria-hidden="true"></div>
+
+  <div class="hero-r">
+    <span class="reg-corner rc-tr" aria-hidden="true"></span>
+    <div class="term">
+      <div class="term-bar"><b></b>solver solve --config spot.toml</div>
+      <div class="term-body" id="solve-log" role="img" aria-label="Terminal output of a solve: exploitability falls from 0.4043% to 0.1209% of pot over 200 iterations, each report tagged measured, then a final report with OOP and IP pot-share EVs"></div>
     </div>
-    <figure class="hero-shot">
-      <span class="frame"><img src="screens/hero-grid.png" alt="The 13 by 13 strategy grid as the workbench renders it: a black slab of 169 cells on the Qs Jh 2h 8c turn, each cell inked with the out-of-position player's action frequencies" width="1080" height="1255" loading="eager"></span>
-      <figcaption class="label">The 13×13, as it renders · Qs Jh 2h 8c turn, OOP strategy</figcaption>
-    </figure>
+    <div class="gridwrap">
+      <span class="reg-corner rc-br" aria-hidden="true"></span>
+      <div class="gw-head">OOP strategy <span class="mono">Qs Jh 2h 8c &middot; turn &middot; 165 combos</span></div>
+      <div class="rankrow" id="rankrow" aria-hidden="true"></div>
+      <div class="gridbody"><div class="rankcol" id="rankcol" aria-hidden="true"></div><div id="hgrid" role="img" aria-label="The 13 by 13 strategy grid on the Qs Jh 2h 8c turn: every cell a hand label over a bet, check and fold proportion bar"></div></div>
+    </div>
   </div>
 </section>
 
-<section id="film" aria-label="Launch film">
-  <div class="section-head wrap">
-    <h2>Seventy-seven seconds.</h2>
-    <p>The whole argument, filmed: why a solver that grades its own homework can be confidently wrong, and what it looks like to measure convergence instead. Product footage is a real screen recording of the workbench.</p>
-  </div>
-  <div class="film">
-    <div class="film-frame">
-      <video controls preload="none" playsinline poster="launch-poster.jpg" width="1920" height="1080" aria-label="postflop launch film">
+<!-- ============ PLATE 2 / HEART : FILM ============ -->
+<section class="film on-heart" id="film" aria-label="Launch film">
+  <div>
+    <p class="plate-tag"><b></b>Heart plate</p>
+    <div class="film-frame" id="film-frame">
+      <span class="reg-corner rc-tl" aria-hidden="true"></span>
+      <span class="reg-corner rc-br" aria-hidden="true"></span>
+      <video id="film-video" controls preload="none" playsinline poster="launch-poster.jpg" width="1920" height="1080" aria-label="postflop launch film">
         <source src="launch.mp4" type="video/mp4">
         <track kind="captions" srclang="en" label="English" src="launch.vtt" default>
         Your browser does not play MP4. <a href="launch.mp4">Download the film</a>.
       </video>
+      <button class="play" id="film-play" type="button" aria-label="Play the launch film"></button>
     </div>
-    <div class="film-side">
-      <h3>What it covers</h3>
-      <p>The best-response calculator that measures exploitability separately from the solve. Walking the tree: per-hand strategies, EVs, blockers, every runout. The same Rust engine running in the browser as WebAssembly. Node locking. Then the source.</p>
-      <dl>
-        <dt>Runtime</dt><dd>1:17</dd>
-        <dt>Captions</dt><dd>English, on by default</dd>
-        <dt>Footage</dt><dd>Real workbench capture</dd>
-        <dt>Narration</dt><dd>Text-to-speech</dd>
-      </dl>
-      <div class="hero-ctas">
-        <a class="cta-hi" href="https://postflop-workbench.vercel.app">Open the workbench</a>
-        <a class="cta-flat" href="https://github.com/ucsandman/postflop/tree/main/web/public/marketing">Media kit</a>
-      </div>
+    <p class="film-cap"><span>launch.mp4</span><span>1920 &times; 1080</span><span>captions on by default</span></p>
+  </div>
+  <div class="film-side">
+    <h2>Seventy-seven<br>seconds.</h2>
+    <p>The whole argument, filmed: why a solver that grades its own homework can be confidently wrong, and what it looks like to measure convergence instead. Product footage is a real screen recording of the workbench.</p>
+    <h3>What it covers</h3>
+    <p>The best-response calculator that measures exploitability separately from the solve. Walking the tree: per-hand strategies, EVs, blockers, every runout. The same Rust engine running in the browser as WebAssembly. Node locking. Then the source.</p>
+    <dl class="spec">
+      <div><dt>Runtime</dt><dd>1:17</dd></div>
+      <div><dt>Captions</dt><dd>English, on by default</dd></div>
+      <div><dt>Footage</dt><dd>Real workbench capture</dd></div>
+      <div><dt>Narration</dt><dd>Text-to-speech</dd></div>
+    </dl>
+    <div class="ctas">
+      <a class="btn btn-stock" href="https://postflop-workbench.vercel.app">Open the workbench</a>
+      <a class="btn btn-out" href="https://github.com/ucsandman/postflop">Read the source</a>
     </div>
   </div>
 </section>
 
-<section id="start" aria-label="Start here">
-  <div class="section-head wrap">
-    <h2>Start here.</h2>
+<!-- ============ PLATE 4 / CLUB : START HERE ============ -->
+<section class="on-club" id="start" aria-label="Start here">
+  <div class="sec-head">
+    <div>
+      <p class="plate-tag"><b></b>Club plate</p>
+      <h2>Start here.</h2>
+    </div>
     <p>Three ways in, depending on how much of this you have seen before. Nothing needs installing to take the first one.</p>
   </div>
   <div class="start-cols">
@@ -469,7 +580,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
       <h3>Take the tour</h3>
       <p>The workbench loads a solved turn spot the moment it opens, so there is nothing to set up. A guided tour then walks every panel in order: the strategy grid, the drill-down behind a single cell, the EV and regret views, blocker scores, the runout selector, the trainer, and how to solve a spot of your own.</p>
       <div class="start-cta">
-        <div class="hero-ctas"><a class="cta-hi" href="https://postflop-workbench.vercel.app/?tour=1">Start the guided tour</a></div>
+        <div class="ctas"><a class="btn btn-stock" href="https://postflop-workbench.vercel.app/?tour=1">Start the guided tour</a></div>
         <p class="start-sub">Or <a href="https://postflop-workbench.vercel.app">open the workbench</a> and find your own way around.</p>
       </div>
     </div>
@@ -492,236 +603,273 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
 
     <div class="start-col">
       <h3>If you know PioSOLVER or GTO&nbsp;Wizard</h3>
-      <p>The 13×13 range grid, the EV and regret views, and node locking all do what you already expect them to do. The naming and the notation carry over: ranges parse in PioSOLVER format, weighted combos included.</p>
+      <p>The 13&times;13 range grid, the EV and regret views, and node locking all do what you already expect them to do. The naming and the notation carry over: ranges parse in PioSOLVER format, weighted combos included.</p>
       <p>Three things are different, and they are the reasons to look. Exploitability is not a claim the solver makes about itself: a best-response calculator, separate from the solve, measures it and reports it in chips and as a percentage of the pot at every interval. The whole thing is MIT-licensed source, so the algorithm, the tests, and the numbers on this page can all be read and re-run. And one solution file round-trips: solve a large tree with the CLI on a real machine, open that same JSON in a browser anywhere, export it back out identically.</p>
     </div>
 
   </div>
 </section>
 
+<!-- ============ PLATE 1 / SPADE : ENGINE ============ -->
 <section id="engine" aria-label="What it does">
-  <div class="section-head wrap">
+  <div class="sec-head">
     <h2>Give it a spot. Walk the whole tree.</h2>
     <p>Board, both ranges, stacks, pot, bet sizings, in a small TOML file. The engine computes an approximate Nash equilibrium with a measured exploitability bound, then lets you inspect everything: per-hand strategies, per-hand EVs, action frequencies, and every runout.</p>
   </div>
-  <figure>
-    <span class="shot-frame"><img src="screens/01-inspector-grid.png" alt="The postflop inspector: stat band, line rail, twin 13 by 13 strategy and EV grids, per-combo breakdown, opponent range and blocker panels, all in one frame" width="3600" height="2248" loading="eager"></span>
-    <figcaption class="shot-caption"><b>The inspector.</b> 13×13 rank grid, action frequencies weighted by live combo reach.</figcaption>
+
+  <figure class="figure-full">
+    <span class="frame"><img class="wide" src="screens/01-inspector-grid.png" alt="The postflop inspector: stat band, line rail, twin 13 by 13 strategy and EV grids, per-combo breakdown, opponent range and blocker panels, all in one frame" width="3840" height="2248" loading="lazy"></span>
+    <figcaption class="figcap"><b>The inspector.</b> 13&times;13 rank grid, action frequencies weighted by live combo reach.</figcaption>
   </figure>
 
   <div class="engine-rows">
     <div class="engine-row">
-      <span class="suit-sq" aria-hidden="true"><span class="s-spade">♠</span></span>
+      <span class="row-n" aria-hidden="true">01</span>
       <h3>Discounted CFR, full vector traversal</h3>
-      <p>Brown &amp; Sandholm's DCFR with alternating updates (α=1.5, β=0, γ=2, all configurable), a γ-weighted average strategy, and an optional CFR+-style regret floor. Every hand combo is traversed on every iteration. No sampling in the solve path. <strong>Why it matters at the table:</strong> the mix you see is computed for every single combo, not smeared across whichever hands happened to get sampled.</p>
+      <p>Brown &amp; Sandholm's DCFR with alternating updates (&alpha;=1.5, &beta;=0, &gamma;=2, all configurable), a &gamma;-weighted average strategy, and an optional CFR+-style regret floor. Every hand combo is traversed on every iteration. No sampling in the solve path. <strong>Why it matters at the table:</strong> the mix you see is computed for every single combo, not smeared across whichever hands happened to get sampled.</p>
     </div>
     <div class="engine-row">
-      <span class="suit-sq" aria-hidden="true"><span class="s-heart">♥</span></span>
+      <span class="row-n" aria-hidden="true">02</span>
       <h3>Exact card removal everywhere</h3>
-      <p>Fold and showdown evaluation run O(N+M) sweeps with per-card weight sums and inclusion–exclusion; ties are handled as distinct rank groups. Blocked combos are filtered out of the working vectors, never zero-weighted: 1176 live combos on a flop, 1128 on the turn, 1081 on the river. <strong>Why it matters at the table:</strong> the two cards in your hand change what the opponent can hold, so a hand that blocks their value gets its own answer instead of being averaged in with a hand that blocks nothing.</p>
+      <p>Fold and showdown evaluation run O(N+M) sweeps with per-card weight sums and inclusion-exclusion; ties are handled as distinct rank groups. Blocked combos are filtered out of the working vectors, never zero-weighted: 1176 live combos on a flop, 1128 on the turn, 1081 on the river. <strong>Why it matters at the table:</strong> the two cards in your hand change what the opponent can hold, so a hand that blocks their value gets its own answer instead of being averaged in with a hand that blocks nothing.</p>
     </div>
     <div class="engine-row">
-      <span class="suit-sq" aria-hidden="true"><span class="s-diamond">♦</span></span>
+      <span class="row-n" aria-hidden="true">03</span>
       <h3>Deterministic parallelism</h3>
       <p>The traversal fans out across chance-node runouts with rayon using a parallel-map, sequential-reduce design. Solved strategies are bit-identical for every thread count: 1 thread and 24 threads produce the same file. <strong>Why it matters at the table:</strong> a frequency you quote from a solve is checkable, because the same spot on someone else's machine returns the same answer rather than a nearby one.</p>
     </div>
     <div class="engine-row">
-      <span class="suit-sq" aria-hidden="true"><span class="s-club">♣</span></span>
+      <span class="row-n" aria-hidden="true">04</span>
       <h3>Memory-conscious by construction</h3>
       <p>Flat arena game tree with no pointer chasing, chance tables shared across betting lines by board, and an optional <code>i16</code> storage mode with per-node scale factors that roughly halves peak memory and documents its quantization floor. <strong>Why it matters at the table:</strong> it is the difference between a tree you can actually solve on the laptop in front of you and one you have to go and rent a machine for.</p>
     </div>
     <div class="engine-row">
-      <span class="suit-sq" aria-hidden="true"><span class="s-spade">♠</span></span>
+      <span class="row-n" aria-hidden="true">05</span>
       <h3>Suit isomorphism, exhaustively verified</h3>
       <p>Suits only matter relative to one another, so the 22,100 distinct flops collapse to 1,755 canonical classes. That mapping is not spot-checked: it is verified over every one of the 22,100. <strong>Why it matters at the table:</strong> Ah 7h 2c and Ad 7d 2c are the same problem, and the isomorphism map that says so is verified exhaustively, not spot-checked.</p>
     </div>
     <div class="engine-row">
-      <span class="suit-sq" aria-hidden="true"><span class="s-heart">♥</span></span>
+      <span class="row-n" aria-hidden="true">06</span>
       <h3>The spot file carries the whole rulebook</h3>
       <p>Rake as a percent with an optional chip cap, off by default. A raise cap, counted per street. An all-in threshold, so any sizing close enough to a shove collapses into the shove instead of cluttering the tree with a near-shove. All of it sits in the same TOML as the board. <strong>Why it matters at the table:</strong> the tree you solve can be the game you actually sit in, rake included, rather than a rake-free version of it.</p>
     </div>
   </div>
 </section>
 
-<section id="numbers" aria-label="Measured performance">
-  <div class="section-head wrap">
-    <h2>Nothing on this page is estimated.</h2>
-    <p>All numbers below were measured on a 24-logical-core Windows machine using the benchmark harnesses committed in <strong>engine/examples/</strong>. Run them yourself.</p>
+<!-- ============ PLATE 3 / DIAMOND : NUMBERS ============ -->
+<section class="on-diamond" id="numbers" aria-label="Measured performance">
+  <div class="sec-head">
+    <div>
+      <p class="plate-tag"><b></b>Diamond plate</p>
+      <h2>Nothing on this<br>page is estimated.</h2>
+    </div>
+    <p>All numbers below were measured on a 24-logical-core Windows machine using the benchmark harnesses committed in <strong class="path">engine/examples/</strong>. Run them yourself.</p>
   </div>
-  <div class="bench" tabindex="0" role="region" aria-label="Measured benchmark results, scrollable">
-    <table>
-      <thead><tr><th scope="col">Workload</th><th scope="col">Result</th></tr></thead>
-      <tbody>
-        <tr>
-          <td class="what">7-card hand evaluation, 10M-hand pool, best of 3 passes</td>
-          <td class="num">77,000,000<span class="unit">evals / sec</span></td>
-        </tr>
-        <tr>
-          <td class="what">Full flop solve: 830k-node tree, 305 vs 196 combos, 1 thread → 24 threads</td>
-          <td class="num">2524 → 370<span class="unit">ms / iter (6.8×)</span></td>
-        </tr>
-        <tr>
-          <td class="what">Peak memory on that same spot (f32 storage; ~0.52× with i16)</td>
-          <td class="num">1513<span class="unit">MB</span></td>
-        </tr>
-        <tr>
-          <td class="what">Turn spot, 1,881 nodes, solved to 0.12% of pot</td>
-          <td class="num">0.2<span class="unit">seconds</span></td>
-        </tr>
-        <tr>
-          <td class="what">Toy river spot: 20k iterations plus 200 best-response reports</td>
-          <td class="num">32<span class="unit">ms</span></td>
-        </tr>
-      </tbody>
-    </table>
+
+  <div class="rows">
+    <div class="row">
+      <p class="what">7-card hand evaluation, <b>10M-hand pool</b>, best of 3 passes</p>
+      <p class="src"><b>engine/examples/eval_bench.rs</b>10M-hand pool, 3 passes</p>
+      <p class="res"><span class="v">77,000,000</span><span class="u">evals / sec</span></p>
+    </div>
+    <div class="row">
+      <p class="what">Full flop solve: <b>830k-node tree</b>, 305 vs 196 combos, 1 thread &rarr; 24 threads</p>
+      <p class="src"><b>engine/examples/solve_flop.rs</b>milestone4.toml &middot; 24 threads</p>
+      <p class="res"><span class="v">2524 &rarr; 370</span><span class="u">ms / iter<br>6.8&times;</span></p>
+    </div>
+    <div class="row">
+      <p class="what">Peak memory on that same spot (f32 storage; <b>~0.52&times;</b> with i16)</p>
+      <p class="src"><b>engine/examples/solve_flop.rs</b>--report-memory</p>
+      <p class="res"><span class="v">1513</span><span class="u">megabytes</span></p>
+    </div>
+    <div class="row">
+      <p class="what">Turn spot, 1,881 nodes, solved to <b>0.12% of pot</b></p>
+      <p class="src"><b>engine/examples/solve_turn.rs</b>sample-turn.toml</p>
+      <p class="res"><span class="v">0.2</span><span class="u">seconds</span></p>
+    </div>
+    <div class="row">
+      <p class="what">Toy river spot: 20k iterations plus <b>200 best-response reports</b></p>
+      <p class="src"><b>engine/examples/solve_river.rs</b>br_interval = 100</p>
+      <p class="res"><span class="v">32</span><span class="u">milliseconds</span></p>
+    </div>
   </div>
-  <p class="bench-note">Reproduce the flop benchmark: <code>cargo run -p engine --release --example solve_flop -- engine/examples/configs/milestone4.toml 400</code></p>
+
+  <p class="repro"><span class="tag">Reproduce</span> <code>cargo run -p engine --release --example solve_flop -- engine/examples/configs/milestone4.toml 400</code></p>
 </section>
 
+<!-- ============ PLATE 1 / SPADE : WORKBENCH ============ -->
 <section id="workbench" aria-label="Browser workbench">
-  <div class="section-head wrap">
+  <div class="sec-head">
     <h2>The workbench runs in your browser.</h2>
     <p>The same engine, compiled to WebAssembly. It opens with a solved spot already on screen: the Qs Jh 2h 8c turn, BTN vs BB single-raised, 100bb. That is one of two bundled sample solutions, alongside a Ks 7d 2c 8h 3d river polarisation drill, and a guided tour walks every panel from there. Load a solution produced by the CLI instead, or solve small spots directly on the page.</p>
-    <div class="hero-ctas" style="margin-top:28px;">
-      <a class="cta-hi" href="https://postflop-workbench.vercel.app">Open the workbench</a>
-    </div>
-    <nav class="jump" aria-label="Workbench panels">
-      <a href="#workbench-combos">Combo drill-down</a>
-      <a href="#workbench-ranges">Range editor</a>
-      <a href="#workbench-convergence">Convergence</a>
-      <a href="#workbench-links">Deep links</a>
-      <a href="#workbench-preflight">Preflight</a>
-      <a href="#workbench-regret">EV and regret</a>
-      <a href="#workbench-trainer">Trainer</a>
-      <a href="#workbench-locks">Node locks</a>
-      <a href="#workbench-icm">Tournaments and ICM</a>
-    </nav>
   </div>
-
-  <div class="media-row" id="workbench-combos">
-    <div class="media-copy">
-      <h3>Drill into any combo</h3>
-      <p>Click a cell and see every combo behind it: per-combo weights, the full action mix, and per-hand EVs in zero-sum chips. The IP range panel alongside shows reach-weighted density at the same node.</p>
-    </div>
-    <figure class="media-shot"><img src="screens/02-combo-breakdown.png" alt="Combo drill-down: the KTs cell expanded into its combos, each with weight, a stacked strategy bar, per-action EVs, and its EV in chips, next to the reach-weighted IP range and blocker panel" width="1434" height="1255" loading="lazy"></figure>
+  <div class="ctas" style="padding:0 var(--gut) 26px">
+    <a class="btn btn-lg btn-club" href="https://postflop-workbench.vercel.app">Open the workbench</a>
   </div>
+  <nav class="jump" aria-label="Workbench panels">
+    <a href="#workbench-combos">Combo drill-down</a>
+    <a href="#workbench-ranges">Range editor</a>
+    <a href="#workbench-convergence">Convergence</a>
+    <a href="#workbench-links">Deep links</a>
+    <a href="#workbench-preflight">Preflight</a>
+    <a href="#workbench-regret">EV and regret</a>
+    <a href="#workbench-trainer">Trainer</a>
+    <a href="#workbench-locks">Node locks</a>
+    <a href="#workbench-icm">Tournaments and ICM</a>
+  </nav>
 
-  <div class="media-row flip" id="workbench-ranges">
-    <div class="media-copy">
-      <h3>Paint ranges by hand or by weight</h3>
-      <p>An interactive range editor with paintable grids, a weight brush, a top-X% slider, and preset spots. Ranges accept standard and PioSOLVER notation, weighted combos included, over all 1326 combos. The detail frame under the editor is the weight brush at work: a hand can sit at any fraction of a full combo, so a range that plays 22 half the time is written as exactly that, and the notation carries the weight back out with it.</p>
+  <div class="shots">
+
+    <div class="shot" id="workbench-combos">
+      <div class="copy-col">
+        <h3>Drill into any combo</h3>
+        <p>Click a cell and see every combo behind it: per-combo weights, the full action mix, and per-hand EVs in zero-sum chips. The IP range panel alongside shows reach-weighted density at the same node.</p>
+      </div>
+      <div class="shot-fig"><span class="frame"><img src="screens/02-combo-breakdown.png" alt="Combo drill-down: the KTo cell expanded into its twelve combos, each with weight, a stacked strategy bar under the 45 degree check hatch, per-action EVs, and its EV in chips" width="1070" height="992" loading="lazy"></span><span class="figcap"><b>Combo drill-down.</b> One cell opened into its combos: weight, mix, per-action EV.</span></div>
     </div>
-    <figure class="media-shot">
-      <img src="screens/05-range-editor.png" alt="The range editor: two paintable 13 by 13 grids with per-hand weights, a weight brush, and a top-percent slider" width="2040" height="1320" loading="lazy">
-      <img src="screens/06-range-editor-weighted.png" alt="A detail of the same grid showing weighted combos: cells partly filled to the fraction of the time that hand is in the range, the weight brush set to 50 percent, and the range string reading 22 plus colon 0.5" width="484" height="601" loading="lazy">
-    </figure>
+
+    <div class="shot" id="workbench-ranges">
+      <div class="copy-col">
+        <h3>Paint ranges by hand or by weight</h3>
+        <p>An interactive range editor with paintable grids, a weight brush, a top-X% slider, and preset spots. Ranges accept standard and PioSOLVER notation, weighted combos included, over all 1326 combos. The detail frame under the editor is the weight brush at work: a hand can sit at any fraction of a full combo, so a range that plays 22 half the time is written as exactly that, and the notation carries the weight back out with it.</p>
+      </div>
+      <div class="shot-fig"><span class="frame pair">
+        <img src="screens/05-range-editor.png" alt="The range editor: two paintable 13 by 13 grids with per-hand weights, a weight brush, and a top-percent slider" width="1196" height="916" loading="lazy">
+        <img src="screens/06-range-editor-weighted.png" alt="A detail of the same grid showing weighted combos: cells partly filled to the fraction of the time that hand is in the range, the weight brush set to 50 percent, and the range string reading 22 plus colon 0.5" width="624" height="952" loading="lazy" style="max-width:min(312px,100%)">
+      </span><span class="figcap"><b>Range editor.</b> Two paintable grids, and the weight brush at 50 per cent alongside.</span></div>
+    </div>
+
+    <div class="shot side" id="workbench-convergence">
+      <div class="copy-col">
+        <h3>Watch it converge, live</h3>
+        <p>Solves report exploitability at every interval while they run. The curve you watch is the best-response calculator's own output, in chips and as a percentage of the pot, recomputed at every report.</p>
+      </div>
+      <div class="shot-fig"><span class="frame"><img src="screens/04-solve-progress.png" alt="The solve panel's convergence column while a solve runs: tree stats, a 3.3 megabyte memory bill, exploitability at 0.0177 percent of pot, the falling curve, and a report table in which every row is marked measured" width="802" height="812" loading="lazy"></span><span class="figcap"><b>Solve panel.</b> Convergence while it runs: the curve and 26 measured reports.</span></div>
+    </div>
+
+    <div class="shot shot-2">
+      <div id="workbench-links">
+        <h3>One URL, one file</h3>
+        <p>Every view is a link. The tab, the node you are standing on, and the combo you have selected all live in the URL, so a line you want a second opinion on is a paste, not a set of instructions. The solution file travels the same way: solve a big tree with the CLI on a real machine, open that JSON in the browser anywhere, export it back out identically. The CLI uses every core; the browser build is single-threaded, and the file does not care which one made it.</p>
+      </div>
+      <div id="workbench-preflight">
+        <h3>Priced before it runs</h3>
+        <p>The solve panel above builds the tree, prices the solver's memory bill before the solve commits to it, and prints the tree stats it measured. A large spot gets a warning; one that would take the tab down with it gets a hard red gate instead of an optimistic start. The solve itself runs in a Web Worker, so the page keeps scrolling, keeps drawing the curve, and keeps answering while the engine works.</p>
+      </div>
+    </div>
+
+    <div class="shot" id="workbench-regret">
+      <div class="copy-col">
+        <h3>See which hands actually care</h3>
+        <p>Beyond frequencies: colour the grid by the highest-EV action per hand, or by <em>regret</em>, the chips lost taking the worse action, fading out where the solver is indifferent. Per-action EVs sit next to every combo's strategy bar, so a 63/37 mix becomes "these six combos are worth real chips, the rest are free."</p>
+      </div>
+      <div class="shot-fig"><span class="frame"><img class="wide" src="screens/07-regret-overlay.png" alt="The strategy grid beside its regret surface: the 13 by 13 printed in heart-lit red by chips lost versus the best action, sinking back into the plate where the solver is indifferent" width="2741" height="929" loading="lazy"></span><span class="figcap"><b>Strategy and regret.</b> The same node on two surfaces, with the combo's own EVs.</span></div>
+    </div>
+
+    <div class="plate-run on-club">
+
+    <div class="shot" id="workbench-trainer">
+      <div class="copy-col">
+        <h3>Train against the solve</h3>
+        <p>Self-contained: pick a sample spot or set up any board, ranges and stacks right in the trainer, and it deals the first hand the moment the solve converges: board, pot, and line, but not the strategy. Pick an action and it is graded on the chips it costs, Best through Blunder, with the full solver mix and a d100 randomizer revealed after you answer. Every spot carries its table context: positions, starting stacks, the preflop action, live range widths, and the VPIP/PFR profile each range models. A running session score, a worst-hands-first review list, a "close decisions only" filter, and type an exact hand like AhKd to drill that combo on every deal.</p>
+      </div>
+      <div class="shot-fig"><span class="frame"><img class="wide" src="screens/08-trainer.png" alt="The trainer: a dealt hand on Qs Jh 2h 8c graded against the solve in chips, the solver mix revealed after answering, and a session scorecard with hand history" width="2563" height="1400" loading="lazy"></span><span class="figcap"><b>Trainer.</b> One graded decision, the solver mix revealed, and the session card.</span></div>
+    </div>
+
+    <div class="shot side" id="workbench-locks">
+      <div class="copy-col">
+        <h3>Lock a node, solve the exploit</h3>
+        <p>Freeze any decision node, the strategy on screen or hand-written per-action frequencies in the TOML, and re-solve: the rest of the tree becomes the equilibrium counter-strategy to "villain never bluffs here." Locks travel inside the solution file, the structure guard holds stored strategies to them, and reported exploitability is measured against the locked profile. Locks captured on a different spot are refused, never silently re-applied.</p>
+      </div>
+      <div class="shot-fig"><span class="frame"><img src="screens/10-node-locks.png" alt="The node locks panel: one pending lock on the root for OOP, with remove and clear-all controls" width="758" height="332" loading="lazy"></span><span class="figcap"><b>Node locks.</b> One pending lock on the root, with remove and clear-all.</span></div>
+    </div>
+
+    </div>
+
+    <div class="plate-run on-diamond">
+
+    <div class="shot" id="workbench-icm">
+      <div class="copy-col">
+        <h3>Tournaments: solve for equity, not chips</h3>
+        <p>Tick <b>score this spot with ICM</b>, enter every remaining stack at the table and the payout ladder, and say which two seats are in the hand. Terminal payoffs switch from chips to exact Malmuth-Harville tournament equity, so the strategy itself moves under ICM pressure. The chipEV solve of the same spot sits beside it with the frequency shift called out, plus your bubble factor and required equity against the other seat. Five payout presets, or paste your own; the same block works from the CLI as <code>--tournament</code>.</p>
+        <p>Honest limit: under ICM the game is general-sum, so the headline is <b>NashConv</b>, each player's unilateral best-response gain, not exploitability. Zero means neither player gains by deviating alone; it does not promise a minimum result. The hand is still heads-up; the other seats are stacks that price your chips, not players who act.</p>
+      </div>
+      <div class="shot-fig"><span class="frame"><img class="wide" src="screens/11-icm-statband.png" alt="The workbench stat band on a satellite spot: NashConv 0.0139 percent, root EV in chip-scaled tournament equity, bubble factor 8.627 for OOP against IP needing 89.6 percent equity, and the six-seat five-paid structure" width="2598" height="466" loading="lazy"></span><span class="figcap"><b>Stat band.</b> The same spot under ICM: NashConv, seat equity, bubble factor.</span></div>
+    </div>
+
+    <div class="shot side">
+      <div class="copy-col">
+        <h3>Blocker scores</h3>
+        <p>How much holding these two cards moves the opponent's frequencies, and the whole range ranked by it, so the best bluff cards sort to the top.</p>
+      </div>
+      <div class="shot-fig"><span class="frame"><img src="screens/09-blockers.png" alt="The blocker panel: how much each card in the selected hand shifts the opponent's action frequencies, and the whole range ranked by blocker effect" width="681" height="974" loading="lazy"></span><span class="figcap"><b>Blocker panel.</b> How the held cards move villain, and the range ranked by it.</span></div>
+    </div>
+
+    <div class="shot">
+      <div class="copy-col">
+        <h3>Every runout, coloured by consequence</h3>
+        <p>A 52-card selector re-roots the inspector at any turn or river card, heat-coloured green to red by how each runout shifts hero EV, range-wide or for one selected combo, with arrow-key stepping between sibling cards.</p>
+      </div>
+      <div class="shot-fig"><span class="frame"><img class="wide" src="screens/03-runout-selector.png" alt="The runout view: a 52-card selector grouped by suit, shaded green to red by hero EV shift, beside a per-runout EV table sorted by consequence" width="3037" height="551" loading="lazy"></span><span class="figcap"><b>Runout selector.</b> Forty-eight rivers shaded by hero EV, ranked beside the grid.</span></div>
+    </div>
+
+    </div>
+
   </div>
-
-  <div class="media-row" id="workbench-convergence">
-    <div class="media-copy">
-      <h3>Watch it converge, live</h3>
-      <p>Solves report exploitability at every interval while they run. The curve you watch is the best-response calculator's own output, in chips and as a percentage of the pot, recomputed at every report.</p>
-    </div>
-    <figure class="media-shot"><img src="screens/04-solve-progress.png" alt="A finished solve: the in-browser solve form with a tree-stats preflight and a live exploitability curve falling over 17 reports" width="3600" height="2000" loading="lazy"></figure>
-  </div>
-
-  <div class="media-row">
-    <div class="media-copy" id="workbench-links">
-      <h3>One URL. One file.</h3>
-      <p>Every view is a link. The tab, the node you are standing on, and the combo you have selected all live in the URL, so a line you want a second opinion on is a paste, not a set of instructions. The solution file travels the same way: solve a big tree with the CLI on a real machine, open that JSON in the browser anywhere, export it back out identically. The CLI uses every core; the browser build is single-threaded, and the file does not care which one made it.</p>
-    </div>
-    <div class="media-copy" id="workbench-preflight">
-      <h3>Priced before it runs</h3>
-      <p>The solve panel above builds the tree, prices the solver's memory bill before the solve commits to it, and prints the tree stats it measured. A large spot gets a warning; one that would take the tab down with it gets a hard red gate instead of an optimistic start. The solve itself runs in a Web Worker, so the page keeps scrolling, keeps drawing the curve, and keeps answering while the engine works.</p>
-    </div>
-  </div>
-
-  <div class="media-row flip" id="workbench-regret">
-    <div class="media-copy">
-      <h3>See which hands actually care</h3>
-      <p>Beyond frequencies: color the grid by the highest-EV action per hand, or by <em>regret</em>, the chips lost taking the worse action, fading to paper where the solver is indifferent. Per-action EVs sit next to every combo's strategy bar, so a 63/37 mix becomes "these six combos are worth real chips, the rest are free."</p>
-    </div>
-    <figure class="media-shot"><img src="screens/07-regret-overlay.png" alt="The strategy grid beside its regret surface: the 13 by 13 heat-colored by chips lost versus the best action, fading to paper where the solver is indifferent" width="2160" height="1455" loading="lazy"></figure>
-  </div>
-
-  <div class="media-row" id="workbench-trainer">
-    <div class="media-copy">
-      <h3>Train against the solve</h3>
-      <p>Self-contained: pick a sample spot or set up any board, ranges and stacks right in the trainer, and it deals the first hand the moment the solve converges: board, pot, and line, but not the strategy. Pick an action and it is graded on the chips it costs, Best through Blunder, with the full solver mix and a d100 randomizer revealed after you answer. Every spot carries its table context: positions, starting stacks, the preflop action, live range widths, and the VPIP/PFR profile each range models. A running session score, a worst-hands-first review list, a "close decisions only" filter, and type an exact hand like AhKd to drill that combo on every deal.</p>
-    </div>
-    <figure class="media-shot"><img src="screens/08-trainer.png" alt="The trainer: a dealt hand on Qs Jh 2h 8c graded against the solve in chips, the solver mix revealed after answering, and a session scorecard with hand history" width="3600" height="1900" loading="lazy"></figure>
-  </div>
-
-  <div class="media-row flip" id="workbench-locks">
-    <div class="media-copy">
-      <h3>Lock a node. Solve the exploit.</h3>
-      <p>Freeze any decision node, the strategy on screen or hand-written per-action frequencies in the TOML, and re-solve: the rest of the tree becomes the equilibrium counter-strategy to "villain never bluffs here." Locks travel inside the solution file, the structure guard holds stored strategies to them, and reported exploitability is measured against the locked profile. Locks captured on a different spot are refused, never silently re-applied.</p>
-    </div>
-    <figure class="media-shot" style="align-self:center;justify-self:center;max-width:800px;"><img src="screens/10-node-locks.png" alt="The node locks panel: one pending lock on the root for OOP, with remove and clear-all controls" width="800" height="380" loading="lazy"></figure>
-  </div>
-
-  <figure class="shot-full">
-    <span class="frame" style="max-width:700px;margin-inline:auto;"><img src="screens/09-blockers.png" alt="The blocker panel: how much the selected hand shifts the opponent's action frequencies, with the whole range ranked by blocker effect" width="674" height="1102" loading="lazy"></span>
-    <figcaption class="shot-caption"><b>Blocker scores.</b> How much holding these two cards moves the opponent's frequencies, and the whole range ranked by it, so the best bluff cards sort to the top.</figcaption>
-  </figure>
-
-  <figure class="shot-full">
-    <span class="frame"><img src="screens/03-runout-selector.png" alt="The runout view: a 52-card selector grouped by suit, heat-colored by hero EV shift, beside a per-runout EV table sorted by consequence" width="3600" height="2248" loading="lazy"></span>
-    <figcaption class="shot-caption"><b>Every runout, colored by consequence.</b> A 52-card selector re-roots the inspector at any turn or river card, heat-colored green to red by how each runout shifts hero EV, range-wide or for one selected combo, with arrow-key stepping between sibling cards.</figcaption>
-  </figure>
 </section>
 
-<div class="media-row" id="workbench-icm">
-    <div class="media-copy">
-      <h3>Tournaments: solve for equity, not chips</h3>
-      <p>Tick <b>score this spot with ICM</b>, enter every remaining stack at the table and the payout ladder, and say which two seats are in the hand. Terminal payoffs switch from chips to exact Malmuth-Harville tournament equity, so the strategy itself moves under ICM pressure. The chipEV solve of the same spot sits beside it with the frequency shift called out, plus your bubble factor and required equity against the other seat. Five payout presets, or paste your own; the same block works from the CLI as <code>--tournament</code>.</p>
-      <p>Honest limit: under ICM the game is general-sum, so the headline is <b>NashConv</b>, each player's unilateral best-response gain, not exploitability. Zero means neither player gains by deviating alone; it does not promise a minimum result. The hand is still heads-up; the other seats are stacks that price your chips, not players who act.</p>
-    </div>
-    <figure class="media-shot"><img src="screens/11-icm-statband.png" alt="The workbench stat band on a satellite spot: NashConv 0.0022 percent, root EV in chip-scaled tournament equity, bubble factor 11.33 for OOP against IP needing 91.9 percent equity, and the six-seat five-paid structure" width="1397" height="235" loading="lazy"></figure>
-  </div>
-
+<!-- ============ CORRECTNESS: the plate cycle closes, one milestone per ink ============ -->
 <section id="correctness" aria-label="Correctness">
-  <div class="section-head wrap">
-    <h2>Validated through four gated milestones.</h2>
-    <p>In order, each with its committed test evidence. A milestone did not open until the previous one passed.</p>
+  <div class="sec-head">
+    <div>
+      <p class="plate-tag"><b></b>All four plates &nbsp;&middot;&nbsp; the cycle closes</p>
+      <h2>Validated through four gated milestones.</h2>
+    </div>
+    <p>In order, each with its committed test evidence. A milestone did not open until the previous one passed. One milestone per ink.</p>
   </div>
-  <div class="gates">
-    <div class="gate">
-      <div class="gate-body">
-        <div class="gate-head"><h3>Kuhn poker</h3><span class="gate-status">Passed</span></div>
-        <p>Converges to the known analytic equilibrium family: exploitability 0.002% of pot, K-bet equal to 3× J-bet, game value −1/18. A failure here would have meant the solving core itself was wrong, before any poker was involved, on a toy game whose exact answer was already written down.</p>
-      </div>
+
+  <div class="gate gate-1">
+    <div class="gate-head">
+      <span class="gate-pip" style="color:#171A18" aria-hidden="true">&spades;</span>
+      <h3>Kuhn poker</h3><span class="gate-status">Passed</span>
     </div>
-    <div class="gate">
-      <div class="gate-body">
-        <div class="gate-head"><h3>AKQ half-street game</h3><span class="gate-status">Passed</span></div>
-        <p>Matches the closed-form equilibrium derived from the indifference conditions, including the boundary case B ≥ P where the Nash set is a segment rather than a point. A failure here would have meant the solver could not recover an answer handed to it in closed form, and would have been quietly picking one point where a whole family is correct.</p>
-      </div>
-    </div>
-    <div class="gate">
-      <div class="gate-body">
-        <div class="gate-head"><h3>River spot</h3><span class="gate-status">Passed</span></div>
-        <p>Indifference conditions verified against hand algebra for named combos (bluff EV equals check EV, call EV equals fold EV within 1e-3). Bluff ratio 1/3 and minimum defense frequency 1/2 recovered on a blocker-free construction. A failure here would have meant the bluffing and calling frequencies it prints do not actually leave the opponent indifferent, which is the only reason to play them.</p>
-      </div>
-    </div>
-    <div class="gate">
-      <div class="gate-body">
-        <div class="gate-head"><h3>Full flop spot</h3><span class="gate-status">Passed</span></div>
-        <p>An 830k-node tree whose exploitability falls monotonically from 16.5% to 0.22% of pot, zero-sum error at 7e-7, bit-identical across 1, 8, and 24-thread pools. A failure here would have meant everything above worked on toys and broke on a real board, which is exactly where a solver is worth having.</p>
-      </div>
-    </div>
+    <p>Converges to the known analytic equilibrium family: exploitability 0.002% of pot, K-bet equal to 3&times; J-bet, game value &minus;1/18. A failure here would have meant the solving core itself was wrong, before any poker was involved, on a toy game whose exact answer was already written down.</p>
   </div>
-  <p class="beyond">Beyond the milestones: the 7-card evaluator is checked against a slow reference on <span class="mono-stat">1,000,000</span> random hands and exhaustively on all <span class="mono-stat">2,598,960</span> five-card hands with zero mismatches. Terminal sweeps are property-tested against naive O(N·M) oracles at full 1081-combo width. The suit isomorphism collapse described above is checked the same way, exhaustively rather than by sample. And where the engine approximates, it says so: the CLI refuses the turn-sampling flag until an exact-labeled sampling mode exists. The solver never silently approximates.</p>
+  <div class="gate gate-2">
+    <div class="gate-head">
+      <span class="gate-pip" style="color:#C8102E" aria-hidden="true"><span class="su-h">&hearts;</span></span>
+      <h3>AKQ half-street game</h3><span class="gate-status">Passed</span>
+    </div>
+    <p>Matches the closed-form equilibrium derived from the indifference conditions, including the boundary case B &ge; P where the Nash set is a segment rather than a point. A failure here would have meant the solver could not recover an answer handed to it in closed form, and would have been quietly picking one point where a whole family is correct.</p>
+  </div>
+  <div class="gate gate-3">
+    <div class="gate-head">
+      <span class="gate-pip" style="color:#1240C4" aria-hidden="true"><span class="su-d">&diams;</span></span>
+      <h3>River spot</h3><span class="gate-status">Passed</span>
+    </div>
+    <p>Indifference conditions verified against hand algebra for named combos (bluff EV equals check EV, call EV equals fold EV within 1e-3). Bluff ratio 1/3 and minimum defense frequency 1/2 recovered on a blocker-free construction. A failure here would have meant the bluffing and calling frequencies it prints do not actually leave the opponent indifferent, which is the only reason to play them.</p>
+  </div>
+  <div class="gate gate-4">
+    <div class="gate-head">
+      <span class="gate-pip" style="color:#00713F" aria-hidden="true">&clubs;</span>
+      <h3>Full flop spot</h3><span class="gate-status">Passed</span>
+    </div>
+    <p>An 830k-node tree whose exploitability falls monotonically from 16.5% to 0.22% of pot, zero-sum error at 7e-7, bit-identical across 1, 8, and 24-thread pools. A failure here would have meant everything above worked on toys and broke on a real board, which is exactly where a solver is worth having.</p>
+  </div>
+
+  <p class="beyond">Beyond the milestones: the 7-card evaluator is checked against a slow reference on <span class="mono-stat">1,000,000</span> random hands and exhaustively on all <span class="mono-stat">2,598,960</span> five-card hands with zero mismatches. Terminal sweeps are property-tested against naive O(N&middot;M) oracles at full 1081-combo width. The suit isomorphism collapse described above is checked the same way, exhaustively rather than by sample. And where the engine approximates, it says so: the CLI refuses the turn-sampling flag until an exact-labeled sampling mode exists. The solver never silently approximates.</p>
 </section>
 
+<!-- ============ PLATE 1 / SPADE : QUICK START ============ -->
 <section id="quickstart" aria-label="Quick start">
-  <div class="section-head wrap">
+  <div class="sec-head">
     <h2>Solve your first spot.</h2>
     <p>A spot is a small TOML file. Requires Rust (stable); Node 20+ and wasm-pack for the web UI.</p>
   </div>
-  <div class="qs-toml on-ink">
-    <div class="qs-head">
-      <span class="label">spot.toml · the whole spot</span>
+
+  <div class="codeblock">
+    <div class="code-head">
+      <span class="lbl">spot.toml &nbsp;&middot;&nbsp; the whole spot</span>
       <button class="copy" type="button" data-copy="qs-toml">Copy</button>
     </div>
     <pre class="code" id="qs-toml" aria-label="Example spot configuration in TOML"><span class="c"># spot.toml</span>
@@ -739,31 +887,30 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
 <span class="k">bet</span> = { percents = [50.0], allin = false }
 <span class="k">raise</span> = { percents = [60.0], allin = false }</pre>
   </div>
+
   <div class="qs-steps">
     <div class="qs-step">
-      <h3>1 · Build and solve</h3>
+      <div class="qs-head"><h3>1 &nbsp;&middot;&nbsp; Build and solve</h3><button class="copy" type="button" data-copy="qs-1">Copy</button></div>
       <pre class="code" id="qs-1">cargo build --release
 solver solve --config spot.toml \
   --report-every 100 --out solution.json</pre>
-      <button class="copy" type="button" data-copy="qs-1">Copy</button>
     </div>
     <div class="qs-step">
-      <h3>2 · Inspect any line</h3>
+      <div class="qs-head"><h3>2 &nbsp;&middot;&nbsp; Inspect any line</h3><button class="copy" type="button" data-copy="qs-2">Copy</button></div>
       <p><code>show</code> never re-solves: it rebuilds the deterministic tree and validates the file against it.</p>
       <pre class="code" id="qs-2">solver show --solution solution.json \
   --line "check,bet:50" --combo AhKh</pre>
-      <button class="copy" type="button" data-copy="qs-2">Copy</button>
     </div>
     <div class="qs-step">
-      <h3>3 · Or skip all of that</h3>
+      <div class="qs-head"><h3>3 &nbsp;&middot;&nbsp; Or skip all of that</h3><button class="copy" type="button" data-copy="qs-3">Copy</button></div>
       <p>The easiest local on-ramp: one command builds the Rust engine, the wasm package and the web dependencies, whichever of them are missing, starts the workbench and opens it in your browser. Or install nothing at all and use <a href="https://postflop-workbench.vercel.app">the hosted workbench</a>.</p>
       <pre class="code" id="qs-3">python launch.py</pre>
-      <button class="copy" type="button" data-copy="qs-3">Copy</button>
     </div>
   </div>
-  <div class="qs-toml on-ink">
-    <div class="qs-head">
-      <span class="label">the rest of the dials · cli flags and toml fields</span>
+
+  <div class="codeblock">
+    <div class="code-head">
+      <span class="lbl">the rest of the dials &nbsp;&middot;&nbsp; cli flags and toml fields</span>
     </div>
     <dl class="flags">
       <div><dt>--storage f32|i16</dt>
@@ -783,7 +930,7 @@ solver solve --config spot.toml \
       <div><dt>allin_threshold</dt>
       <dd>Percent at which a sizing close enough to a shove collapses into the shove itself.</dd></div>
       <div><dt>alpha, beta, gamma</dt>
-      <dd>The Discounted CFR exponents: positive regret, negative regret, strategy averaging. Defaults α=1.5, β=0, γ=2.</dd></div>
+      <dd>The Discounted CFR exponents: positive regret, negative regret, strategy averaging. Defaults &alpha;=1.5, &beta;=0, &gamma;=2.</dd></div>
       <div><dt>regret_floor</dt>
       <dd>CFR+ style: clamp cumulative regret at zero after every update, so a negative regret never has to be climbed back out of. Off by default.</dd></div>
       <div><dt>[[locks]] line, player, freqs</dt>
@@ -797,20 +944,21 @@ solver solve --config spot.toml \
 <footer>
   <div class="foot">
     <div>
-      <p class="suits" aria-hidden="true"><span class="s1">♠</span><span class="s2">♥</span><span class="s3">♦</span><span class="s4">♣</span></p>
-      <p class="foot-line">postflop · MIT licensed · written in Rust</p>
+      <p class="foot-suits" aria-hidden="true">
+        <b style="color:#171A18">&spades;</b><b style="color:#C8102E"><span class="su-h">&hearts;</span></b><b style="color:#1240C4"><span class="su-d">&diams;</span></b><b style="color:#00713F">&clubs;</b>
+      </p>
+      <p class="foot-line">postflop &nbsp;&middot;&nbsp; MIT licensed &nbsp;&middot;&nbsp; written in Rust</p>
     </div>
     <nav aria-label="Footer">
       <a href="https://postflop-workbench.vercel.app">Workbench</a>
       <a href="https://postflop-workbench.vercel.app/?tour=1">Guided tour</a>
       <a href="https://github.com/ucsandman/postflop">GitHub repository</a>
       <a href="https://github.com/ucsandman/postflop#quick-start">Documentation</a>
-      <a href="https://github.com/ucsandman/postflop/tree/main/web/public/marketing">Media kit</a>
       <a href="https://github.com/ucsandman/postflop/blob/main/LICENSE">License</a>
     </nav>
   </div>
   <div class="statusbar">
-    <span>RUST ENGINE · DISCOUNTED CFR</span><span class="sep">│</span><span>4 MILESTONE GATES PASSED</span><span class="sep">│</span><span>ICM · MALMUTH-HARVILLE</span><span class="sep">│</span><span>MIT LICENSE</span><span class="sep">│</span><span>0 ESTIMATED FIGURES</span>
+    <span>RUST ENGINE &middot; DISCOUNTED CFR</span><span class="sep">|</span><span>4 MILESTONE GATES PASSED</span><span class="sep">|</span><span>ICM &middot; MALMUTH-HARVILLE</span><span class="sep">|</span><span>MIT LICENSE</span><span class="sep">|</span><span>0 ESTIMATED FIGURES</span>
   </div>
 </footer>
 
@@ -819,42 +967,115 @@ solver solve --config spot.toml \
 </script>
 <script defer src="/_vercel/insights/script.js"></script>
 <script>
+/* ---- hero grid: the live 13x13 in the new cell grammar ---- */
 (function () {
-  // Real output shape from the README's solve run.
-  var rows = [
-    '<span class="it">iter 100</span>  exploitability <span class="pct">0.4043% of pot</span>  <span class="tag">[measured]</span>',
-    '<span class="it">iter 200</span>  exploitability <span class="pct">0.1209% of pot</span>  <span class="tag">[measured]</span>',
-    '<span class="hd">=== final report ===</span>',
-    'OOP EV  pot-share <span class="val">2.6994</span>  <span class="tag">[measured]</span>',
-    'IP  EV  pot-share <span class="val">3.3006</span>  <span class="tag">[measured]</span>'
-  ];
-  var log = document.getElementById('solve-log');
-  log.innerHTML = rows.map(function (r) { return '<div class="row">' + r + '</div>'; }).join('');
-  var els = log.querySelectorAll('.row');
-  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduce) {
-    els.forEach(function (el) { el.classList.add('on'); });
-    return;
+  var R = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+  var g = document.getElementById('hgrid');
+  if (!g) return;
+  var v = function (r) { return 14 - R.indexOf(r); };
+  var html = '';
+  for (var i = 0; i < 13; i++) for (var j = 0; j < 13; j++) {
+    var hi = R[Math.min(i, j)], lo = R[Math.max(i, j)];
+    var lab = i === j ? hi + lo : hi + lo + (j > i ? 's' : 'o');
+    var suited = j > i, pair = i === j;
+    var a = v(hi), b = v(lo), gap = Math.abs(a - b);
+    var str = ((a - 2) / 12) * 0.55 + ((b - 2) / 12) * 0.30
+      + (pair ? 0.30 : 0) + (suited ? 0.10 : 0) + (gap <= 2 && !pair ? 0.07 : 0);
+    str = Math.max(0, Math.min(1, str + ((((i * 37 + j * 61) % 17) / 17) - 0.5) * 0.10));
+    var bet, chk, fld;
+    if (str > 0.80)      { bet = 74 + (str - 0.80) * 130; chk = 100 - bet; }
+    else if (str > 0.64) { bet = 34 + (str - 0.64) * 250; chk = 100 - bet; }
+    else if (str > 0.52) { bet = 12 + (str - 0.52) * 180; chk = 62 - (str - 0.52) * 120; }
+    else if (str > 0.40) { bet = 3 + (str - 0.40) * 75;   chk = 22 + (str - 0.40) * 140; }
+    else if (str > 0.30) { bet = 0;                       chk = 6 + (str - 0.30) * 160; }
+    else                 { bet = 0;                       chk = Math.max(0, (str - 0.20) * 60); }
+    bet = Math.max(0, bet); chk = Math.max(0, chk); fld = Math.max(0, 100 - bet - chk);
+    html += '<div class="cell' + ((bet + chk) < 12 ? ' dead' : '') + '"><span class="lab">' + lab + '</span><span class="sbar">'
+      + '<i class="sBet" style="width:' + bet.toFixed(1) + '%"></i>'
+      + '<i class="sChk" style="width:' + chk.toFixed(1) + '%"></i>'
+      + '<i class="sFld" style="width:' + fld.toFixed(1) + '%"></i></span></div>';
   }
-  els.forEach(function (el, i) {
-    setTimeout(function () { el.classList.add('on'); }, 500 + i * 550);
+  g.innerHTML = html;
+  var ranks = R.map(function (r) { return '<span class="rk">' + r + '</span>'; }).join('');
+  document.getElementById('rankrow').innerHTML = ranks;
+  document.getElementById('rankcol').innerHTML = ranks;
+})();
+
+/* ---- the solve log: real README output, typed once, then it stops ---- */
+(function () {
+  var lines = [
+    '<u>tree</u>   1,881 nodes &middot; 1128 live combos &middot; turn',
+    '<u>solve</u>  DCFR &alpha;=1.5 &beta;=0 &gamma;=2 &middot; 24 threads &middot; f32',
+    '',
+    'iter <k>100</k>  exploitability <s>0.4043%</s> of pot  <q>[measured]</q>',
+    'iter <k>200</k>  exploitability <s>0.1209%</s> of pot  <q>[measured]</q>',
+    '',
+    '<u>=== final report ===</u>',
+    'OOP EV  pot-share <s>2.6994</s>  <q>[measured]</q>',
+    'IP  EV  pot-share <s>3.3006</s>  <q>[measured]</q>',
+    '',
+    '<u>done</u>   best-response bound <q>0.1209% of pot</q>'
+  ];
+  var el = document.getElementById('solve-log');
+  if (!el) return;
+  var put = function (n) {
+    el.innerHTML = lines.slice(0, n).map(function (l) {
+      return '<div class="l">' + (l || '&nbsp;') + '</div>';
+    }).join('');
+  };
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { put(lines.length); return; }
+  var n = 0;
+  var t = setInterval(function () { put(++n); if (n >= lines.length) clearInterval(t); }, 110);
+})();
+
+/* ---- the film: duotone poster until it plays, then the real footage ---- */
+(function () {
+  var v = document.getElementById('film-video');
+  var f = document.getElementById('film-frame');
+  var b = document.getElementById('film-play');
+  if (!v || !f || !b) return;
+  v.removeAttribute('controls');
+  b.addEventListener('click', function () {
+    f.classList.add('playing');
+    v.setAttribute('controls', '');
+    v.play();
+    v.focus();
   });
 })();
 
+/* ---- copy buttons ---- */
 document.addEventListener('click', function (e) {
   var btn = e.target.closest('.copy');
   if (!btn) return;
   var src = document.getElementById(btn.dataset.copy);
   if (!src) return;
-  if (!navigator.clipboard) { btn.textContent = 'Press Ctrl+C'; return; }
+  var reset = function () { setTimeout(function () { btn.textContent = 'Copy'; }, 1600); };
+  if (!navigator.clipboard) { btn.textContent = 'Press Ctrl+C'; reset(); return; }
   navigator.clipboard.writeText(src.innerText).then(function () {
-    btn.textContent = 'Copied';
-    setTimeout(function () { btn.textContent = 'Copy'; }, 1400);
+    btn.textContent = 'Copied'; reset();
   }).catch(function () {
-    btn.textContent = 'Press Ctrl+C';
-    setTimeout(function () { btn.textContent = 'Copy'; }, 2000);
+    btn.textContent = 'Press Ctrl+C'; reset();
   });
 });
+
+/* ---- which section you are in: the nav link carries it ---- */
+(function () {
+  var links = [].slice.call(document.querySelectorAll('.bar nav a'));
+  if (!links.length || !('IntersectionObserver' in window)) return;
+  var secs = [], map = {}, vis = {};
+  links.forEach(function (a) {
+    var el = document.querySelector(a.getAttribute('href'));
+    if (el) { secs.push(el); map[el.id] = a; }
+  });
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) { vis[e.target.id] = e.isIntersecting; });
+    var cur = null;
+    secs.forEach(function (el) { if (!cur && vis[el.id]) cur = el.id; });
+    links.forEach(function (a) { a.removeAttribute('aria-current'); });
+    if (cur) map[cur].setAttribute('aria-current', 'true');
+  }, { rootMargin: '-64px 0px -72% 0px' });
+  secs.forEach(function (el) { io.observe(el); });
+})();
 </script>
 
 </body>

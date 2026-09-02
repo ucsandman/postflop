@@ -50,3 +50,5 @@ next-env.d.ts
 
 .vercel
 .env*
+# ...except the documented shape of it
+!.env.example

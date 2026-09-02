@@ -49,10 +49,38 @@ if (!glue.includes(GLUE_DEFAULT)) {
 writeFileSync(vendored, glue.replace(GLUE_DEFAULT, `"${"/wasm/solver_wasm_bg.wasm"}"`));
 
 // Sample solutions for the one-click fixture buttons.
+//
+// Rounded on the way in. fixture-turn.json is the page's boot payload and it is 11.3 MB,
+// of which 9.9 MB is float text: 950k numbers carrying 5+ decimal places ("0.020986363",
+// "-0.2534582"). Nothing in the UI can show that: strategy frequencies print to 0.1% and
+// EVs to 1e-3 bb, so the 5th decimal onward is weight with no reader. Four decimals is
+// still an order of magnitude finer than anything on screen.
+//
+// A value that would round to zero is left alone: a combo weight of 3e-6 is a live combo,
+// and zeroing it turns a reach-weighted average into a NaN (a dash) rather than a number.
+const LONG_FLOAT = /-?\d+\.\d{5,}(?:[eE][-+]?\d+)?/g;
+const round4 = (m) => {
+  const n = Number(m);
+  const r = Math.round(n * 1e4) / 1e4;
+  return r === 0 && n !== 0 ? m : String(r);
+};
+
+let saved = 0;
 for (const f of ["fixture-turn.json", "fixture-river.json"]) {
   const from = join(web, "..", f);
-  if (existsSync(from)) copyFileSync(from, join(web, "public", "fixtures", f));
-  else console.warn(`[sync-wasm] fixture not found, skipping: ${from}`);
+  if (!existsSync(from)) {
+    console.warn(`[sync-wasm] fixture not found, skipping: ${from}`);
+    continue;
+  }
+  const src = readFileSync(from, "utf8");
+  const out = src.replace(LONG_FLOAT, round4);
+  // Cheap proof the rewrite is still the same document, not a mangled one.
+  JSON.parse(out);
+  writeFileSync(join(web, "public", "fixtures", f), out);
+  saved += src.length - out.length;
 }
 
-console.log(`[sync-wasm] ok (${jobs.length} wasm files + fixtures)`);
+console.log(
+  `[sync-wasm] ok (${jobs.length} wasm files + fixtures, ` +
+    `${(saved / 1e6).toFixed(1)} MB of float text trimmed)`,
+);

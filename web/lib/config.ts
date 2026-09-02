@@ -22,7 +22,7 @@ export interface SolveForm {
   target_pct: string;
   report_every: string;
   sizings: SizingGrid;
-  /** Table context the engine never sees — positions and the modeled player profiles.
+  /** Table context the engine never sees, positions and the modeled player profiles.
    *  Display-only: `toToml` ignores it, so old saved forms without it load fine. */
   context?: SpotContext;
   /** The tournament structure to score the spot in. Absent = an ordinary chip solve.
@@ -54,7 +54,7 @@ export const PAYOUT_PRESETS: { id: string; label: string; note: string; payouts:
  * A tournament block seeded from the spot the form already describes: six seats, the two
  * in-hand ones at seats 0 and 1 with IP covering.
  *
- * The engine requires `min(stacks[seats[0]], stacks[seats[1]]) == effective_stack` — the
+ * The engine requires `min(stacks[seats[0]], stacks[seats[1]]) == effective_stack`, the
  * tree seeds both players from that one scalar, so a table where neither in-hand seat
  * matches it describes a spot the tree does not build. Seeding from the form's own
  * effective stack is what makes the default block solvable instead of an error the user
@@ -130,7 +130,7 @@ export function checkTournament(t: TournamentForm, effectiveStack: string): stri
   if (a >= stacks.length || b >= stacks.length)
     return `seats: index out of range for ${stacks.length} seats`;
   if (work > ICM_WORK_BUDGET)
-    return `payouts: ${stacks.length} seats paying ${payouts.length} places costs about ${work.toExponential(2)} operations to price every pair's bubble factor, past the ${ICM_WORK_BUDGET.toExponential(0)} budget — the solve would hang this tab. Cut the paid places or the seats listed`;
+    return `payouts: ${stacks.length} seats paying ${payouts.length} places costs about ${work.toExponential(2)} operations to price every pair's bubble factor, past the ${ICM_WORK_BUDGET.toExponential(0)} budget, the solve would hang this tab. Cut the paid places or the seats listed`;
   if (!Number.isFinite(eff)) return null;
   const shorter = Math.min(stacks[a], stacks[b]);
   if (shorter < eff - 1e-9)
@@ -141,9 +141,9 @@ export function checkTournament(t: TournamentForm, effectiveStack: string): stri
 }
 
 /** The profile one seat's range models. `vpip`/`pfr` are display strings ("24"), empty
- *  when nothing is modeled — the engine solves ranges, these label where they came from. */
+ *  when nothing is modeled, the engine solves ranges, these label where they came from. */
 export interface SeatProfile {
-  /** Table position, e.g. "BTN", "BB" — or "OOP"/"IP" when there is no story. */
+  /** Table position, e.g. "BTN", "BB", or "OOP"/"IP" when there is no story. */
   pos: string;
   vpip: string;
   pfr: string;
@@ -179,7 +179,7 @@ const standardSizings = (): SizingGrid => {
   return s;
 };
 
-/** The strongest `pct`% of combos as a range string — see lib/range.ts for the ordering. */
+/** The strongest `pct`% of combos as a range string, see lib/range.ts for the ordering. */
 const top = (pct: number) => canonicalRange(topWeights(pct));
 
 export interface Preset {
@@ -196,7 +196,7 @@ export interface Preset {
  * The preflop ranges are **approximate study ranges**, not solver output: each is the
  * strongest N% of combos under the conventional hand ordering in lib/range.ts, chosen
  * to sit in the width band the commonly circulated charts use for that seat. They are a
- * starting point for the grid editor, nothing more — no preflop solve produced them.
+ * starting point for the grid editor, nothing more, no preflop solve produced them.
  *
  * Pot and stack are the real chip amounts those preflop actions leave behind at 100bb
  * (a 2.5bb open called leaves 5.5 in the middle and 97.5 behind, and so on).
@@ -209,8 +209,8 @@ export interface Preset {
 export const PRESETS: Preset[] = [
   {
     id: "btn-bb",
-    label: "BTN raise vs BB call — single-raised, 100bb",
-    note: "BTN opens 2.5bb, BB calls. IP ≈ top 45%, OOP ≈ top 33% — approximate, commonly used study ranges.",
+    label: "BTN raise vs BB call, single-raised, 100bb",
+    note: "BTN opens 2.5bb, BB calls. IP ≈ top 45%, OOP ≈ top 33%, approximate, commonly used study ranges.",
     form: {
       board: "Qs Jh 2h 8c",
       oop_range: top(33),
@@ -230,8 +230,8 @@ export const PRESETS: Preset[] = [
   },
   {
     id: "co-btn",
-    label: "CO raise vs BTN call — single-raised, 100bb",
-    note: "CO opens 2.5bb and is out of position, BTN calls. OOP ≈ top 27%, IP ≈ top 25% — approximate, commonly used study ranges.",
+    label: "CO raise vs BTN call, single-raised, 100bb",
+    note: "CO opens 2.5bb and is out of position, BTN calls. OOP ≈ top 27%, IP ≈ top 25%, approximate, commonly used study ranges.",
     form: {
       board: "Th 8d 4c 2s",
       oop_range: top(27),
@@ -251,8 +251,8 @@ export const PRESETS: Preset[] = [
   },
   {
     id: "sb-bb",
-    label: "SB raise vs BB call — heads-up, 3x, 100bb",
-    note: "Heads-up the SB is the button, so the raiser plays in position. IP ≈ top 82%, OOP ≈ top 58% — approximate, commonly used study ranges.",
+    label: "SB raise vs BB call, heads-up, 3x, 100bb",
+    note: "Heads-up the SB is the button, so the raiser plays in position. IP ≈ top 82%, OOP ≈ top 58%, approximate, commonly used study ranges.",
     form: {
       board: "Ks 9h 4d 2c",
       oop_range: top(58),
@@ -272,8 +272,8 @@ export const PRESETS: Preset[] = [
   },
   {
     id: "bb-3bet",
-    label: "3-bet pot — BB 3-bets vs BTN call, 100bb",
-    note: "BB 3-bets to 9bb over a 2.5bb BTN open and gets called. OOP ≈ top 12%, IP ≈ top 15% — approximate, commonly used study ranges.",
+    label: "3-bet pot, BB 3-bets vs BTN call, 100bb",
+    note: "BB 3-bets to 9bb over a 2.5bb BTN open and gets called. OOP ≈ top 12%, IP ≈ top 15%, approximate, commonly used study ranges.",
     form: {
       board: "Ah 7s 3d Tc",
       oop_range: top(12),
@@ -293,7 +293,7 @@ export const PRESETS: Preset[] = [
   },
   {
     id: "turn-fixture",
-    label: "Turn fixture — the bundled sample, 100bb",
+    label: "Turn fixture, the bundled sample, 100bb",
     note: "The spot in web-fixture.toml: BTN opens 2.5bb, BB calls, and the flop goes check-check. Same ranges as the BTN-vs-BB preset.",
     form: {
       board: "Qs Jh 2h 8c",
@@ -323,7 +323,7 @@ export const PRESETS: Preset[] = [
   },
   {
     id: "river-drill",
-    label: "River polarisation drill — tiny",
+    label: "River polarisation drill, tiny",
     note: "12 nodes, 23 combos: a nutted-or-nothing OOP range against a capped IP one. Solves in milliseconds.",
     form: {
       board: "Ks 7d 2c 8h 3d",
@@ -403,7 +403,7 @@ export function actionToken(a: NodeAction): string {
   return a.amount_to == null ? a.label : `${a.label}:${a.amount_to}`;
 }
 
-/** A walked path as a lock `line` — `""` is the root, which is what the engine wants. */
+/** A walked path as a lock `line`, `""` is the root, which is what the engine wants. */
 export function lineOf(path: PathStep[]): string {
   return path.map((s) => s.token).join(",");
 }
@@ -413,8 +413,8 @@ export function lineOf(path: PathStep[]): string {
  * (`"QsJh2h8c"` vs `"Qs Jh 2h 8c"`) still matches: board, both ranges, stack and pot.
  *
  * A lock names its node only by the line walked from the root, and the engine's own
- * checks — `GameTree::resolve_lock` (player) and `NodeLock::expand` (action count, combo
- * count) — all pass just as happily on a *different* board of the same shape, which is
+ * checks, `GameTree::resolve_lock` (player) and `NodeLock::expand` (action count, combo
+ * count), all pass just as happily on a *different* board of the same shape, which is
  * the common "same spot, new runout" edit. So the lock carries the spot it was read from
  * and `toToml` refuses to emit it against another one.
  *
@@ -424,8 +424,8 @@ export function lineOf(path: PathStep[]): string {
  */
 /**
  * The tournament structure IS in the key. Two solves of the same board and ranges under
- * different payouts have identical trees — same node ids, same acting players, same
- * action and combo counts — so every one of the engine's own lock checks passes while
+ * different payouts have identical trees, same node ids, same acting players, same
+ * action and combo counts, so every one of the engine's own lock checks passes while
  * the frozen strategy came from a spot where chips were worth something else. Payouts
  * are the one input that changes the answer without changing the tree at all, which is
  * precisely the silent mis-resolution this key exists to stop.
@@ -461,7 +461,7 @@ export interface NodeLock {
   /** Acting player at that node: 0 = OOP, 1 = IP. Cross-checked against the tree. */
   player: 0 | 1;
   /**
-   * Action-major (`strategy[a * comboCount + i]`, length `numActions * comboCount`) —
+   * Action-major (`strategy[a * comboCount + i]`, length `numActions * comboCount`),
    * exactly what `SolutionHandle.strategy(id)` hands out, so a strategy read out of a
    * solution locks back in unchanged.
    */

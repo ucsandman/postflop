@@ -1,41 +1,32 @@
 "use client";
 
-import { blendToWhite, regretColor } from "@/lib/grid";
+import { ACTION_INKS, INK, rampMix, regretColor } from "@/lib/grid";
 
-/** The eight action colours exactly as `actionColors` hands them to every grid, table and
- *  tree block on the page — the bet ramp darkens with sizing. */
-const ACTION_COLORS: [string, string][] = [
-  ["#e2705c", "bet or raise · smallest sizing"],
-  ["#d1462f", "bet or raise"],
-  ["#b02a16", "bet or raise · runout hotness, cold end"],
-  ["#8f1a0d", "bet or raise"],
-  ["#6e1209", "bet or raise · largest sizing"],
-  ["#54ad72", "check"],
-  ["#2b7c50", "call · runout hotness, hot end"],
-  ["#48566f", "fold"],
-];
+/** The eight action inks, read straight off the constants `actionColors` hands to every
+ *  grid, table and tree block on the page, so this legend cannot drift from them. */
+const ACTION_COLORS = ACTION_INKS;
 
 /** Nine-cell mini grids drawn by the same functions the real 13×13 uses, so the swatch and
  *  the grid can never drift apart. */
 const MODE_SWATCHES: { name: string; cells: (string | undefined)[]; line: string }[] = [
   {
     name: "Strategy",
-    cells: ["#d1462f", "#54ad72", "#48566f", "#54ad72", "#48566f", "#d1462f", "#48566f", "#d1462f", "#54ad72"],
+    cells: [INK.bet, INK.check, INK.fold, INK.check, INK.fold, INK.bet, INK.fold, INK.bet, INK.check],
     line: "color = the action taken most often by that hand class, bar width = the mix.",
   },
   {
     name: "EV",
     cells: [1, 0.55, 0.15, 0.8, 0.35, 1, 0.15, 0.6, 0.9].map((t, i) =>
-      blendToWhite(i % 2 === 0 ? "#2b7c50" : "#d1462f", t),
+      rampMix(i % 2 === 0 ? INK.check : INK.bet, t),
     ),
-    line: "color = the highest-EV action, ivory = the actions are near-indifferent.",
+    line: "color = the highest-EV action, bare plate = the actions are near-indifferent.",
   },
   {
     name: "Regret",
     cells: [0, 0.15, 0.35, 0.55, 0.7, 0.85, 1, 0.45, 0.2].map(
       (t) => regretColor(t, 1) ?? undefined,
     ),
-    line: "color = big blinds lost against always taking the best action, ivory = none.",
+    line: "color = big blinds lost against always taking the best action, bare plate = none.",
   },
 ];
 
@@ -48,24 +39,24 @@ export default function Help() {
           <span className="meta">5 sections · algorithm, tournaments, browser, grid, files</span>
         </div>
 
-        <div className="max-w-[74ch]" style={{ padding: "clamp(20px,3vw,48px)" }}>
+        <div className="mx-auto max-w-[65ch]" style={{ padding: "clamp(20px,3vw,48px)" }}>
           <h1
-            className="uppercase"
             style={{
-              font: "900 clamp(28px,3vw,44px)/1 var(--font-sans)",
-              letterSpacing: "-.04em",
+              font: "800 clamp(30px,3vw,46px)/1.03 var(--font-sans)",
+              letterSpacing: "-.018em",
+              textWrap: "balance",
             }}
           >
             About this solver
           </h1>
 
-          <p className="mt-4 text-[14px] leading-[1.6] text-muted">
+          <p className="mt-5 text-[16.5px] leading-[1.6] text-muted">
             A heads-up no-limit hold&apos;em <strong className="font-bold text-text">postflop</strong>{" "}
             game-theory solver. You give it a board, both players&apos; ranges, an effective stack, a
             starting pot and the bet sizings each player may use; it builds the full game tree for
             that spot and computes an approximate Nash equilibrium for it.
           </p>
-          <p className="mt-3 text-[14px] leading-[1.6] text-muted">
+          <p className="mt-3 text-[16.5px] leading-[1.6] text-muted">
             Hand it a payout ladder and every seat&apos;s stack as well and it scores the same spot in{" "}
             <strong className="font-bold text-text">tournament equity</strong> instead of chips. The
             postflop game is still two players; the rest of the table enters through the stack
@@ -88,7 +79,7 @@ export default function Help() {
               the current average strategy, and reported in big blinds and as a percent of the starting
               pot. That is the number in the header, and the one plotted while a browser solve runs.
               Under a tournament solve the header says <Code>NashConv</Code> instead, because there
-              the number is no longer a bound — see below.
+              the number is no longer a bound. See below.
               There are no estimated or placeholder figures anywhere in this UI: every number on
               screen came out of the engine.
             </p>
@@ -100,13 +91,13 @@ export default function Help() {
               and every remaining seat&apos;s stack, and each terminal pays{" "}
               <strong className="font-bold text-text">exact Malmuth-Harville tournament equity</strong>{" "}
               instead of chips, rescaled so the numbers stay in chip-sized units (CSTE). Five
-              structures ship as presets — winner-take-all, top-heavy, a standard final-table taper,
-              flat, and a satellite — and any ladder can be pasted in. Only the shape matters: the
+              structures ship as presets: winner-take-all, top-heavy, a standard final-table taper,
+              flat, and a satellite. Any ladder can be pasted in. Only the shape matters: the
               engine divides by the prize pool, so percentages and dollars solve identically.
             </p>
             <p>
               The honesty cost is paid in the header. Under ICM the two players&apos; equities do not
-              sum to a constant — chips move to the frozen field, or drain out of it — so the game is{" "}
+              sum to a constant, chips move to the frozen field or drain out of it, so the game is{" "}
               <strong className="font-bold text-text">general-sum</strong> and the sum of two
               best-response values is no longer a bound on anything. What is reported instead is{" "}
               <Code>NashConv</Code>: each player&apos;s unilateral gain from deviating while the other
@@ -117,15 +108,15 @@ export default function Help() {
             <p>
               The band under the header carries the pairwise{" "}
               <strong className="font-bold text-text">bubble factor</strong> for the two seats in the
-              hand — how much equity the hero risks per unit they can win, and therefore the raw
-              equity a symmetric all-in needs to break even — and every ICM solve also solves its
+              hand: how much equity the hero risks per unit they can win, and therefore the raw
+              equity a symmetric all-in needs to break even, and every ICM solve also solves its
               chipEV twin, so the strategy at the node on screen is shown both ways with the
               per-action delta between them. The model is exact Malmuth-Harville and nothing else: no
               blind levels, no future-game simulation, no bounties, equal skill assumed.
             </p>
           </Section>
 
-          <Section title="Browser vs. CLI">
+          <Section title="Browser vs CLI">
             <p>
               The engine here is the same Rust code as the command line tool, compiled to
               WebAssembly. One difference matters:{" "}
@@ -151,7 +142,8 @@ export default function Help() {
               </li>
               <li>
                 Colors are consistent everywhere: folds are cold slate, checks and calls are green
-                (calls darker), and bets and raises are red, darker as the sizing grows.
+                (calls darker), and bets and raises are red, in three steps that darken as the
+                sizing grows.
               </li>
               <li>
                 A dark, unclickable cell has no live combos here: blocked by the board or absent
@@ -180,12 +172,17 @@ export default function Help() {
       <aside className="rule-l bg-panel" data-tour="help-legends">
         <h2 className="bar">
           Action colors
-          <span className="meta">{ACTION_COLORS.length} inks</span>
+          <span className="meta">3 actions · {ACTION_COLORS.length} inks</span>
         </h2>
         <div className="px-3 py-2">
           {ACTION_COLORS.map(([hex, meaning]) => (
             <div key={hex} className="flex items-center gap-2 py-1">
-              <span className="h-1 w-4 shrink-0" style={{ background: hex }} />
+              <span
+                className={`h-[11px] w-[11px] shrink-0 ${
+                  hex === INK.check || hex === INK.call ? "hatch" : ""
+                }`}
+                style={{ backgroundColor: hex }}
+              />
               <span className="text-[11px] text-muted">{meaning}</span>
               <span className="num ml-auto text-[10px] text-dim">{hex}</span>
             </div>
@@ -200,7 +197,7 @@ export default function Help() {
           {MODE_SWATCHES.map((m) => (
             <div key={m.name} className="flex items-start gap-2.5 py-2">
               <span
-                className="grid shrink-0 grid-cols-3 gap-px bg-ink p-px"
+                className="grid shrink-0 grid-cols-3 gap-px bg-line p-px"
                 style={{ width: 36, height: 36 }}
               >
                 {m.cells.map((c, i) => (
@@ -236,23 +233,20 @@ export default function Help() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mt-6">
-      <h2
-        className="label border-b-2 border-ink pb-1"
-        style={{ fontSize: 11, color: "var(--color-text)" }}
-      >
+      <h2 className="label rule-b pb-1.5" style={{ fontSize: 11, color: "var(--color-text)" }}>
         {title}
       </h2>
-      <div className="mt-2 space-y-2 text-[14px] leading-[1.6] text-muted">{children}</div>
+      <div className="mt-2.5 space-y-3 text-[16.5px] leading-[1.6] text-muted">{children}</div>
     </section>
   );
 }
 
-/** Inline code: a mono chip on the recessed paper band. */
+/** Inline code: Azeret on the recessed plate, boxed by one hairline. */
 function Code({ children }: { children: React.ReactNode }) {
   return (
     <span
       className="num bg-paper-2 text-text"
-      style={{ padding: "1px 4px", border: "1px solid var(--color-line-soft)" }}
+      style={{ padding: "1px 5px", border: "var(--rule) solid var(--color-line)" }}
     >
       {children}
     </span>

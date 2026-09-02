@@ -1,13 +1,32 @@
 import type { Metadata, Viewport } from "next";
-import { Archivo, JetBrains_Mono } from "next/font/google";
+import { Azeret_Mono, Barlow, Barlow_Condensed } from "next/font/google";
 import "./globals.css";
 
-// Both are variable fonts on Google Fonts: no `weight` array — the full 100–900
-// axis ships, which is what the 900 posters and the 800 bars need.
-const display = Archivo({ subsets: ["latin"], display: "swap", variable: "--font-archivo" });
-const mono = JetBrains_Mono({ subsets: ["latin"], display: "swap", variable: "--font-jbmono" });
+// FOUR PLATES. Barlow is the signage, Azeret is the instrument readout, and
+// Barlow Condensed is confined to labels so caps read as machine annotation.
+// Variable names match the faces: display, condensed-face, mono-face.
+const display = Barlow({
+  subsets: ["latin"],
+  display: "swap",
+  // No 500 anywhere: every var(--font-sans) use is 400, 600, 700 or 800.
+  weight: ["400", "600", "700", "800"],
+  variable: "--font-display",
+});
+const condensed = Barlow_Condensed({
+  subsets: ["latin"],
+  display: "swap",
+  // Condensed is labels only, and every one of them is 600 or 700.
+  weight: ["600", "700"],
+  variable: "--font-condensed-face",
+});
+const mono = Azeret_Mono({
+  subsets: ["latin"],
+  display: "swap",
+  weight: ["400", "500", "700"],
+  variable: "--font-mono-face",
+});
 
-export const viewport: Viewport = { themeColor: "#E9E5DA" };
+export const viewport: Viewport = { themeColor: "#171A18" };
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://postflop-workbench.vercel.app"),
@@ -21,7 +40,14 @@ export const metadata: Metadata = {
       "Solve and inspect heads-up NLHE postflop spots in your browser, for chipEV or under tournament ICM. The postflop Rust engine, compiled to WebAssembly.",
     url: "https://postflop-workbench.vercel.app/",
     siteName: "postflop",
-    images: [{ url: "/og.png", width: 2400, height: 1260 }],
+    images: [
+      {
+        url: "/og.png",
+        width: 2400,
+        height: 1260,
+        alt: "postflop workbench: the four-plate mark over a 13 by 13 strategy grid, the check band under its 45 degree hatch, and the measured exploitability figure.",
+      },
+    ],
     type: "website",
   },
   twitter: {
@@ -35,17 +61,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    // The boot script below stamps data-theme on this element before React hydrates,
-    // which React reports as an attribute mismatch ("A tree hydrated but some
-    // attributes… didn't match") for every visitor who has ever picked a theme.
-    <html lang="en" suppressHydrationWarning className={`${display.variable} ${mono.variable} h-full`}>
+    <html
+      lang="en"
+      className={`${display.variable} ${condensed.variable} ${mono.variable} h-full`}
+    >
       <body className="min-h-full">
-        <script
-          dangerouslySetInnerHTML={{
-            __html:
-              'try{var t=localStorage.getItem("pf-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}',
-          }}
-        />
         {children}
         <script
           dangerouslySetInnerHTML={{

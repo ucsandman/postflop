@@ -3,14 +3,17 @@
 // erasable TS syntax natively, no build step needed).
 import assert from "node:assert/strict";
 import {
-  blendToWhite,
+  ACTION_INKS,
   blockerScores,
   buildEvGrid,
   buildGrid,
   buildRunoutHotness,
   comboRegret,
   evColor,
+  fadeToPlate,
   hotnessColor,
+  RAMP_HI,
+  RAMP_LO,
   regretColor,
 } from "./grid.ts";
 import type { Combo } from "./types.ts";
@@ -84,25 +87,25 @@ assert.equal(
   // 72o mixes 50/50 between the two actions: actual = 0.05, best = 0.1, regret = 0.05.
   assert.ok(Math.abs(off.regret - 0.05) < 1e-6, `72o regret should be 0.05, got ${off.regret}`);
 
-  // evColor: a decisive cell (margin == the grid's max margin) is full-strength; a
-  // near-indifferent one (tiny margin relative to the grid) fades toward white.
+  // evColor: a decisive cell (margin == the grid's max margin) is at the ramp ceiling;
+  // a near-indifferent one (tiny margin relative to the grid) sinks toward the plate.
   const maxMargin = Math.max(aa.margin, off.margin);
-  const aaColor = evColor(aa, ["#111111", "#e2705c"], maxMargin);
-  const offColor = evColor(off, ["#111111", "#e2705c"], maxMargin);
-  assert.equal(aaColor, "#e2705c", "AA is the grid's most decisive cell: full color, no fade");
-  assert.notEqual(offColor, "#e2705c", "72o is far less decisive: must not render at full color");
-  assert.notEqual(offColor, "#f4f1e8", "72o still has a real (if small) margin: not pure ivory");
+  const aaColor = evColor(aa, ["#111111", "#e8202f"], maxMargin);
+  const offColor = evColor(off, ["#111111", "#e8202f"], maxMargin);
+  assert.equal(aaColor, fadeToPlate("#e8202f", RAMP_HI), "AA is the grid's most decisive cell: the ramp ceiling");
+  assert.notEqual(offColor, aaColor, "72o is far less decisive: must not render at full strength");
+  assert.notEqual(offColor, fadeToPlate("#e8202f", RAMP_LO), "72o still has a real (if small) margin: off the ramp floor");
 
   const empty = evColor({ actionEvs: [NaN, NaN], bestAction: -1, margin: NaN, regret: NaN }, ["#111"], 1);
   assert.equal(empty, null, "no EV data anywhere in the cell -> nothing to paint");
 
-  // regretColor: 0 regret -> white, NaN -> nothing to paint, larger regret -> further
-  // from white than a smaller one.
+  // regretColor: 0 regret -> the ramp floor, NaN -> nothing to paint, larger regret ->
+  // further up the heart-lit ramp than a smaller one.
   const maxRegret = Math.max(aa.regret, off.regret);
-  assert.equal(regretColor(aa.regret, maxRegret), "#f4f1e8", "zero regret must render paper ivory");
+  assert.equal(regretColor(aa.regret, maxRegret), fadeToPlate("#ff4d5a", RAMP_LO), "zero regret must render the bare plate end of the ramp");
   assert.equal(regretColor(NaN, maxRegret), null, "undefined regret has nothing to paint");
   const g1 = regretColor(off.regret, maxRegret);
-  assert.notEqual(g1, "#f4f1e8", "72o has nonzero regret: must not render paper ivory");
+  assert.notEqual(g1, fadeToPlate("#ff4d5a", RAMP_LO), "72o has nonzero regret: must be off the ramp floor");
 }
 
 // Two combos in the SAME cell, equal reach but different compatible opponent mass (the
@@ -195,19 +198,40 @@ assert.equal(
   assert.ok(Math.abs(aaOnly.evByChild.get(12)! - 1) < 1e-6, "AA-only child 12 EV is unchanged (only combo was AA)");
   assert.ok(Number.isNaN(aaOnly.evByChild.get(13)), "AA-only child 13 still has no defined EV");
 
-  // hotnessColor: positive deviation -> green, negative -> red, zero -> white, NaN -> null.
-  assert.equal(hotnessColor(1, 1), "#2b7c50", "max positive deviation renders full green");
-  assert.equal(hotnessColor(-1, 1), "#b02a16", "max negative deviation renders full red");
-  assert.equal(hotnessColor(0, 1), "#f4f1e8", "zero deviation renders ivory");
+  // hotnessColor: positive deviation -> green, negative -> red, zero -> the bare plate,
+  // NaN -> null.
+  assert.equal(hotnessColor(1, 1), fadeToPlate("#007a45", RAMP_HI), "max positive deviation renders the green ceiling");
+  assert.equal(hotnessColor(-1, 1), fadeToPlate("#b2101f", RAMP_HI), "max negative deviation renders the red ceiling");
+  assert.equal(hotnessColor(0, 1), fadeToPlate("#007a45", RAMP_LO), "zero deviation renders the bare plate end");
   assert.equal(hotnessColor(NaN, 1), null, "undefined deviation has nothing to paint");
-  assert.equal(hotnessColor(0.5, 0), "#f4f1e8", "maxDeviation of 0 (a flat grid) never saturates");
+  assert.equal(hotnessColor(0.5, 0), fadeToPlate("#007a45", RAMP_LO), "maxDeviation of 0 (a flat grid) never saturates");
 }
 
-// blendToWhite: t=1 is untouched, t=0 is paper ivory, and it clamps out-of-range t.
-assert.equal(blendToWhite("#e2705c", 1), "#e2705c");
-assert.equal(blendToWhite("#e2705c", 0), "#f4f1e8");
-assert.equal(blendToWhite("#e2705c", 1.5), blendToWhite("#e2705c", 1), "t is clamped above 1");
-assert.equal(blendToWhite("#e2705c", -1), blendToWhite("#e2705c", 0), "t is clamped below 0");
+// fadeToPlate: t=1 is the untouched ink, t=0 is the bare raised plate, and it clamps
+// out-of-range t. Nothing in this identity fades toward a light stock.
+assert.equal(fadeToPlate("#e8202f", 1), "#e8202f");
+assert.equal(fadeToPlate("#e8202f", 0), "#1e221c");
+assert.equal(fadeToPlate("#e8202f", 1.5), fadeToPlate("#e8202f", 1), "t is clamped above 1");
+assert.equal(fadeToPlate("#e8202f", -1), fadeToPlate("#e8202f", 0), "t is clamped below 0");
+
+// The ramp ceiling is the contrast promise: the stock-white cell label (#F0F3F0) must
+// clear 4.5:1 on every ink at full strength, or the grid modes are unreadable.
+{
+  const lum = (hex: string) => {
+    const v = parseInt(hex.slice(1), 16);
+    const ch = [(v >> 16) & 255, (v >> 8) & 255, v & 255].map((n) => {
+      const c = n / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+  };
+  const label = lum("#f0f3f0");
+  for (const [ink, meaning] of ACTION_INKS.concat([["#ff4d5a", "regret"], ["#5b8cff", "reach"]])) {
+    const bg = lum(fadeToPlate(ink, RAMP_HI));
+    const ratio = (label + 0.05) / (bg + 0.05);
+    assert.ok(ratio >= 4.5, `${meaning} (${ink}) at the ramp ceiling is ${ratio.toFixed(2)}:1, under 4.5`);
+  }
+}
 
 // --- comboRegret ---------------------------------------------------------------------
 {

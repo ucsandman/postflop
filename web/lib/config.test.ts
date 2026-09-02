@@ -114,7 +114,7 @@ assert.equal(findPresetId(edited), "", "a hand-edited form matches no preset");
   assert.equal(root.locked, false, "an ordinary solve locks nothing");
   assert.deepEqual((JSON.parse(plain.meta()) as Meta).locks, [], "no locks -> empty meta list");
 
-  /** All of every combo's weight on action 0 — the shape `strategy(id)` hands out. */
+  /** All of every combo's weight on action 0, the shape `strategy(id)` hands out. */
   const allOnFirstAction = (handle: typeof plain, id: number) => {
     const numActions = handle.num_actions(id);
     const combos = handle.strategy(id).length / numActions;
@@ -151,7 +151,7 @@ assert.equal(findPresetId(edited), "", "a hand-edited form matches no preset");
     "a locked node must report exactly the distribution that was locked in",
   );
 
-  // 2. A node one action down, named by the line `actionToken`/`lineOf` build — the
+  // 2. A node one action down, named by the line `actionToken`/`lineOf` build, the
   //    format check for the breadcrumb tokens the Inspector's lock button emits.
   const stepped = root.actions!
     .map((a) => ({ a, child: JSON.parse(plain.node(a.child)) as NodeInfo }))
@@ -186,7 +186,7 @@ assert.equal(findPresetId(edited), "", "a hand-edited form matches no preset");
 
   // 4. A lock captured on a DIFFERENT spot is refused before the engine ever sees it.
   //    The 6d river below touches none of the ranges (KK/A4s/A5s vs TT/JJ), so the same
-  //    line resolves to a node with the same player, action count and combo count — the
+  //    line resolves to a node with the same player, action count and combo count, the
   //    engine's own checks all pass and it freezes a strategy solved for another board.
   //    That is the failure the spot stamp exists to stop, so prove it happens first.
   const otherBoard: SolveForm = { ...structuredClone(form), board: "Ks 7d 2c 8h 6d" };
@@ -194,7 +194,7 @@ assert.equal(findPresetId(edited), "", "a hand-edited form matches no preset");
   assert.equal(
     (JSON.parse(wouldHaveSilentlyLocked.node(0)) as NodeInfo).locked,
     true,
-    "the edited board accepts the stale line/shape — nothing downstream would have caught it",
+    "the edited board accepts the stale line/shape, nothing downstream would have caught it",
   );
   wouldHaveSilentlyLocked.free();
   assert.throws(
@@ -280,7 +280,7 @@ assert.equal(findPresetId(edited), "", "a hand-edited form matches no preset");
   );
 
   // 2. The bubble-factor matrix is asymmetric on a covered/covering pair. A symmetric
-  //    implementation — or a chipEV-shaped one, all 1.0 — is the whole failure mode.
+  //    implementation, or a chipEV-shaped one, all 1.0, is the whole failure mode.
   const bf = satMeta.tournament!.bubble_factors;
   assert.equal(bf.length, 6, "the matrix is square over the seats");
   for (let i = 0; i < bf.length; i++) {
@@ -340,8 +340,8 @@ assert.equal(findPresetId(edited), "", "a hand-edited form matches no preset");
   );
 
   // 5. THE POINT OF PUTTING THE STRUCTURE IN THE KEY. Two solves that differ only in the
-  //    payouts build byte-identical trees — same node ids, same acting player, same
-  //    action and combo counts — so every one of the engine's own lock checks passes and
+  //    payouts build byte-identical trees, same node ids, same acting player, same
+  //    action and combo counts, so every one of the engine's own lock checks passes and
   //    it would happily freeze a strategy solved for a different prize ladder. Prove
   //    that first, then prove `toToml` refuses it.
   const rootPlayer = (JSON.parse(satSolve.node(0)) as NodeInfo).player!;
@@ -366,7 +366,7 @@ assert.equal(findPresetId(edited), "", "a hand-edited form matches no preset");
   assert.equal(
     (JSON.parse(wouldHaveSilentlyLocked.node(0)) as NodeInfo).locked,
     true,
-    "the other ladder accepts the stale line/shape — nothing downstream would have caught it",
+    "the other ladder accepts the stale line/shape, nothing downstream would have caught it",
   );
   wouldHaveSilentlyLocked.free();
   assert.throws(

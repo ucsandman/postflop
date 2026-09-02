@@ -1,3 +1,0 @@
-Your solver is grading its own homework.
-
-postflop measures exploitability with a separate best-response calculator. Open-source Rust, CLI to browser.

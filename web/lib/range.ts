@@ -34,7 +34,7 @@ export function classIndex(label: string): number {
  * All 169 classes, strongest first.
  *
  * APPROXIMATE, and deliberately so: this is the conventional preflop hand-strength
- * ordering that study charts use for their "top X%" cuts — roughly heads-up equity
+ * ordering that study charts use for their "top X%" cuts, roughly heads-up equity
  * against a random hand, with the usual playability adjustments (suited hands promoted
  * over their offsuit twins, wheel aces A5s/A4s/A3s promoted for their straight and
  * nut-flush potential). It is *not* solver output and no engine produced it; it exists
@@ -108,7 +108,7 @@ const quantise = (w: number) => Math.round(Math.min(1, Math.max(0, w)) * 1000) /
  * Runs of equal weight inside a chain collapse: a run touching the strong end becomes
  * `22+` / `ATs+`, any other run of two or more becomes `99-66` / `A5s-A2s`, and a lone
  * class stays explicit. Partial weights get the engine's `:weight` suffix. Zero-weight
- * classes are simply not named — that is how the parser spells "not in the range".
+ * classes are simply not named, that is how the parser spells "not in the range".
  */
 export function canonicalRange(weights: readonly number[]): string {
   const w = Array.from({ length: NUM_CLASSES }, (_, i) => quantise(weights[i] ?? 0));
@@ -153,7 +153,7 @@ export function classMap(comboLabels: readonly string[]): Int16Array {
 /**
  * Per-combo weights (1326, from `parse_range`) folded down to one weight per class.
  *
- * A class whose combos disagree — which only an explicit-combo token can produce —
+ * A class whose combos disagree, which only an explicit-combo token can produce,
  * collapses to their mean, so the grid shows something honest but lossy. The text row
  * stays the form's source of truth until the next grid edit, which is where the loss
  * would otherwise bite.

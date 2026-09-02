@@ -2,6 +2,7 @@
   "name": "solver-web",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "sync-wasm": "node scripts/sync-wasm.mjs",
     "predev": "node scripts/sync-wasm.mjs",

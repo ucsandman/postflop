@@ -6,7 +6,7 @@
 // needs the handle.
 
 /** Solver frequency at or above which the chosen action counts as "best" outright, even
- *  when a different action edges it on EV — at this frequency the solver plays it as a
+ *  when a different action edges it on EV, at this frequency the solver plays it as a
  *  primary line and the EV gap is mixing noise, not a mistake. */
 export const BEST_FREQ = 0.65;
 /** EV loss thresholds, as a fraction of the pot at the node. */
@@ -14,7 +14,7 @@ export const CORRECT_PCT_POT = 0.005;
 export const INACCURACY_PCT_POT = 0.02;
 export const WRONG_PCT_POT = 0.05;
 /** "Close decision": the top two actions are within this fraction of the pot for the
- *  dealt combo — the spots where the answer is actually worth training. */
+ *  dealt combo, the spots where the answer is actually worth training. */
 export const CLOSE_PCT_POT = 0.01;
 
 export type Tier = "best" | "correct" | "inaccuracy" | "wrong" | "blunder";
@@ -44,7 +44,7 @@ export interface Grade {
 }
 
 /**
- * Parse a hand the user typed — "AhKd", "ah kd", "KD AH" — into the engine's combo
+ * Parse a hand the user typed ("AhKd", "ah kd", "KD AH") into the engine's combo
  * spelling (rank uppercase, suit lowercase, in the order typed), or `null` when it
  * isn't two distinct cards. Matching against a combo list should try both card orders;
  * the solution spells each combo in its own canonical order.
@@ -67,7 +67,7 @@ export function flipHand(hand: string): string {
 /**
  * True when every action at the node has a defined EV for this combo. `combo_evs` is
  * `NaN` where the opponent's range cannot reach the child holding anything this hand
- * does not block, and a spot with such a hole cannot be graded — the dealer skips it.
+ * does not block, and a spot with such a hole cannot be graded, the dealer skips it.
  */
 export function gradeable(actionEvs: number[]): boolean {
   return actionEvs.length > 0 && actionEvs.every((v) => !Number.isNaN(v));

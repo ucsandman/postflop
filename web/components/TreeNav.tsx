@@ -2,7 +2,7 @@
 
 import Card, { Cards } from "@/components/Card";
 import { actionToken } from "@/lib/config";
-import { hotnessColor, RANKS, SUITS, SUIT_CLASS, SUIT_GLYPH, type RunoutHotness } from "@/lib/grid";
+import { hatched, hotnessColor, RANKS, SUITS, SUIT_CLASS, SUIT_GLYPH, type RunoutHotness } from "@/lib/grid";
 import type { NodeInfo, PathStep } from "@/lib/types";
 import { PLAYER_NAMES } from "@/lib/types";
 
@@ -31,13 +31,23 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
         className="flex min-w-0 flex-1 basis-[420px] flex-wrap items-center gap-1.5 px-3 py-2.5"
       >
         <span className="label mr-1">line</span>
-        <button onClick={() => onJump(0)} className="chip" aria-current={path.length === 0}>
+        <button
+          onClick={() => onJump(0)}
+          className="chip flex items-center gap-2"
+          aria-current={path.length === 0}
+        >
+          <StepSquare step={null} current={path.length === 0} />
           root
         </button>
         {path.map((step, i) => (
           <span key={i} className="flex items-center gap-1.5">
-            <span className="text-dim">›</span>
-            <button onClick={() => onJump(i + 1)} className="chip" aria-current={i === path.length - 1}>
+            <span className="text-dim">/</span>
+            <button
+              onClick={() => onJump(i + 1)}
+              className="chip flex items-center gap-2"
+              aria-current={i === path.length - 1}
+            >
+              <StepSquare step={step} current={i === path.length - 1} />
               {step.label}
             </button>
           </span>
@@ -46,8 +56,8 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
           <span
             data-testid="locked-badge"
             title="This node's strategy was frozen by a locks entry; the rest of the tree was solved around it."
-            className="ml-1 bg-accent px-1.5 py-1 uppercase text-[#101010]"
-            style={{ font: "800 10px/1 var(--font-sans)", letterSpacing: ".06em" }}
+            className="ml-1 bg-accent px-1.5 py-1 uppercase text-accent-ink"
+            style={{ font: "600 10px/1 var(--font-condensed)", letterSpacing: ".15em" }}
           >
             locked
           </span>
@@ -78,28 +88,37 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
                   token: actionToken(a),
                 })
               }
-              className="relative h-11 min-w-0 flex-1 basis-[180px] overflow-hidden bg-[#1c1c1a] hover:outline hover:outline-2 hover:-outline-offset-2 hover:outline-accent"
-              style={{ borderLeft: i > 0 ? "var(--rule-thin) solid var(--color-ink)" : undefined }}
+              className="relative h-11 min-w-0 flex-1 basis-[180px] overflow-hidden bg-raised hover:outline hover:outline-2 hover:-outline-offset-2 hover:outline-live"
+              style={{ borderLeft: i > 0 ? "var(--rule-thin) solid var(--color-line)" : undefined }}
             >
+              {/* The range frequency, printed as an action-ink band along the foot of
+                  the block: an ink is a fill here and never has to carry text. */}
+              {/* `backgroundColor`, never the `background` shorthand: the shorthand
+                  resets background-image and kills `.hatch`'s overprint. */}
               <span
-                className="absolute inset-y-0 left-0"
-                style={{ width: `${(freqs[i] ?? 0) * 100}%`, background: colors[i] }}
+                className={`absolute bottom-0 left-0 h-2.5 ${hatched(a.label) ? "hatch" : ""}`}
+                style={{ width: `${(freqs[i] ?? 0) * 100}%`, backgroundColor: colors[i] }}
               />
-              <span className="relative z-[1] flex h-full items-center gap-2 px-2.5">
+              <span className="relative z-[1] flex h-full items-center gap-2 px-2.5 pb-2.5">
                 <span
-                  className="uppercase text-text-inv [text-shadow:0_1px_2px_rgba(0,0,0,.85)]"
-                  style={{ font: "800 12px/1 var(--font-sans)", letterSpacing: ".04em" }}
+                  aria-hidden
+                  className={`h-2 w-2 flex-none ${hatched(a.label) ? "hatch" : ""}`}
+                  style={{ backgroundColor: colors[i] }}
+                />
+                <span
+                  className="uppercase text-text"
+                  style={{ font: "600 11px/1 var(--font-condensed)", letterSpacing: ".15em" }}
                 >
                   {a.text}
                 </span>
                 {a.percent_of_pot != null && (
-                  <span className="num text-[11px]" style={{ color: "rgba(244,241,232,.72)" }}>
+                  <span className="num text-dim" style={{ fontSize: 11 }}>
                     {a.percent_of_pot.toFixed(0)}%
                   </span>
                 )}
                 <span
-                  className="ml-auto text-text-inv [text-shadow:0_1px_2px_rgba(0,0,0,.85)]"
-                  style={{ font: "900 20px/1 var(--font-sans)", letterSpacing: "-.03em", fontVariantNumeric: "tabular-nums" }}
+                  className="num ml-auto text-text"
+                  style={{ fontSize: 17, fontWeight: 700 }}
                 >
                   {((freqs[i] ?? 0) * 100).toFixed(1)}%
                 </span>
@@ -131,6 +150,35 @@ export default function TreeNav({ node, path, freqs, colors, onStep, onJump }: P
   );
 }
 
+/**
+ * The 8px square that names one step of the line: an action ink in the tree (bet red,
+ * check green under the overprint hatch, fold blue), a hairline square for a dealt card,
+ * stock white at the root. On the current chip, which is knocked out to stock white, the
+ * root square flips to the plate ground so it stays visible.
+ */
+function StepSquare({ step, current }: { step: PathStep | null; current: boolean }) {
+  const label = step && step.kind === "action" ? step.token.split(":")[0] : null;
+  const ink =
+    label === null
+      ? step
+        ? "var(--color-line)"
+        : current
+          ? "var(--color-paper)"
+          : "var(--color-ink)"
+      : label === "fold"
+        ? "var(--color-fold)"
+        : label === "check" || label === "call"
+          ? "var(--color-check)"
+          : "var(--color-bet)";
+  return (
+    <span
+      aria-hidden
+      className={`h-2 w-2 flex-none ${hatched(label ?? "") ? "hatch" : ""}`}
+      style={{ backgroundColor: ink }}
+    />
+  );
+}
+
 export function RunoutSelector({
   node,
   onStep,
@@ -149,17 +197,19 @@ export function RunoutSelector({
   const cellCls = large ? "h-[52px] w-[64px] text-[18px]" : "h-6 w-7 text-[11px]";
 
   return (
-    <div className="inline-flex flex-col" style={{ background: "var(--color-ink)", padding: 2, gap: 2 }}>
+    <div className="inline-flex flex-col" style={{ background: "var(--color-line)", padding: 2, gap: 2 }}>
       {hotness && hotness.maxDeviation > 0 && (
-        <div className="label px-1 py-1" style={{ color: "var(--color-dim-inv)" }}>
-          shaded by hero EV vs. the runout average
+        /* The caption sits on the lattice's own gap ink (--color-line), not on the
+           plate, so it needs `muted` (7.0:1 there); `dim-inv` measures 4.02:1. */
+        <div className="label px-1 py-1" style={{ color: "var(--color-muted)" }}>
+          shaded by hero EV vs the runout average
         </div>
       )}
       {SUITS.split("").map((suit) => (
         <div key={suit} className="flex" style={{ gap: 2 }}>
           <span
-            className={`num on-ink flex w-[22px] items-center justify-center text-[13px] ${SUIT_CLASS[suit]}`}
-            style={{ background: "var(--color-ink)" }}
+            className={`num flex w-[22px] items-center justify-center ${SUIT_CLASS[suit]}`}
+            style={{ background: "var(--color-paper-2)", fontSize: 13 }}
           >
             {SUIT_GLYPH[suit]}
           </span>
@@ -191,17 +241,20 @@ export function RunoutSelector({
                       ? `deal ${card}: hero EV ${ev.toFixed(3)}`
                       : `deal ${card}`
                 }
-                style={tint ? { background: tint, color: "var(--color-ink)" } : undefined}
+                /* The tint is an ink mixed INTO the plate, so it is always dark: the
+                   rank on it stays stock white (7.7:1 at the greenest, 9.6:1 at the
+                   reddest), never the plate colour. */
+                style={tint ? { background: tint, color: "var(--color-text)" } : undefined}
                 className={[
                   "num font-bold transition-colors",
                   cellCls,
                   child === undefined
                     ? dead
-                      ? "cursor-not-allowed bg-[#1c1c1a] text-[#5a5852] line-through"
-                      : "cursor-not-allowed bg-[#1c1c1a] text-[#3a3936]"
+                      ? "cursor-not-allowed bg-paper-2 text-dim-inv line-through"
+                      : "cursor-not-allowed bg-paper-2 text-line"
                     : tint
-                      ? "cursor-pointer hover:!bg-accent hover:!text-[#101010]"
-                      : `on-ink cursor-pointer bg-[#2a2a26] hover:!bg-accent hover:!text-[#101010] ${SUIT_CLASS[suit]}`,
+                      ? "cursor-pointer hover:!bg-ink hover:!text-paper"
+                      : `cursor-pointer bg-raised hover:!bg-ink hover:!text-paper ${SUIT_CLASS[suit]}`,
                 ].join(" ")}
               >
                 {rank}

@@ -1,234 +1,317 @@
 @import "tailwindcss";
 
 /* ───────────────────────────────────────────────────────────────────────────
-   BONE & RULE
-   Chrome is paper. Data is ink. Every separator is a 3px black rule.
-   Token NAMES are deliberately unchanged from the navy scheme (`panel`,
-   `raised`, `line`, `accent`, `card-s`…) so existing utility usages re-skin
-   without a rename sweep. Only their values changed.
+   FOUR PLATES
+   The four-colour deck is the encoding layer, so it is the whole identity:
+   four riso drum inks (spade black, heart red, diamond blue, club green) are
+   the grounds, the chrome, the buttons and the data. Stock is a cold machine
+   white. Every separator is a 1px #333930 hairline. Zero radius, zero shadow.
+
+   THE LAW: four inks, two jobs, never in the same rectangle. Inside a strategy
+   cell an ink is an ACTION (bet / check / fold). On a card face an ink is a
+   SUIT. Spade is the ground both systems stand on, so it is never either.
+
+   Token NAMES are unchanged from the previous scheme (`panel`, `raised`,
+   `line`, `accent`, `card-s`…) so existing utility usages re-skin without a
+   rename sweep. Only their values changed.
    ─────────────────────────────────────────────────────────────────────────── */
 
 @theme {
-  /* --- Paper (chrome) --- */
-  --color-paper: #e9e5da;
-  --color-panel: #e9e5da;
-  --color-paper-2: #ddd8c9;
-  --color-raised: #f4f1e8;
+  /* The spacing scale is px-anchored. Tailwind derives `--spacing` in rem, and the
+     root font-size below is 14px, so every rem utility was silently multiplied by
+     0.875: `h-11`, picked for the 44px touch minimum, rendered at 38.5px and `p-3`
+     at 10.5px beside hand-written 14px padding. */
+  --spacing: 4px;
 
-  /* --- Ink (rules and data slabs) --- */
-  --color-ink: #101010;
-  --color-ink-2: #1c1c1a;
-  --color-ink-3: #2a2a26;
-  --color-line: #101010;
-  --color-line-soft: #c9c3b2;
+  /* --- Plate 1, spade: the ground everything stands on --- */
+  --color-paper: #171a18;
+  --color-panel: #171a18;
+  --color-paper-2: #12150f;   /* recessed: rails, panel heads, footers */
+  --color-raised: #1e221c;    /* raised: inputs, chips, cells */
 
-  /* --- Text --- */
-  --color-text: #101010;
-  --color-text-inv: #f4f1e8;
-  --color-muted: #55524a;
-  --color-dim: #625e58;   /* 4.5:1 on paper-2 — captions are body-size text */
-  --color-dim-inv: #9a968c;
+  /* --- Ink. On a dark plate the ink you print with IS the stock white. --- */
+  --color-ink: #f0f3f0;
+  --color-ink-2: #262b24;     /* tracks, wells, hover ground */
+  --color-ink-3: #0e110d;     /* deepest well: code blocks, terminal body */
+  --color-line: #333930;      /* the hairline, and the only separator */
+  --color-line-soft: #262b24;
+  /* The one exception to the hairline: an interactive control's own boundary.
+     #333930 measures 1.2 to 1.6:1 on these grounds, so a plain button or input
+     had no visible edge at all (WCAG 1.4.11 wants 3:1). This is the palette's
+     own `dimmer`: 3.74:1 on spade, 3.93:1 on the panel, 3.44:1 on raised,
+     3.08:1 on the hover ground. Separators stay #333930. */
+  --color-line-strong: #6e766d;
 
-  /* --- Accents. Yellow = filled block with black text only. Magenta = selection. --- */
-  --color-accent: #ffe000;
-  --color-accent-dim: #c7ae00;
-  --color-live: #ff2d9b;
-  --color-live-deep: #c2196f;
+  /* --- Text. One text colour on every plate: stock white. --- */
+  --color-text: #f0f3f0;
+  --color-text-inv: #f0f3f0;  /* text reversed out on any plate ink or panel */
+  --color-muted: #c4cdc5;     /* 11.9:1 on spade, secondary body */
+  --color-dim: #9aa69c;       /*  6.94:1 on spade, captions, labels */
+  --color-dim-inv: #8e998f;   /*  5.93:1 on spade, captions on the darker greys */
 
-  /* --- Semantic (text-safe at 4.5:1 on paper; dark theme overrides below) --- */
-  --color-ok: #0f763f;
-  --color-warn: #935a00;
-  --color-err: #c82027;
-  --color-err-bg: #f7dcda;
-  --color-ok-bg: #d8eee0;
+  /* --- Accent: club-lit. The primary button, and "measured" everywhere. --- */
+  --color-accent: #25c97a;      /* 8.11:1 on spade */
+  --color-accent-dim: #1ba862;
+  --color-accent-ink: #04140c;  /* 8.75:1 on accent, text on a green fill */
 
-  /* --- Suits on paper (four-colour deck) --- */
-  --color-card-s: #101010;
-  --color-card-h: #d8232a;
-  --color-card-d: #1746d9;
-  --color-card-c: #128a4a;
-  /* --- Suits reversed out on an ink slab --- */
-  --color-card-s-inv: #f4f1e8;
-  --color-card-h-inv: #ff6b62;
-  --color-card-d-inv: #6aa5ff;
-  --color-card-c-inv: #37c97d;
+  /* --- Selection and focus: stock white, or a full inversion to it. --- */
+  --color-live: #f0f3f0;
 
-  --font-sans: var(--font-archivo), "Archivo", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-jbmono), "JetBrains Mono", ui-monospace, Consolas, monospace;
+  /* --- Semantic --- */
+  --color-ok: #25c97a;        /* club-lit,  8.11:1 */
+  --color-warn: #e3a140;      /* 7.86:1 */
+  --color-err: #ff4d5a;       /* heart-lit, 5.40:1 */
+  --color-err-bg: #3a1116;
+  --color-ok-bg: #0c2b1c;
+
+  /* --- The four plates, as grounds --- */
+  --color-plate-s: #171a18;
+  --color-plate-h: #b00d26;
+  --color-plate-d: #1240c4;
+  --color-plate-c: #00603f;
+
+  /* --- Action inks. Fills only, never text. --- */
+  --color-bet: #e8202f;
+  --color-check: #00a95c;
+  --color-fold: #3b6bff;
+
+  /* --- Suits on dark chrome (rail chips, tree dots, glyphs). The card FACE
+         is stock white and carries its own literals, in `.cardstock` below. --- */
+  --color-card-s: #e4e9e4;    /* 13.9:1 */
+  --color-card-h: #ff4d5a;    /*  5.40:1 */
+  --color-card-d: #5b8cff;    /*  5.55:1 */
+  --color-card-c: #25c97a;    /*  8.11:1 */
+
+  --font-sans: var(--font-display), "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --font-condensed: var(--font-condensed-face), "Barlow Condensed", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-face), "Azeret Mono", ui-monospace, Consolas, monospace;
 }
 
 /* Geometry. Not in @theme: these are not colours and generate no utilities. */
 :root {
-  --rule: 3px;
-  --rule-thin: 2px;
+  --rule: 1px;        /* there is one separator weight in this system */
+  --rule-thin: 1px;
   --rail: 200px;
   --axis: 14px;       /* rank-axis gutter on the large grid */
   --statusbar: 26px;
-}
-@media (max-width: 1279px) {
-  :root { --rule: 2px; --rule-thin: 1px; }
+  --t-fast: 120ms;    /* the one control transition, shared by .btn/.seg/.chip */
+  /* The 45 degree overprint: a second riso plate, and the reason the bet/check
+     split survives greyscale and red-green colour vision deficiency. */
+  --overprint: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.34) 0 1px, transparent 1px 3px);
 }
 @media (max-width: 1399px) { :root { --rail: 64px; } }
 @media (max-width: 999px)  { :root { --rail: 100%; } }
-
-/* ── DARK INVERSION ─────────────────────────────────────────────────────────
-   Only CHROME inverts — the grid slab, the stat band and every panel bar are
-   already ink in both themes, so no action-colour or suit-on-ink changes. */
-:root[data-theme="dark"] {
-  --color-paper: #17171a;
-  --color-panel: #17171a;
-  --color-paper-2: #202024;
-  --color-raised: #26262b;
-  /* Rules must be LIGHTER than the ground in dark, or the whole structural
-     language (3px rules, ink bars, slab edges) disappears against near-black. */
-  --color-ink: #34343a;
-  --color-ink-2: #0c0c0e;
-  --color-ink-3: #222228;
-  --color-line: #34343a;
-  --color-line-soft: #3a3a40;
-  --color-text: #f4f1e8;
-  --color-muted: #b3aea3;
-  --color-dim: #8b877e;
-  /* Dark's ink is #34343a, not #101010, so the light theme's dim-on-ink lands at
-     4.19:1 here — every .bar meta, rank axis and rail caption. Same grey, lifted. */
-  --color-dim-inv: #a9a59b;
-  --color-ok: #37c97d;
-  --color-warn: #e08a00;
-  --color-err: #ff6b62;
-  --color-err-bg: #3a1a19;
-  --color-ok-bg: #12301f;
-  --color-card-s: #f4f1e8;
-  --color-card-h: #ff6b62;
-  --color-card-d: #6aa5ff;
-  --color-card-c: #37c97d;
-}
 
 html, body {
   background: var(--color-paper);
   color: var(--color-text);
   font-family: var(--font-sans);
-  font-size: 14px;          /* up from 13px: hours of study */
-  line-height: 1.35;
+  font-size: 14px;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
 }
-* { border-radius: 0 !important; }
+* { border-radius: 0 !important; box-shadow: none !important; }
+::selection { background: var(--color-ink); color: var(--color-paper); }
 
 /* ── TYPE SCALE ───────────────────────────────────────────────────────────── */
-.label {                   /* section captions */
-  font: 800 10px/1.2 var(--font-sans);
-  letter-spacing: .14em; text-transform: uppercase; color: var(--color-dim);
+/* Condensed caps are machine annotation. They label, they never headline. */
+.label {
+  font: 600 10px/1.2 var(--font-condensed);
+  letter-spacing: .15em; text-transform: uppercase; color: var(--color-dim);
 }
-.bar {                     /* panel header bar, reversed out on ink */
+/* The plate tag: the named brand system. Only on a full-bleed plate section,
+   never as a generic eyebrow over an ordinary heading. No hex codes. */
+.plate-tag {
+  display: flex; align-items: center; gap: 9px;
+  font: 600 11px/1 var(--font-condensed);
+  letter-spacing: .16em; text-transform: uppercase; color: var(--color-dim);
+}
+.plate-tag::before { content: ""; display: block; width: 9px; height: 9px; flex: none; background: var(--color-ink); }
+
+.bar {                     /* panel header bar */
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0;
-  background: var(--color-ink); color: var(--color-text-inv);
-  font: 800 11px/1.2 var(--font-sans);
-  letter-spacing: .12em; text-transform: uppercase;
-  padding: 6px 10px 5px; position: relative;
+  background: var(--color-paper-2); color: var(--color-text);
+  border-bottom: var(--rule) solid var(--color-line);
+  font: 600 10px/1.2 var(--font-condensed);
+  letter-spacing: .15em; text-transform: uppercase;
+  padding: 9px 14px 8px; position: relative;
 }
-.bar .meta { font: 500 11px/1.2 var(--font-mono); letter-spacing: 0; text-transform: none; color: var(--color-dim-inv); }
-.bar > .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-/* 6px role stripe on the bar's top edge — find a panel by colour at a glance */
-.bar::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 6px; background: var(--stripe, transparent); }
-.bar-strategy { --stripe: var(--color-accent); }
-.bar-ev       { --stripe: var(--color-live); }
-.bar-opp      { --stripe: #48566f; }
-.bar-blockers { --stripe: var(--color-ok); }
-/* ICM: its own hue, not a borrowed one. Yellow is the strategy stripe and the law says
-   yellow is a filled block, magenta is EV, slate is the opponent, green is blockers —
-   a tournament panel that reused any of them would read as that panel at a glance. */
-.bar-icm      { --stripe: #7a4ec2; }
+.bar .meta {
+  font: 400 10.5px/1.2 var(--font-mono); letter-spacing: -.02em;
+  text-transform: none; color: var(--color-dim-inv);
+}
+.bar > .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+/* Panel identity is a 9px ink square in the label line, not a stripe. Find a
+   panel by its ink at a glance without adding an edge to the layout. */
+.bar-strategy::before, .bar-ev::before, .bar-opp::before,
+.bar-blockers::before, .bar-icm::before {
+  content: ""; display: block; width: 9px; height: 9px; flex: none;
+  background: var(--swatch); box-sizing: border-box;
+}
+.bar-strategy { --swatch: var(--color-ink); }
+.bar-ev       { --swatch: var(--color-card-h); }
+.bar-opp      { --swatch: var(--color-card-d); }
+.bar-blockers { --swatch: var(--color-card-c); }
+/* ICM is the one panel with no ink of its own, so it gets the knocked-out
+   square: the same 9px object, printed as an outline instead of a flood. */
+.bar-icm      { --swatch: transparent; }
+.bar-icm::before { border: 2px solid var(--color-ink); }
 
-.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -.02em; font-weight: 500; font-size: 13px; }
-
-.fig   { font: 900 var(--fs, 30px)/.92 var(--font-sans); letter-spacing: -.045em; font-variant-numeric: tabular-nums; }
-.fig-1 { --fs: clamp(26px, 2vw, 40px); }   /* exploitability, session score, drill EV loss */
-.fig-2 { --fs: clamp(20px, 1.5vw, 30px); } /* pot, root EV, action frequency */
-.fig-3 { --fs: 22px; }   /* combo count, node count */
+.num {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  letter-spacing: -.03em; font-weight: 500; font-size: 12.5px;
+}
+/* Every measured figure is Azeret, tabular, tight. Provenance sits beside it. */
+.fig {
+  font: 700 var(--fs, 30px)/.95 var(--font-mono);
+  letter-spacing: -.045em; font-variant-numeric: tabular-nums;
+}
+.fig-1 { --fs: clamp(26px, 2vw, 38px); }   /* exploitability, session score, drill EV loss */
+.fig-2 { --fs: clamp(19px, 1.5vw, 28px); } /* pot, root EV, action frequency */
+.fig-3 { --fs: 21px; }                     /* combo count, node count */
 
 /* ── STRUCTURE ────────────────────────────────────────────────────────────── */
-.panel { background: var(--color-panel); border: 0; }
-.rule-t { border-top:    var(--rule) solid var(--color-ink); }
-.rule-r { border-right:  var(--rule) solid var(--color-ink); }
-.rule-b { border-bottom: var(--rule) solid var(--color-ink); }
-.rule-l { border-left:   var(--rule) solid var(--color-ink); }
-.on-ink { background: var(--color-ink-2); color: var(--color-text-inv); }
-.on-ink .text-card-s { color: var(--color-card-s-inv); }
-.on-ink .text-card-h { color: var(--color-card-h-inv); }
-.on-ink .text-card-d { color: var(--color-card-d-inv); }
-.on-ink .text-card-c { color: var(--color-card-c-inv); }
-/* The rail is an ink slab too, it just never carried the class — its captions were
-   reading the paper-tuned --color-dim on black at 2.96:1. */
+.panel  { background: var(--color-panel); border: 0; }
+.rule-t { border-top:    var(--rule) solid var(--color-line); }
+.rule-r { border-right:  var(--rule) solid var(--color-line); }
+.rule-b { border-bottom: var(--rule) solid var(--color-line); }
+.rule-l { border-left:   var(--rule) solid var(--color-line); }
+/* A recessed slab on the plate. Text stays stock white, nothing inverts to a
+   light ground except a deliberate knock-out (`bg-ink`, `.chip[aria-current]`). */
+.on-ink { background: var(--color-paper-2); color: var(--color-text); }
 .on-ink .label, .rail .label { color: var(--color-dim-inv); }
 
-/* ── CONTROLS ─────────────────────────────────────────────────────────────── */
-.btn {
-  border: var(--rule-thin) solid var(--color-ink);
-  background: var(--color-raised); color: var(--color-text);
-  font: 800 12px/1 var(--font-sans); letter-spacing: .06em; text-transform: uppercase;
-  padding: 8px 12px; cursor: pointer; transition: background 90ms linear;
-}
-.btn:hover { background: var(--color-accent); color: var(--color-ink); }
-.btn-primary { background: var(--color-accent); color: var(--color-ink); }
-.btn-primary:hover { background: var(--color-ink); color: var(--color-accent); }
-.btn-danger { background: var(--color-err-bg); }
-.btn:disabled { background: var(--color-paper-2); border-color: #b4afa0; color: var(--color-dim); cursor: default; }
-.btn:disabled:hover { background: var(--color-paper-2); color: var(--color-dim); }
-.on-ink .btn, .btn-inv {
-  background: var(--color-ink-3); border-color: var(--color-dim-inv); color: var(--color-text-inv);
-}
-.on-ink .btn:hover, .btn-inv:hover { background: var(--color-accent); color: var(--color-ink); }
-.btn-inv:disabled { background: var(--color-ink-2); border-color: var(--color-ink-3); color: var(--color-dim-inv); opacity: .6; }
+/* The overprint hatch. Put it on any check band, in the grid or in a legend. */
+.hatch { background-image: var(--overprint); }
 
-/* Segmented control: square blocks sharing borders */
+/* ── THE INK KEY ──────────────────────────────────────────────────────────── */
+/* The law of the palette, standing in the tool doing work: three action inks,
+   four suit pips on stock, and the sentence that separates them. */
+/* `flex: none` is load-bearing: the ink key is the last child of a flex-column
+   rail, so without it the law sentence is the first thing flexbox shrinks away. */
+.ink-key { flex: none; padding: 13px 10px 15px; border-top: var(--rule) solid var(--color-line); background: var(--color-paper-2); }
+.ink-key .row { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 12px; }
+.ink-key .k { display: flex; align-items: center; gap: 6px; font: 500 11px/1 var(--font-mono); letter-spacing: -.02em; color: var(--color-text); }
+.ink-key .k b { display: block; width: 16px; height: 16px; flex: none; }
+.ink-key .pip { display: grid; place-items: center; width: 16px; height: 16px; flex: none; background: var(--color-ink); font: 700 12px/1 var(--font-sans); }
+.ink-key p { font: 400 12px/1.5 var(--font-sans); color: var(--color-dim); }
+.ink-key p b { color: var(--color-text); font-weight: 600; }
+
+/* ── CONTROLS ─────────────────────────────────────────────────────────────── */
+/* Sentence case, hairline box, no fill. Display type in this identity is never
+   all-caps, and a button is display type. */
+.btn {
+  border: var(--rule-thin) solid var(--color-line-strong);
+  background: transparent; color: var(--color-text);
+  font: 600 12.5px/1 var(--font-sans); letter-spacing: .01em;
+  padding: 8px 13px; cursor: pointer;
+}
+.btn:hover { background: var(--color-raised); }
+.btn-primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-accent-ink); font-weight: 700; }
+.btn-primary:hover { background: var(--color-accent-dim); border-color: var(--color-accent-dim); color: var(--color-accent-ink); }
+.btn-danger { background: var(--color-err-bg); border-color: var(--color-err); color: var(--color-err); }
+.btn-danger:hover { background: var(--color-err); color: var(--color-paper); }
+.btn:disabled { background: transparent; border-color: var(--color-line); color: var(--color-dim-inv); cursor: default; opacity: .6; }
+.btn:disabled:hover { background: transparent; color: var(--color-dim-inv); }
+/* Every panel is dark here, so a button on a slab is the same button. */
+.on-ink .btn, .btn-inv { background: transparent; border-color: var(--color-line-strong); color: var(--color-text); }
+.on-ink .btn:hover, .btn-inv:hover { background: var(--color-raised); color: var(--color-text); }
+.btn-inv:disabled { background: transparent; border-color: var(--color-line); color: var(--color-dim-inv); opacity: .6; }
+
+/* One hover fade for every control class the reduced-motion block turns off. */
+.btn, .seg > button, .chip {
+  transition: background var(--t-fast) ease-out, color var(--t-fast) ease-out;
+}
+
+/* Segmented control: square blocks sharing hairlines. Pressed is a full
+   inversion to stock white, never a colour fill and never a stripe. */
 .seg { display: flex; }
 .seg > button {
-  border: var(--rule-thin) solid var(--color-ink); margin-left: calc(var(--rule-thin) * -1);
-  background: var(--color-raised); color: var(--color-muted);
-  font: 800 11px/1 var(--font-sans); letter-spacing: .06em; text-transform: uppercase;
-  padding: 6px 9px; cursor: pointer;
+  border: var(--rule-thin) solid var(--color-line-strong); margin-left: calc(var(--rule-thin) * -1);
+  background: transparent; color: var(--color-dim);
+  font: 600 10px/1 var(--font-condensed); letter-spacing: .14em; text-transform: uppercase;
+  padding: 8px 10px; cursor: pointer;
 }
 .seg > button:first-child { margin-left: 0; }
-.seg > button:hover { background: var(--color-paper-2); color: var(--color-text); }
-.seg > button:disabled { color: var(--color-dim); cursor: default; background: var(--color-paper-2); }
-.seg > button[aria-pressed="true"], .seg > button[aria-pressed="true"]:hover { background: var(--color-accent); color: #101010; }
-.on-ink .seg > button { background: var(--color-ink-3); color: var(--color-dim-inv); border-color: var(--color-dim-inv); }
-.on-ink .seg > button[aria-pressed="true"] { background: var(--color-accent); color: var(--color-ink); border-color: var(--color-ink); }
-
-/* Breadcrumb chip */
-.chip {
-  border: var(--rule-thin) solid var(--color-ink); background: var(--color-raised);
-  font: 500 12px/1 var(--font-mono); padding: 6px 8px; cursor: pointer;
+.seg > button:hover { background: var(--color-raised); color: var(--color-text); }
+.seg > button:disabled { color: var(--color-dim-inv); cursor: default; background: transparent; }
+.seg > button[aria-pressed="true"], .seg > button[aria-pressed="true"]:hover {
+  background: var(--color-ink); color: var(--color-paper); border-color: var(--color-ink);
 }
-.chip:hover { background: var(--color-accent); color: var(--color-ink); }
-.chip[aria-current="true"] { background: var(--color-accent); color: var(--color-ink); font-weight: 700; }
+.on-ink .seg > button { background: transparent; color: var(--color-dim); border-color: var(--color-line-strong); }
+.on-ink .seg > button[aria-pressed="true"] { background: var(--color-ink); color: var(--color-paper); border-color: var(--color-ink); }
+
+/* Breadcrumb chip: a mono node label in a hairline box, current node knocked out */
+.chip {
+  border: var(--rule-thin) solid var(--color-line-strong); background: var(--color-raised);
+  color: var(--color-dim);
+  font: 500 11.5px/1 var(--font-mono); letter-spacing: -.02em;
+  padding: 6px 9px; cursor: pointer;
+}
+.chip:hover { background: var(--color-ink-2); color: var(--color-text); }
+.chip[aria-current="true"] { background: var(--color-ink); color: var(--color-paper); border-color: var(--color-ink); }
 
 input[type="text"], input[type="number"], textarea, select {
   background: var(--color-raised);
-  border: var(--rule-thin) solid var(--color-ink);
+  border: var(--rule-thin) solid var(--color-line-strong);
   padding: 7px 9px; color: var(--color-text);
-  font: 500 13px/1.2 var(--font-mono); width: 100%;
+  font: 500 12.5px/1.3 var(--font-mono); letter-spacing: -.02em; width: 100%;
 }
-input:focus, textarea:focus, select:focus, button:focus-visible, [tabindex]:focus-visible {
-  outline: 3px solid var(--color-live); outline-offset: 2px; border-color: var(--color-ink);
+input::placeholder, textarea::placeholder { color: var(--color-dim-inv); }
+/* Focus is stock white, 2px. Never magenta, never a side stripe. Every focusable
+   thing, not a list of tags: a link left off the list fell back to the browser's
+   own ring, which is neither stock white nor 2px. */
+:focus-visible, input:focus, textarea:focus, select:focus {
+  outline: 2px solid var(--color-live); outline-offset: 2px;
 }
-/* Clipped or over-painted contexts get an inset ring instead: the rail hides
+input:focus, textarea:focus, select:focus { border-color: var(--color-ink); }
+/* Clipped or over-painted contexts get the inset ring instead: the rail hides
    overflow, seg buttons share edges, grid cells are flush tiles. */
-.rail button:focus-visible, .seg > button:focus-visible, [data-cell]:focus-visible {
-  outline-offset: -3px;
+.rail :focus-visible, .seg > button:focus-visible, [data-cell]:focus-visible {
+  outline-offset: -2px;
 }
-/* Press feedback: the design has no radius or shadow, so the press is a nudge. */
+/* A surface in its knocked-out state is already painted stock white, so a stock
+   white ring on it is invisible (1.00:1). There the ring inverts too, to the plate
+   ground: 15.68:1 either way, and focus is still one 2px outline. That is the
+   pressed rail tab, the pressed segment, and the guided tour card, which is the
+   one panel in the product that inverts wholesale. */
+.rail [aria-pressed="true"]:focus-visible,
+.rail [aria-current="true"]:focus-visible,
+.seg > button[aria-pressed="true"]:focus-visible,
+[data-testid="tour-card"] :focus-visible {
+  outline-color: var(--color-paper);
+}
+/* Press feedback: no radius and no shadow, so the press is a nudge. */
 .btn:active:not(:disabled), .seg > button:active:not(:disabled), .chip:active {
   translate: 0 1px;
 }
-input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--color-ink); }
+input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--color-accent); }
 input[type="range"] { accent-color: var(--color-ink); }
 input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--color-ink); border-radius: 0; }
 
+/* Touch. The dense desktop chrome is 15-32px tall, which is unhittable with a finger,
+   so on a coarse pointer the shared controls grow to the 44px minimum. */
+@media (pointer: coarse) {
+  .btn, .seg > button, .chip { min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
+  input[type="text"], input[type="number"], textarea, select { min-height: 44px; }
+  input[type="checkbox"] { width: 24px; height: 24px; }
+  input[type="range"] { height: 44px; }
+}
+
 ::-webkit-scrollbar { width: 12px; height: 12px; }
-::-webkit-scrollbar-thumb { background: var(--color-ink); }
+::-webkit-scrollbar-thumb { background: var(--color-line-strong); }
 ::-webkit-scrollbar-track { background: var(--color-paper-2); }
-.on-ink ::-webkit-scrollbar-thumb { background: var(--color-dim-inv); }
-.on-ink ::-webkit-scrollbar-track { background: var(--color-ink-2); }
+.on-ink ::-webkit-scrollbar-thumb { background: var(--color-line-strong); }
+.on-ink ::-webkit-scrollbar-track { background: var(--color-ink-3); }
+
+/* Skip link: off the plate until it takes focus, then the first block on it. */
+.skip {
+  position: absolute; left: -9999px; top: 0; z-index: 100;
+  background: var(--color-ink); color: var(--color-paper);
+  font: 700 12px/1 var(--font-condensed); letter-spacing: .14em;
+  text-transform: uppercase; padding: 12px 18px;
+}
+.skip:focus { left: 0; }
 
 /* ── APP SHELL ────────────────────────────────────────────────────────────── */
 .app {
@@ -237,14 +320,14 @@ input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--color-ink); 
   grid-template-rows: minmax(0, 1fr) var(--statusbar);
   height: 100dvh; overflow: hidden;
 }
-.rail   { grid-area: 1 / 1; display: flex; flex-direction: column; background: var(--color-ink); color: var(--color-text-inv); overflow: hidden; }
-.stage  { grid-area: 1 / 2; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: var(--rule) solid var(--color-ink); }
-.statusbar { grid-column: 1 / -1; border-top: var(--rule) solid var(--color-ink); }
+.rail   { grid-area: 1 / 1; display: flex; flex-direction: column; background: var(--color-paper-2); color: var(--color-text); overflow-x: hidden; overflow-y: auto; }
+.stage  { grid-area: 1 / 2; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: var(--rule) solid var(--color-line); }
+.statusbar { grid-column: 1 / -1; border-top: var(--rule) solid var(--color-line); }
 
 /* Inspector column templates. These lines ARE the anti-deadspace answer. */
 .inspector { display: grid; flex: 1 1 0; min-height: 0; grid-template-columns: minmax(0,1fr); }
-.inspector > * { min-width: 0; min-height: 0; overflow-y: auto; }
-.inspector > * + * { border-left: var(--rule) solid var(--color-ink); }
+.inspector > * { min-width: 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+.inspector > * + * { border-left: var(--rule) solid var(--color-line); }
 @media (min-width: 1100px) { .inspector { grid-template-columns: minmax(380px,44%) minmax(0,1fr); } }
 @media (min-width: 1500px) { .inspector { grid-template-columns: clamp(400px,28vw,520px) minmax(0,1fr) 340px; } }
 @media (min-width: 1900px) { .inspector { grid-template-columns: clamp(420px,22vw,540px) clamp(420px,22vw,540px) minmax(0,1fr) 340px; } }
@@ -256,18 +339,39 @@ input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--color-ink); 
 /* Side column (opponent range + blockers): its own column at ≥1500px;
    a full-width split row below the grid/combo columns at 1100–1499px. */
 @media (min-width: 1100px) and (max-width: 1499px) {
-  .col-side { grid-column: 1 / -1; border-left: 0; border-top: var(--rule) solid var(--color-ink); display: flex; }
+  /* Two tracks each way. The 13x13 is the product's central object and it needs about
+     640px, so it takes both rows of column 1; the combo panel and the side column share
+     column 2. Splitting the rows across the full width instead gave the grid 354px and
+     scrolled 45% of it out of sight.
+     `flex-direction` is stated here, unlayered, because the element also carries a
+     Tailwind `flex-col` for the >=1500px case where it is a real grid column. */
+  .inspector { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  .col-strategy { grid-column: 1; grid-row: 1 / -1; }
+  .col-combo { grid-column: 2; grid-row: 1; }
+  .col-side {
+    grid-column: 2; grid-row: 2;
+    border-top: var(--rule) solid var(--color-line);
+    display: flex; flex-direction: row;
+  }
   .col-side > * { flex: 1 1 0; min-width: 0; }
-  .col-side > * + * { border-left: var(--rule) solid var(--color-ink); }
+  .col-side > * + * { border-left: var(--rule) solid var(--color-line); }
+
+  /* Same move on the Solve tab: the ranges pane holds two 13x13 painters (702px) and
+     was clipped to 441px while the whole bottom-right quadrant of the stage was flat
+     ground. It takes column 2 whole; the form and the run panel stack in column 1. */
+  .solve-shell { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  .col-spot { grid-column: 1; grid-row: 1; }
+  .col-run { grid-column: 1; grid-row: 2; border-left: 0; border-top: var(--rule) solid var(--color-line); }
+  .col-ranges { grid-column: 2; grid-row: 1 / -1; }
 }
 
 /* Escape hatches: never trap content in a short well. When .app goes height:auto
    the stage has no definite height, so a flex-basis of 0 collapses every shell
-   to nothing — they must switch to content height here. */
+   to nothing, they must switch to content height here. */
 @media (max-width: 999px) {
   .app { height: auto; overflow: visible; grid-template-columns: minmax(0,1fr); grid-template-rows: 48px auto var(--statusbar); }
   .rail { grid-area: 1 / 1; flex-direction: row; align-items: stretch; overflow-x: auto; }
-  .stage { grid-area: 2 / 1; border-left: 0; border-top: var(--rule) solid var(--color-ink); }
+  .stage { grid-area: 2 / 1; border-left: 0; border-top: var(--rule) solid var(--color-line); }
   .inspector, .solve-shell, .train-shell, .help-shell { flex: 0 0 auto; }
   .inspector > *, .solve-shell > *, .train-shell > *, .help-shell > * { overflow-y: visible; }
 }
@@ -277,30 +381,27 @@ input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--color-ink); 
   .inspector > *, .solve-shell > *, .train-shell > *, .help-shell > * { overflow-y: visible; }
 }
 
-/* Loading strip: a 3px accent rule sliding along the bottom edge. */
+/* Loading strip: a 2px accent rule sliding along the bottom edge. */
 @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
-.slide-rule { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; overflow: hidden; }
+.slide-rule { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; overflow: hidden; }
 .slide-rule::after { content: ""; position: absolute; inset: 0; background: var(--color-accent); animation: slide 900ms linear infinite; }
-@media (prefers-reduced-motion: reduce) {
-  .slide-rule::after { animation: none; }
-}
 
 /* ── CARD STOCK ───────────────────────────────────────────────────────────── */
+/* A card face is stock white in every context, so its four suit inks are the
+   ON-STOCK literals, immune to the token suits (which are tuned for dark
+   chrome and would print near-white on white). Rank top-left, pip bottom-right. */
 .cardstock {
-  display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
-  width: 2.2em; height: 3em; line-height: 1;
-  background: #f4f1e8;                 /* a card face is paper in both themes */
-  border: 2px solid #101010;
+  display: inline-flex; flex-direction: column; justify-content: space-between;
+  width: 2.2em; height: 3em; line-height: 1; padding: .14em .18em;
+  background: #f0f3f0;
   font-family: var(--font-sans);
 }
-/* The face never inverts, so its suit colours are literals — immune to .on-ink
-   and the dark theme, which would otherwise paint ivory on ivory. */
-.cardstock.text-card-s, .on-ink .cardstock.text-card-s { color: #101010; }
-.cardstock.text-card-h, .on-ink .cardstock.text-card-h { color: #d8232a; }
-.cardstock.text-card-d, .on-ink .cardstock.text-card-d { color: #1746d9; }
-.cardstock.text-card-c, .on-ink .cardstock.text-card-c { color: #128a4a; }
-.cardstock b { font-weight: 900; font-size: .95em; letter-spacing: -.04em; color: inherit; }
-.cardstock i { font-style: normal; font-size: .8em; color: inherit; margin-top: .06em; }
+.cardstock.text-card-s, .on-ink .cardstock.text-card-s { color: #171a18; }  /* 15.68:1 */
+.cardstock.text-card-h, .on-ink .cardstock.text-card-h { color: #c8102e; }  /*  5.26:1 */
+.cardstock.text-card-d, .on-ink .cardstock.text-card-d { color: #1240c4; }  /*  7.34:1 */
+.cardstock.text-card-c, .on-ink .cardstock.text-card-c { color: #00713f; }  /*  5.47:1 */
+.cardstock b { font-weight: 700; font-size: .92em; letter-spacing: -.04em; color: inherit; }
+.cardstock i { font-style: normal; font-size: .85em; color: inherit; align-self: flex-end; }
 
 /* ── COMBO TABLE ──────────────────────────────────────────────────────────── */
 .combo-rows { display: grid; grid-template-columns: 64px 52px minmax(0,1fr) repeat(var(--nact, 2), 54px) 66px; column-gap: 8px; align-items: center; }
@@ -310,14 +411,14 @@ input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--color-ink); 
 
 /* ── SOLVE / TRAIN / HELP SHELLS ──────────────────────────────────────────── */
 .solve-shell { display: grid; flex: 1 1 0; min-height: 0; grid-template-columns: minmax(0,1fr); }
-.solve-shell > * { min-width: 0; min-height: 0; overflow-y: auto; }
-.solve-shell > * + * { border-left: var(--rule) solid var(--color-ink); }
+.solve-shell > * { min-width: 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+.solve-shell > * + * { border-left: var(--rule) solid var(--color-line); }
 @media (min-width: 1100px) { .solve-shell { grid-template-columns: 380px minmax(0,1fr); } }
 @media (min-width: 1500px) { .solve-shell { grid-template-columns: 380px minmax(0,1fr) 400px; } }
 
 .train-shell { display: grid; flex: 1 1 0; min-height: 0; grid-template-columns: minmax(0,1fr); }
 .train-shell > * { min-width: 0; min-height: 0; overflow-y: auto; }
-.train-shell > * + * { border-left: var(--rule) solid var(--color-ink); }
+.train-shell > * + * { border-left: var(--rule) solid var(--color-line); }
 @media (min-width: 1280px) { .train-shell { grid-template-columns: minmax(0,1fr) 340px; } }
 @media (min-width: 1700px) { .train-shell { grid-template-columns: minmax(0,1fr) 340px 320px; } }
 
@@ -332,4 +433,18 @@ input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--color-ink); 
      another. `.inspector` is declared before that block and was never affected. */
   .solve-shell, .train-shell, .help-shell { flex: 0 0 auto; }
   .solve-shell > *, .train-shell > *, .help-shell > * { overflow-y: visible; }
+}
+
+/* ── REDUCED MOTION ───────────────────────────────────────────────────────── */
+/* Nothing here carries information in its timing, so all of it can stop. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .slide-rule::after { animation: none; }
+  .btn, .seg > button, .chip { transition: none; }
+  .btn:active:not(:disabled), .seg > button:active:not(:disabled), .chip:active { translate: none; }
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
 }

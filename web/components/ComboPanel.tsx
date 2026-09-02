@@ -1,7 +1,7 @@
 "use client";
 
 import { ComboCards } from "@/components/Card";
-import { Cell, cellOf, comboFreqs, comboRegret } from "@/lib/grid";
+import { Cell, cellOf, comboFreqs, comboRegret, hatched } from "@/lib/grid";
 import type { Combo, NodeAction } from "@/lib/types";
 
 interface Props {
@@ -17,9 +17,9 @@ interface Props {
   freqs: number[];
   player: string;
   /** The solution's `meta().payoff_unit`. Under `"cste"` these EVs are tournament
-   *  equity, not big blinds, and are NOT zero-sum — the footnote below says which. */
+   *  equity, not big blinds, and are NOT zero-sum, the footnote below says which. */
   unit?: "chips" | "cste";
-  /** Jump the grid selection to a cell — wired from the top-regret rows. */
+  /** Jump the grid selection to a cell, wired from the top-regret rows. */
   onPickCell: (c: { row: number; col: number }) => void;
 }
 
@@ -62,7 +62,7 @@ export default function ComboPanel({
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-panel">
       <h2 className="bar bar-strategy">
-        <span style={{ font: "900 22px/1 var(--font-sans)", letterSpacing: "-.03em", textTransform: "none" }}>
+        <span style={{ font: "800 22px/1 var(--font-sans)", letterSpacing: "-.03em", textTransform: "none" }}>
           {cell.label}
         </span>
         <span className="meta">
@@ -72,15 +72,15 @@ export default function ComboPanel({
 
       {cell.noReach && (
         <p
-          className="bg-accent px-2.5 py-1.5 uppercase text-[#101010]"
-          style={{ font: "800 11px/1.3 var(--font-sans)", letterSpacing: ".04em" }}
+          className="bg-accent px-2.5 py-2 uppercase text-accent-ink"
+          style={{ font: "600 10px/1.4 var(--font-condensed)", letterSpacing: ".15em" }}
         >
           Zero reach · frequencies below are the stored strategy, unweighted
         </p>
       )}
 
       <div
-        className="combo-rows border-b-2 border-ink bg-paper-2 px-2.5 py-1.5"
+        className="combo-rows rule-b bg-paper-2 px-2.5 py-1.5"
         style={{ "--nact": actions.length } as React.CSSProperties}
       >
         <span className="label">hand</span>
@@ -88,7 +88,10 @@ export default function ComboPanel({
         <span className="label">strategy</span>
         {actions.map((a, i) => (
           <span key={i} className="label flex items-center justify-end gap-1 truncate" title={a.text}>
-            <span className="h-[5px] w-2.5 shrink-0" style={{ background: colors[i] }} />
+            <span
+              className={`h-2.5 w-2.5 shrink-0 ${hatched(a.label) ? "hatch" : ""}`}
+              style={{ backgroundColor: colors[i] }}
+            />
             {a.label}
           </span>
         ))}
@@ -96,30 +99,17 @@ export default function ComboPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {rows.map(({ slot, combo, freqs: f, ev }, ri) => (
+        {rows.map(({ slot, combo, freqs: f, ev }) => (
           <div
             key={slot}
-            className={`combo-rows h-[26px] px-2.5 hover:bg-[color-mix(in_srgb,var(--color-accent)_22%,transparent)] ${
-              ri % 2 === 1 ? "bg-paper-2" : ""
-            }`}
-            style={{ "--nact": actions.length, borderBottom: "1px solid rgba(16,16,16,.14)" } as React.CSSProperties}
+            className="combo-rows rule-b h-[32px] px-2.5 hover:bg-ink-2"
+            style={{ "--nact": actions.length } as React.CSSProperties}
           >
-            <ComboCards cards={combo.cards} className="text-[13px]" />
+            <ComboCards cards={combo.cards} variant="stock" size={10} />
             <span className="num text-right text-muted">{combo.weight.toFixed(3)}</span>
-            <span
-              className="flex h-[18px] overflow-hidden bg-paper-2"
-              style={{ outline: "1px solid var(--color-ink)", outlineOffset: "-1px" }}
-            >
-              {f.map((v, a) => (
-                <span
-                  key={a}
-                  style={{ width: `${v * 100}%`, background: colors[a] }}
-                  title={`${actions[a].text}: ${(v * 100).toFixed(1)}%`}
-                />
-              ))}
-            </span>
+            <MixBar freqs={f} actions={actions} colors={colors} />
             {/* Neutral ink, not the action colour: the light ramp ends fail AA as
-                11px text on paper — the head-row swatch carries the colour coding. */}
+                11px text on paper, the head-row swatch carries the colour coding. */}
             {actions.map((a, i) => {
               const v = actionEvs[i]?.[slot] ?? NaN;
               return (
@@ -128,7 +118,7 @@ export default function ComboPanel({
                   className={`num text-right text-[11px] ${Number.isNaN(v) ? "text-dim" : "text-muted"}`}
                   title={`${a.text} EV: ${Number.isNaN(v) ? "no defined EV" : v.toFixed(3)}`}
                 >
-                  {Number.isNaN(v) ? "—" : v.toFixed(2)}
+                  {Number.isNaN(v) ? "–" : v.toFixed(2)}
                 </span>
               );
             })}
@@ -140,24 +130,24 @@ export default function ComboPanel({
                   : undefined
               }
             >
-              {Number.isNaN(ev) ? "—" : ev.toFixed(3)}
+              {Number.isNaN(ev) ? "–" : ev.toFixed(3)}
             </span>
           </div>
         ))}
       </div>
 
-      <div className="border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
+      <div className="rule-t bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
         {unit === "cste"
           ? "EV is tournament equity in CSTE chips, measured against the start of the solve, both players on the solved average strategy. It is not zero-sum: the pair leaks equity to the rest of the table when the hand pushes their stacks apart, and draws equity back from it when the hand pulls them together."
           : "EV is zero-sum net big blinds from the start of the solve, both players on the solved average strategy."}{" "}
-        “—” means the EV is undefined here, not zero.
+        “–” means the EV is undefined here, not zero.
       </div>
     </div>
   );
 }
 
 /**
- * No cell selected: aggregate the whole node instead of asking for a click — the
+ * No cell selected: aggregate the whole node instead of asking for a click, the
  * action EV ladder, then the 20 combos leaving the most chips on the table.
  */
 function NodeOverview({
@@ -210,56 +200,111 @@ function NodeOverview({
         </span>
       </h2>
 
-      <div className="label border-b-2 border-ink bg-paper-2 px-2.5 py-1.5">Action EV ladder</div>
+      <div className="label rule-b bg-paper-2 px-2.5 py-1.5">Action EV ladder</div>
       <div>
-        {ladder.map(({ action, i, freq, mean }, ri) => (
-          <div
-            key={i}
-            className={`flex h-[30px] items-center gap-2.5 px-2.5 ${ri % 2 === 1 ? "bg-paper-2" : ""}`}
-            style={{ borderBottom: "1px solid rgba(16,16,16,.14)" }}
-          >
-            <span className="h-2.5 w-2.5 shrink-0" style={{ background: colors[i] }} />
+        {ladder.map(({ action, i, freq, mean }) => (
+          <div key={i} className="rule-b flex h-[34px] items-center gap-2.5 px-2.5">
+            <span
+              className={`h-3 w-3 shrink-0 ${hatched(action.label) ? "hatch" : ""}`}
+              style={{ backgroundColor: colors[i] }}
+            />
             <span className="num">{action.text}</span>
             <span className="num text-dim">{(freq * 100).toFixed(1)}%</span>
-            <span className="fig fig-3 ml-auto">{Number.isNaN(mean) ? "—" : mean.toFixed(3)}</span>
+            <span className="fig fig-3 ml-auto">{Number.isNaN(mean) ? "–" : mean.toFixed(3)}</span>
           </div>
         ))}
       </div>
 
-      <div className="label border-b-2 border-t-2 border-ink bg-paper-2 px-2.5 py-1.5">
+      <div className="label rule-t rule-b bg-paper-2 px-2.5 py-1.5">
         Top {top.length} by regret
         {undefinedCount > 0 ? ` · ${undefinedCount} combos have no defined regret` : ` · ${regrets.length} combos scored`}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {top.map(({ combo, slot, regret }, ri) => (
+        {top.map(({ combo, slot, regret }) => (
           <button
             key={slot}
             onClick={() => onPickCell(cellOf(combo.cards))}
-            className={`grid h-[26px] w-full grid-cols-[64px_52px_minmax(0,1fr)_74px] items-center gap-x-2 px-2.5 text-left hover:bg-[color-mix(in_srgb,var(--color-accent)_22%,transparent)] ${
-              ri % 2 === 1 ? "bg-paper-2" : ""
-            }`}
-            style={{ borderBottom: "1px solid rgba(16,16,16,.14)" }}
+            className="rule-b grid h-[32px] w-full grid-cols-[64px_52px_minmax(0,1fr)_74px] items-center gap-x-2 px-2.5 text-left hover:bg-ink-2"
             title={`Select ${combo.cards.slice(0, 2)} ${combo.cards.slice(2, 4)} in the grid`}
           >
-            <ComboCards cards={combo.cards} className="text-[13px]" />
+            <ComboCards cards={combo.cards} variant="stock" size={10} />
             <span className="num text-right text-muted">{combo.weight.toFixed(3)}</span>
-            <span
-              className="flex h-[18px] overflow-hidden bg-paper-2"
-              style={{ outline: "1px solid var(--color-ink)", outlineOffset: "-1px" }}
-            >
-              {comboFreqs(strategy, actions.length, n, slot).map((v, a) => (
-                <span key={a} style={{ width: `${v * 100}%`, background: colors[a] }} />
-              ))}
-            </span>
+            <MixBar
+              freqs={comboFreqs(strategy, actions.length, n, slot)}
+              actions={actions}
+              colors={colors}
+            />
             <span className="fig fig-3 text-right text-err">{regret.toFixed(3)}</span>
           </button>
         ))}
       </div>
 
-      <div className="border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
+      <div className="rule-t bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
         Regret is the big blinds a combo leaves on the table by mixing instead of always taking
         its best action. Click a row to open that hand class in the grid.
       </div>
     </div>
+  );
+}
+
+/**
+ * Stock white or plate ink, whichever survives on this band. The band colours are
+ * an action ramp, not a fixed pair, so the number's ink is picked from the fill's
+ * own relative luminance rather than guessed: the crossover sits at L .19, where
+ * both choices measure 4.4:1, and every real ramp entry lands well clear of it.
+ */
+function bandInk(hex: string): string {
+  const v = parseInt(hex.slice(1), 16);
+  const lin = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const l = 0.2126 * lin((v >> 16) & 255) + 0.7152 * lin((v >> 8) & 255) + 0.0722 * lin(v & 255);
+  // Whichever of the two inks actually wins on THIS band, not a fixed crossover: a
+  // number printed on the mid-lightness action inks (bet #e8202f L .184, fold #3b6bff
+  // L .187) clears 4.5:1 against black and only 4.0:1 against stock, so a crossover
+  // tuned for the ends of the ramp fails in the middle. Black rather than the deepest
+  // token well (#0e110d, 4.24:1 on bet) because that is the one overprint that clears
+  // 4.5:1 on all eight action inks. Measured min across the ramp: 4.68:1.
+  const dark = (l + 0.05) / 0.05;
+  const stock = 0.9301 / (l + 0.05);
+  return dark >= stock ? "#000000" : "#f0f3f0";
+}
+
+/** One combo's action mix: the bands carry their own frequency, printed inside. */
+function MixBar({
+  freqs,
+  actions,
+  colors,
+}: {
+  freqs: number[];
+  actions: NodeAction[];
+  colors: string[];
+}) {
+  return (
+    <span className="flex h-[20px] overflow-hidden bg-ink-2">
+      {freqs.map((v, a) => (
+        <span
+          key={a}
+          /* `.hatch` is a background-IMAGE, so the ink under it is a background-COLOR. */
+          className={`relative ${hatched(actions[a]?.label ?? "") ? "hatch" : ""}`}
+          style={{ width: `${v * 100}%`, backgroundColor: colors[a] }}
+          title={`${actions[a]?.text ?? a}: ${(v * 100).toFixed(1)}%`}
+        >
+          {v >= 0.18 && (
+            <span
+              className="absolute inset-0 grid place-items-center"
+              style={{
+                font: "700 9.5px/1 var(--font-mono)",
+                letterSpacing: "-.03em",
+                color: bandInk(colors[a] ?? "#000000"),
+              }}
+            >
+              {(v * 100).toFixed(0)}
+            </span>
+          )}
+        </span>
+      ))}
+    </span>
   );
 }

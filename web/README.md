@@ -6,8 +6,13 @@ Tailwind 4. No UI kit, no state library — plain React state and props.
 ```
 wasm-pack build ../wasm --target web --out-dir pkg   # from the repo root: wasm-pack build wasm --target web --out-dir pkg
 npm install
+cp .env.example .env.local      # optional: only if this is not deploying to the public origin
 npm run dev
 ```
+
+`.env.example` holds the one variable this app reads, `APP_URL`. It is the absolute
+origin `app/robots.ts` and `app/sitemap.ts` write into `robots.txt` and `sitemap.xml`;
+a fork on its own domain wants it set, everyone else can leave it alone.
 
 ## How the wasm is wired
 

@@ -57,8 +57,8 @@ export interface Cell {
   slots: number[];
   /**
    * True when the cell has live combos but zero total reach. The frequencies are
-   * then an unweighted mean over those combos — what the strategy *says*, not what
-   * the range actually does here — and the cell is rendered muted.
+   * then an unweighted mean over those combos, what the strategy *says*, not what
+   * the range actually does here, and the cell is rendered muted.
    */
   noReach: boolean;
 }
@@ -122,7 +122,7 @@ export function buildGrid(
 export interface CellEv {
   /**
    * Weighted-average EV per action across this cell's live combos, weighted by
-   * `combo_ev_weights` (reach x compatible opponent mass) — the only weight that averages
+   * `combo_ev_weights` (reach x compatible opponent mass), the only weight that averages
    * EVs correctly. `NaN` when no combo in the cell has a defined EV for that action (the
    * opponent's range can't reach here compatibly).
    */
@@ -131,13 +131,13 @@ export interface CellEv {
   bestAction: number;
   /**
    * Gap between the best and next-best `actionEvs`, in chips. `Infinity` when fewer than
-   * two actions have a defined EV (nothing to be indifferent between — bestAction is
+   * two actions have a defined EV (nothing to be indifferent between, bestAction is
    * unambiguous). `NaN` when the cell has no EV data.
    */
   margin: number;
   /**
    * Weighted average, per combo, of (that combo's best action EV − its actual EV under
-   * the solved mixed strategy) — the chips left on the table by not always taking the
+   * the solved mixed strategy), the chips left on the table by not always taking the
    * best action. Always >= 0. A combo only contributes when every action's EV is defined
    * for it; `NaN` when no combo in the cell qualifies.
    */
@@ -147,15 +147,15 @@ export interface CellEv {
 /**
  * Per-cell action EVs and regret, for the "ev"/"regret" grid modes.
  *
- * `actionEvs[a]` is `combo_evs()` read at action `a`'s child node — the standard CFR
- * counterfactual value of taking that action — indexed by the same combo slot as
+ * `actionEvs[a]` is `combo_evs()` read at action `a`'s child node, the standard CFR
+ * counterfactual value of taking that action, indexed by the same combo slot as
  * `combos`/`strategy` (action edges don't deal a card, so the child shares the parent's
  * live-combo list and ordering exactly; see `SolutionHandle::build`/`live_combos` in
  * engine/src/nlhe.rs).
  *
  * `evWeights` is `combo_ev_weights` read at THIS node (not `combos[i].weight`, which is
  * reach alone): averaging EVs needs reach x compatible opponent mass, or a cell's number
- * doesn't aggregate up to the range EV the engine reports — see
+ * doesn't aggregate up to the range EV the engine reports, see
  * `SolutionHandle::combo_ev_weights`'s doc comment. The parent's weights are the right
  * ones for every action child: an action deals no card, so the opponent's reach and each
  * combo's compatible mass are unchanged, and a counterfactual value is by definition
@@ -177,7 +177,7 @@ export function buildEvGrid(
 
     for (const i of cell.slots) {
       // A zero-reach cell has zero EV weight too, so fall back to an unweighted mean
-      // there — the same "what the strategy says, not what the range does" reading
+      // there, the same "what the strategy says, not what the range does" reading
       // `buildGrid` gives those cells.
       const w = cell.noReach ? 1 : evWeights[i];
       let allDefined = true;
@@ -377,13 +377,41 @@ export function buildRunoutHotness(
 }
 
 // --- Colour scheme -------------------------------------------------------
-// Aggression reds get darker as the sizing grows; passive actions are green
-// (check light, call dark); folding is a cold slate. Consistent everywhere.
+// FOUR PLATES action inks. Bet is the heart-lit red, check the club-lit green,
+// fold the diamond-lit blue: the three inks named in the ink key, and the same
+// three the site prints. A bet ramp survives because sizing has to be readable,
+// but every step stays unmistakably the bet ink, darkening as the sizing grows.
+// A lone bet, the common case, gets BET_RAMP[0], which IS --color-bet.
+//
+// THREE steps, not five. The cell plate is #1E221C and the proportion-bar track is
+// #262B24, and the whole dark-red gamut only spans 3.64:1 above that plate, so a
+// five-step ramp put its last two steps at 1.59:1 and 1.20:1 on the plate and 1.08:1
+// on the track: a full-frequency largest-sizing bet was indistinguishable from an
+// empty bar. Three steps fit: 3.64:1, 2.95:1 and 2.33:1 on the plate, 2.06:1 or
+// better on the track, with the same 1.2-1.3:1 between neighbours the five had.
+const BET_RAMP = ["#e8202f", "#cd1727", "#b2101f"];
+const FOLD = "#3b6bff";
+const CHECK = "#00a95c";
+const CALL = "#007a45";
 
-const BET_RAMP = ["#e2705c", "#d1462f", "#b02a16", "#8f1a0d", "#6e1209"];
-const FOLD = "#48566f";
-const CHECK = "#54ad72";
-const CALL = "#2b7c50";
+/** The three named action inks, for legends that want one ink by name rather than a
+ *  position in ACTION_INKS (whose length follows the bet ramp and has changed once). */
+export const INK = { bet: BET_RAMP[0], check: CHECK, call: CALL, fold: FOLD };
+
+/** The palette as a legend needs to read it: ink, and what that ink means. */
+export const ACTION_INKS: [string, string][] = [
+  [BET_RAMP[0], "bet or raise \u00b7 smallest sizing"],
+  [BET_RAMP[1], "bet or raise \u00b7 middle sizing"],
+  [BET_RAMP[2], "bet or raise \u00b7 largest sizing, and runout hotness, cold end"],
+  [CHECK, "check"],
+  [CALL, "call \u00b7 runout hotness, hot end"],
+  [FOLD, "fold"],
+];
+
+/** Check and call carry the 45 degree overprint, so the mix reads without colour. */
+export function hatched(label: string): boolean {
+  return label === "check" || label === "call";
+}
 
 export function actionColors(actions: NodeAction[]): string[] {
   const aggressive: number[] = [];
@@ -419,59 +447,75 @@ function rgbToHex(r: number, g: number, b: number): string {
   return `#${h(r)}${h(g)}${h(b)}`;
 }
 
-/** Blends `hex` toward paper ivory. `t=1` is the full color, `t=0` is #f4f1e8. */
-export function blendToWhite(hex: string, t: number): string {
+/** The raised plate every cell, chip and runout square is printed on. */
+const PLATE: [number, number, number] = [30, 34, 28]; // #1E221C, --color-raised
+
+/**
+ * Mixes `hex` into the plate. `t=1` is the full ink, `t=0` is the bare plate.
+ * Nothing in this identity fades toward a light stock: an ink weakens by sinking
+ * back into the ground it is printed on.
+ */
+export function fadeToPlate(hex: string, t: number): string {
   const c = Math.max(0, Math.min(1, t));
   const [r, g, b] = hexToRgb(hex);
-  const P: [number, number, number] = [244, 241, 232]; // #F4F1E8 — never 255
-  return rgbToHex(P[0] + (r - P[0]) * c, P[1] + (g - P[1]) * c, P[2] + (b - P[2]) * c);
+  return rgbToHex(
+    PLATE[0] + (r - PLATE[0]) * c,
+    PLATE[1] + (g - PLATE[1]) * c,
+    PLATE[2] + (b - PLATE[2]) * c,
+  );
 }
 
 /**
- * Color for the "ev" grid mode: the best action's own color, faded toward white as its
- * lead over the next-best action shrinks relative to `maxMargin` (the largest margin
- * anywhere on this grid) — a clear-best hand reads at full saturation, an indifferent one
- * reads near-white. `null` when the cell has no EV data (nothing to paint).
+ * Every single-ink ramp on the page runs between these two mixes. The ceiling is
+ * not 1: past about 0.65 the stock-white cell label drops under 4.5:1 on the
+ * lightest inks (check green, diamond blue), so the ink stays mixed with the plate.
+ */
+export const RAMP_LO = 0.12;
+export const RAMP_HI = 0.65;
+
+/** Maps a 0..1 strength onto the legible part of the ramp. */
+export function rampMix(hex: string, t: number): string {
+  const c = Math.max(0, Math.min(1, t));
+  return fadeToPlate(hex, RAMP_LO + (RAMP_HI - RAMP_LO) * c);
+}
+
+/**
+ * Color for the "ev" grid mode: the best action's own ink, sinking back into the plate
+ * as its lead over the next-best action shrinks relative to `maxMargin` (the largest
+ * margin anywhere on this grid). A clear-best hand prints at full strength, an
+ * indifferent one nearly disappears. `null` when the cell has no EV data.
  */
 export function evColor(cell: CellEv, colors: string[], maxMargin: number): string | null {
   if (cell.bestAction < 0) return null;
   const confidence =
     cell.margin === Infinity ? 1 : maxMargin > 0 ? Math.min(1, cell.margin / maxMargin) : 1;
-  return blendToWhite(colors[cell.bestAction], confidence);
+  return rampMix(colors[cell.bestAction], confidence);
 }
 
-// Ivory at zero regret, through amber, to a deep red at the grid's worst regret.
-const REGRET_RAMP = ["#f4f1e8", "#f6d199", "#e0883d", "#b3401a", "#6e1508"];
+/** Heart-lit red: the ink regret is measured in. The same value as --color-err. */
+const REGRET_INK = "#ff4d5a";
 
 /**
- * Color for the "regret" grid mode: ivory at zero EV lost, ramping to deep red as
- * `regret / maxRegret` (the worst regret anywhere on this grid) approaches 1.
- * `null` when the cell has no regret data.
+ * Color for the "regret" grid mode: bare plate at zero EV lost, ramping up the
+ * heart-lit red as `regret / maxRegret` (the worst regret anywhere on this grid)
+ * approaches 1. `null` when the cell has no regret data.
  */
 export function regretColor(regret: number, maxRegret: number): string | null {
   if (Number.isNaN(regret)) return null;
   const t = maxRegret > 0 ? Math.max(0, Math.min(1, regret / maxRegret)) : 0;
-  const span = REGRET_RAMP.length - 1;
-  const pos = t * span;
-  const lo = Math.floor(pos);
-  const hi = Math.min(lo + 1, span);
-  const frac = pos - lo;
-  const [r1, g1, b1] = hexToRgb(REGRET_RAMP[lo]);
-  const [r2, g2, b2] = hexToRgb(REGRET_RAMP[hi]);
-  const mix = (a: number, b: number) => a + (b - a) * frac;
-  return rgbToHex(mix(r1, r2), mix(g1, g2), mix(b1, b2));
+  return rampMix(REGRET_INK, t);
 }
 
 /**
- * Color for one runout in the hotness overlay: white at the across-runouts mean EV,
- * blending toward green as hero EV rises above it and red as it falls below, saturating
+ * Color for one runout in the hotness overlay: bare plate at the across-runouts mean EV,
+ * rising into green as hero EV climbs above it and into red as it falls below, saturating
  * at `maxDeviation` (the largest `|deviation|` anywhere in this set of runouts). `null`
  * when `deviation` is `NaN` (no defined EV there) so the caller leaves the card plain.
  */
 export function hotnessColor(deviation: number, maxDeviation: number): string | null {
   if (Number.isNaN(deviation)) return null;
   const t = maxDeviation > 0 ? Math.min(1, Math.abs(deviation) / maxDeviation) : 0;
-  return blendToWhite(deviation >= 0 ? CALL : BET_RAMP[2], t);
+  return rampMix(deviation >= 0 ? CALL : BET_RAMP[2], t);
 }
 
 /**
@@ -504,9 +548,9 @@ export function actionShort(a: NodeAction): string {
 }
 
 export const fmtChips = (v: number) =>
-  Number.isFinite(v) ? v.toFixed(2) : "—";
+  Number.isFinite(v) ? v.toFixed(2) : "–";
 export const fmtPct = (v: number) =>
-  Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : "—";
+  Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : "–";
 export const fmtBytes = (b: number) => {
   if (b < 1024) return `${b} B`;
   if (b < 1024 ** 2) return `${(b / 1024).toFixed(1)} KB`;

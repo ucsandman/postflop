@@ -1,5 +1,5 @@
 // TypeScript shapes for the JSON strings the wasm API returns.
-// Every field here was read off a real `solver_wasm` response, not guessed —
+// Every field here was read off a real `solver_wasm` response, not guessed,
 // see the doc comments in vendor/solver-wasm/solver_wasm.d.ts for the contract.
 
 export type ActionLabel = "fold" | "check" | "call" | "bet" | "raise" | "allin";
@@ -47,7 +47,7 @@ export interface NodeInfo {
 export interface Combo {
   /** Canonical 1326-combo index. */
   index: number;
-  /** e.g. `"4cAc"` — NOT sorted by rank, parse both cards. */
+  /** e.g. `"4cAc"`, NOT sorted by rank, parse both cards. */
   cards: string;
   /** Reach at this node: range weight x own average-strategy probs on the path. */
   weight: number;
@@ -125,7 +125,7 @@ export interface TreeStats {
   solution_strategy_bytes: number;
   chance_map_bytes: number;
   total_bytes: number;
-  /** `[[locks]]` entries that resolved against the tree — the cheapest lock validation. */
+  /** `[[locks]]` entries that resolved against the tree, the cheapest lock validation. */
   locks: number;
 }
 

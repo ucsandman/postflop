@@ -19,7 +19,10 @@ import {
   buildGrid,
   buildRunoutHotness,
   cellLabel,
+  hatched,
+  rampMix,
   rangeFreqs,
+  regretColor,
 } from "@/lib/grid";
 import { PRESETS, actionToken, lineOf, spotKey, type NodeLock, type SpotContext } from "@/lib/config";
 import type { Combo, Meta, NodeAction, NodeInfo, PathStep, RootEvs } from "@/lib/types";
@@ -50,7 +53,6 @@ type View =
       /** Opponent's own next decision node, for the blocker panel; null if none is reachable. */
       oppActionNode: NodeInfo | null;
       oppActionStrategy: Float32Array | null;
-      oppActionColors: string[];
     };
 
 /**
@@ -103,11 +105,11 @@ const SAMPLES = [
 export default function Workbench() {
   const [handle, setHandle] = useState<SolutionHandle | null>(null);
   /** The chipEV twin of an ICM solve: the same spot, same iterations, `[tournament]`
-   *  stripped. Null for a chip solve, a loaded file or a sample — nothing else in the
+   *  stripped. Null for a chip solve, a loaded file or a sample: nothing else in the
    *  app produces a matched pair. */
   const [chipTwin, setChipTwin] = useState<SolutionHandle | null>(null);
   const [source, setSource] = useState<string>("");
-  /** Table context of the loaded spot — positions and modeled player profiles. Known for
+  /** Table context of the loaded spot: positions and modeled player profiles. Known for
    *  samples and browser solves; `null` for an opened file, which carries no story. */
   const [spotContext, setSpotContext] = useState<SpotContext | null>(null);
   const [nodeId, setNodeId] = useState(0);
@@ -124,13 +126,6 @@ export default function Workbench() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [booted, setBooted] = useState(false);
-  // Client-only component (window is read in initializers above), so the boot
-  // script's dataset.theme is readable here without an effect.
-  const [theme, setTheme] = useState<"light" | "dark">(() =>
-    typeof document !== "undefined" && document.documentElement.dataset.theme === "dark"
-      ? "dark"
-      : "light",
-  );
   const wide = useWide();
   /**
    * Nodes the next solve should freeze. Session state, not part of the persisted solve
@@ -147,7 +142,7 @@ export default function Workbench() {
   const restoredFromUrl = useRef(false);
   // Snapshot the URL exactly once, in an effect rather than during render (refs can't be
   // read or written while rendering) and before the sync effect below gets a chance to
-  // rewrite it — a bookmarked deep link (?node=42&combo=3,5) has to survive being read by
+  // rewrite it: a bookmarked deep link (?node=42&combo=3,5) has to survive being read by
   // adopt() even though that effect will have already replaced the address bar by then.
   const initialParams = useRef<URLSearchParams | null>(null);
   useEffect(() => {
@@ -158,14 +153,6 @@ export default function Workbench() {
     }
   }, []);
 
-  const setThemeAndPersist = (t: "light" | "dark") => {
-    setTheme(t);
-    document.documentElement.dataset.theme = t;
-    try {
-      localStorage.setItem("pf-theme", t);
-    } catch {}
-  };
-
   const adopt = useCallback((json: string, label: string, keepTab = false, chipJson?: string) => {
     setError(null);
     setLoading(true);
@@ -174,7 +161,7 @@ export default function Workbench() {
         // Structure-guard + strategy-width validation happen here, not on a re-solve.
         const next = wasm.load_solution(json);
         // Free the old handle OUTSIDE the state updater. A `setState` updater has to be
-        // pure — React replays it (StrictMode double-invoke, render restarts), and a
+        // pure: React replays it (StrictMode double-invoke, render restarts), and a
         // second `free()` on the same pointer traps with "null pointer passed to rust".
         const previous = live.current;
         live.current = next;
@@ -241,6 +228,8 @@ export default function Workbench() {
 
   // Auto-load the turn fixture on mount: the screen boots into real solver output
   // instead of an empty void. keepTab: a `?tab=solve` deep link must not be stolen.
+  // This file is the page's boot payload, so scripts/sync-wasm.mjs rounds its floats
+  // on the way into public/fixtures: it is 88% digits nobody can read.
   useEffect(() => {
     // Boot fetch on mount; loadSample's setState calls run in the async continuation.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -327,13 +316,12 @@ export default function Workbench() {
       cells,
       evCells: buildEvGrid(cells, evWeights, strategy, actionEvs, numActions),
       actionEvs,
-      // Opponent grid is reach density only — they are not the one choosing here.
+      // Opponent grid is reach density only: they are not the one choosing here.
       oppCells: buildGrid(oppCombos, new Float32Array(0), 0),
       oppCombos,
       freqs: rangeFreqs(combos, strategy, numActions),
       oppActionNode,
       oppActionStrategy,
-      oppActionColors: actionColors(oppActionNode?.actions ?? []),
     };
   }, [handle, nodeId]);
 
@@ -341,7 +329,7 @@ export default function Workbench() {
    * The two strategies at the node on screen, as range-level action frequencies.
    *
    * Stripping `[tournament]` changes payoffs, never the tree, so the twin has the same
-   * node ids, acting players and action lists — but that is an argument, not a promise,
+   * node ids, acting players and action lists, but that is an argument, not a promise,
    * so the widths are checked before the two are put beside each other and a mismatch
    * renders nothing rather than a wrong delta.
    */
@@ -429,7 +417,7 @@ export default function Workbench() {
       const parent = JSON.parse(handle.node(last.from)) as NodeInfo;
       if (!parent.valid_cards) return;
       // Step in the runout grid's own visual order (suit rows s/h/d/c, ranks A→2),
-      // not the engine's index order — ArrowRight should move right along the row.
+      // not the engine's index order: ArrowRight should move right along the row.
       const gridPos = (card: string) =>
         "shdc".indexOf(card[1]) * 13 + "AKQJT98765432".indexOf(card[0]);
       const ordered = [...parent.valid_cards].sort((a, b) => gridPos(a.card) - gridPos(b.card));
@@ -485,7 +473,7 @@ export default function Workbench() {
   const tourOffered = useRef(false);
 
   // Offer the tour once per browser (localStorage), or on demand via ?tour=1.
-  // Never hijack a deep link into a specific node, combo, or non-default tab —
+  // Never hijack a deep link into a specific node, combo, or non-default tab,
   // and node=0 doesn't count as one, because the URL-sync effect writes it into
   // every visitor's address bar seconds after boot.
   useEffect(() => {
@@ -604,7 +592,7 @@ export default function Workbench() {
       id: "stats",
       target: '[data-tour="statband"]',
       title: "The spot's vitals",
-      body: "Board, pot, stacks, and each player's EV at the root. The yellow figure is exploitability, measured by a separate best-response calculator at every report, never estimated from regret. On a tournament solve it becomes NashConv and the band gains bubble factors and the payout ladder.",
+      body: "Board, pot, stacks, and each player's EV at the root. The club-green block is exploitability, measured by a separate best-response calculator at every report, never estimated from regret. On a tournament solve it becomes NashConv and the band gains bubble factors and the payout ladder.",
       prepare: () => {
         setTab("inspect");
         goRoot();
@@ -634,7 +622,7 @@ export default function Workbench() {
       id: "grid",
       target: '[data-tour="grid-strategy"]',
       title: "169 hand classes",
-      body: "Each cell splits by action: slate folds, green checks and calls, red bets, darker red for bigger sizings. Faded cells have no reach at this node; dark cells have no live combos on this board.",
+      body: "Each cell splits by action: red bets, green checks and calls under a 45 degree hatch, blue folds, and a darker red for a bigger sizing. Faded cells have no reach at this node; dark cells have no live combos on this board.",
       prepare: () => {
         setTab("inspect");
         goRoot();
@@ -740,48 +728,52 @@ export default function Workbench() {
 
   return (
     <div className="app">
+      <a href="#main" className="skip">
+        Skip to the solver
+      </a>
       {/* ── RAIL ─────────────────────────────────────────────────────────── */}
       <aside className="rail" data-tour="rail">
         <a
           href="https://postflop.vercel.app"
-          className="block border-b-2 border-[#2a2a26] px-3 py-3.5 max-[999px]:flex max-[999px]:items-center max-[999px]:border-b-0 max-[999px]:py-0"
+          className="rule-b block px-3 py-3.5 max-[999px]:flex max-[999px]:items-center max-[999px]:border-b-0 max-[999px]:py-0"
         >
-          <div
-            className="text-text-inv"
-            style={{ font: "900 20px/1 var(--font-sans)", letterSpacing: "-.03em" }}
-          >
-            <span className="text-card-s-inv">♠</span>
-            <span className="max-[1399px]:hidden min-[1000px]:max-[1399px]:hidden"> POSTFLOP</span>
-            <span className="hidden min-[460px]:max-[999px]:inline"> POSTFLOP</span>
+          <div className="flex items-center gap-2.5">
+            <PlateChip />
+            <span
+              className="text-text"
+              style={{ font: "800 19px/1 var(--font-sans)", letterSpacing: "-.03em" }}
+            >
+              <span className="max-[1399px]:hidden min-[1000px]:max-[1399px]:hidden">postflop</span>
+              <span className="hidden min-[460px]:max-[999px]:inline">postflop</span>
+            </span>
           </div>
-          <div className="mt-1.5 h-[3px] w-full bg-accent max-[1399px]:hidden min-[1000px]:max-[1399px]:hidden" />
-          <div className="label mt-1 text-[9px] max-[1399px]:hidden">HU NLHE · CHIPEV &amp; ICM</div>
+          <div className="label mt-2 text-[9px] max-[1399px]:hidden">HU NLHE · chipEV &amp; ICM</div>
         </a>
 
         <nav className="flex flex-col max-[999px]:flex-1 max-[999px]:flex-row">
           {(
             [
-              ["inspect", "Inspector", "▦"],
-              ["train", "Train", "◎"],
-              ["solve", "Solve", "⚙"],
-              ["help", "About", "?"],
-            ] as [Tab, string, string][]
+              ["inspect", "Inspector", "inspect"],
+              ["train", "Train", "train"],
+              ["solve", "Solve", "solve"],
+              ["help", "About", "help"],
+            ] as [Tab, string, IconName][]
           ).map(([id, label, glyph]) => (
             <button
               key={id}
               onClick={() => setTab(id)}
               aria-pressed={tab === id}
               aria-label={label}
-              className={`h-11 border-b-2 border-[#2a2a26] px-3 text-left uppercase max-[999px]:flex-1 max-[999px]:border-b-0 max-[999px]:text-center ${
+              className={`h-11 rule-b px-3 text-left uppercase max-[999px]:flex-1 max-[999px]:border-b-0 max-[999px]:text-center ${
                 tab === id
-                  ? "bg-accent text-[#101010] shadow-[inset_6px_0_0_var(--color-live)]"
-                  : "bg-[#101010] text-dim-inv hover:bg-[#2a2a26] hover:text-text-inv"
+                  ? "bg-ink text-paper"
+                  : "bg-paper-2 text-dim hover:bg-raised hover:text-text"
               }`}
-              style={{ font: "800 12px/2.8 var(--font-sans)", letterSpacing: ".06em" }}
+              style={{ font: "600 11px/2.8 var(--font-condensed)", letterSpacing: ".15em" }}
             >
               <span aria-hidden className="min-[1000px]:max-[1399px]:hidden">{label}</span>
               <span aria-hidden className="hidden min-[1000px]:max-[1399px]:inline">
-                {glyph}
+                <Ico name={glyph} />
               </span>
             </button>
           ))}
@@ -792,14 +784,14 @@ export default function Workbench() {
             disabled={!handle}
             onClick={() => setTour(0)}
             aria-label="Start the guided tour"
-            className="hidden h-11 w-12 flex-none bg-[#101010] text-center text-dim-inv hover:bg-[#2a2a26] hover:text-text-inv disabled:opacity-40 max-[999px]:block"
-            style={{ font: "800 14px/2.8 var(--font-sans)" }}
+            title="A two-minute walk through every panel of this workbench"
+            className="hidden w-12 flex-none place-items-center self-stretch bg-paper-2 text-dim hover:bg-raised hover:text-text disabled:opacity-40 max-[999px]:grid"
           >
-            ➤
+            <Ico name="tour" />
           </button>
         </nav>
 
-        <div className="border-b-2 border-[#2a2a26] max-[999px]:hidden min-[1000px]:max-[1399px]:hidden">
+        <div className="rule-b max-[999px]:hidden min-[1000px]:max-[1399px]:hidden">
           {loaded && meta ? (
             <>
               <div className="bar">LOADED</div>
@@ -822,7 +814,7 @@ export default function Workbench() {
                 <div className="label mb-1 min-[1000px]:max-[1399px]:hidden">
                   {meta.payoff_unit === "cste" ? "NASHCONV" : "EXPLOITABILITY"}
                 </div>
-                <div className="w-full bg-accent px-2 py-1.5 text-[#101010]">
+                <div className="w-full bg-accent px-2 py-1.5 text-accent-ink">
                   <span className="fig fig-2">{meta.exploitability_pct_of_pot.toFixed(4)}%</span>
                 </div>
               </div>
@@ -835,8 +827,7 @@ export default function Workbench() {
                   data-testid={`sample-${s.file}`}
                   onClick={() => loadSample(s.file, s.name)}
                   title={s.detail}
-                  className="btn-inv mb-2 h-[34px] w-full border-2"
-                  style={{ font: "800 11px/1 var(--font-sans)", letterSpacing: ".06em", textTransform: "uppercase" }}
+                  className="btn mb-2 h-[34px] w-full"
                 >
                   {s.name}
                 </button>
@@ -845,28 +836,30 @@ export default function Workbench() {
           )}
         </div>
 
-        <div className="mt-auto max-[999px]:mt-0 max-[999px]:hidden">
+        <div className="mt-auto shrink-0 max-[999px]:mt-0 max-[999px]:hidden">
           <button
             data-testid="tour-button"
             disabled={!handle}
             onClick={() => setTour(0)}
             aria-label="Start the guided tour"
             title="A two-minute walk through every panel of this workbench"
-            className="btn-inv block h-[34px] w-full border-0 border-t-2 border-[#2a2a26] uppercase"
-            style={{ font: "800 11px/1 var(--font-sans)", letterSpacing: ".06em" }}
+            className="btn btn-inv rule-t block h-[34px] w-full border-0"
           >
             <span aria-hidden className="min-[1000px]:max-[1399px]:hidden">Guided tour</span>
-            <span aria-hidden className="hidden min-[1000px]:max-[1399px]:inline">➤</span>
+            <span aria-hidden className="hidden min-[1000px]:max-[1399px]:inline">
+              <Ico name="tour" />
+            </span>
           </button>
           <button
             onClick={() => fileInput.current?.click()}
             aria-label="Open a solution file"
-            className="btn-inv block h-[34px] w-full border-0 border-t-2 border-[#2a2a26] uppercase"
-            style={{ font: "800 11px/1 var(--font-sans)", letterSpacing: ".06em" }}
+            className="btn btn-inv rule-t block h-[34px] w-full border-0"
             title="Open a solution file written by the solver CLI or exported from this page"
           >
             <span aria-hidden className="min-[1000px]:max-[1399px]:hidden">Open file…</span>
-            <span aria-hidden className="hidden min-[1000px]:max-[1399px]:inline">⤓</span>
+            <span aria-hidden className="hidden min-[1000px]:max-[1399px]:inline">
+              <Ico name="open" />
+            </span>
           </button>
           <button
             data-testid="export"
@@ -874,11 +867,12 @@ export default function Workbench() {
             onClick={exportJson}
             aria-label="Export solution as JSON"
             title="Export the loaded solution as a JSON file"
-            className="btn-inv block h-[34px] w-full border-0 border-t-2 border-[#2a2a26] uppercase"
-            style={{ font: "800 11px/1 var(--font-sans)", letterSpacing: ".06em" }}
+            className="btn btn-inv rule-t block h-[34px] w-full border-0"
           >
             <span aria-hidden className="min-[1000px]:max-[1399px]:hidden">Export JSON</span>
-            <span aria-hidden className="hidden min-[1000px]:max-[1399px]:inline">⤒</span>
+            <span aria-hidden className="hidden min-[1000px]:max-[1399px]:inline">
+              <Ico name="export" />
+            </span>
           </button>
           {locks.length > 0 && (
             <button
@@ -886,28 +880,42 @@ export default function Workbench() {
               onClick={() => setTab("solve")}
               aria-label={`${locks.length} node locks pending, review on the Solve tab`}
               title="Review the pending locks on the Solve tab and re-solve"
-              className="btn-inv block h-[34px] w-full border-0 border-t-2 border-[#2a2a26] uppercase"
-              style={{ font: "800 11px/1 var(--font-sans)", letterSpacing: ".06em" }}
+              className="btn btn-inv rule-t block h-[34px] w-full border-0"
             >
               <span aria-hidden className="min-[1000px]:max-[1399px]:hidden">{locks.length} locks pending →</span>
               <span aria-hidden className="hidden min-[1000px]:max-[1399px]:inline">{locks.length}</span>
             </button>
           )}
-          <div className="seg on-ink border-t-2 border-[#2a2a26]" role="group" aria-label="theme">
-            <button
-              aria-pressed={theme === "light"}
-              onClick={() => setThemeAndPersist("light")}
-              className="h-[30px] flex-1 border-0"
-            >
-              ☀<span className="min-[1000px]:max-[1399px]:hidden"> BONE</span>
-            </button>
-            <button
-              aria-pressed={theme === "dark"}
-              onClick={() => setThemeAndPersist("dark")}
-              className="h-[30px] flex-1 border-0"
-            >
-              ☾<span className="min-[1000px]:max-[1399px]:hidden"> INK</span>
-            </button>
+          {/* The law of the palette, pinned to the foot of the rail so it travels
+              with the tool exactly as it stands in the site hero. */}
+          <div className="ink-key max-[1399px]:hidden">
+            <p className="label mb-2.5">Ink key</p>
+            <div className="row">
+              <span className="k">
+                <b style={{ backgroundColor: "var(--color-bet)" }} />
+                Bet
+              </span>
+              <span className="k">
+                {/* `backgroundColor`, never the `background` shorthand: the shorthand
+                    resets background-image and kills `.hatch`'s overprint. */}
+                <b className="hatch" style={{ backgroundColor: "var(--color-check)" }} />
+                Check
+              </span>
+              <span className="k">
+                <b style={{ backgroundColor: "var(--color-fold)" }} />
+                Fold
+              </span>
+            </div>
+            <div className="row">
+              <span className="pip" style={{ color: "#171a18" }}>♠</span>
+              <span className="pip" style={{ color: "#c8102e" }}>♥</span>
+              <span className="pip" style={{ color: "#1240c4" }}>♦</span>
+              <span className="pip" style={{ color: "#00713f" }}>♣</span>
+            </div>
+            <p>
+              <b>Inside a cell an ink is an action. On a card face it is a suit.</b> Never both in
+              one rectangle. Check carries a 45° hatch, so the mix reads without colour.
+            </p>
           </div>
         </div>
 
@@ -921,12 +929,20 @@ export default function Workbench() {
       </aside>
 
       {/* ── STAGE ────────────────────────────────────────────────────────── */}
-      <div className="stage">
+      <main id="main" className="stage">
+        {/* One h1 per view. The Help tab prints its own, so it is skipped here rather
+            than shipping two. */}
+        {tab !== "help" && <h1 className="sr-only">{TAB_TITLES[tab]}</h1>}
         {error && (
-          <div data-testid="banner" role="alert" className="flex items-center gap-3 border-b-[3px] border-err bg-err-bg px-3.5 py-2">
+          <div
+            data-testid="banner"
+            role="alert"
+            className="flex items-center gap-3 bg-err-bg px-3.5 py-2"
+            style={{ borderBottom: "var(--rule) solid var(--color-err)" }}
+          >
             <span
-              className="bg-ink px-2 py-1 uppercase text-text-inv"
-              style={{ font: "800 10px/1 var(--font-sans)", letterSpacing: ".12em" }}
+              className="bg-ink px-2 py-1 uppercase text-paper"
+              style={{ font: "600 10px/1 var(--font-condensed)", letterSpacing: ".15em" }}
             >
               Could not load
             </span>
@@ -936,11 +952,11 @@ export default function Workbench() {
         {!error && loading && (
           <div
             data-testid="banner"
-            className="relative bg-accent px-3.5 py-1.5 uppercase text-[#101010]"
-            style={{ font: "800 12px/1.4 var(--font-sans)", letterSpacing: ".08em" }}
+            className="relative bg-accent px-3.5 py-1.5 uppercase text-accent-ink"
+            style={{ font: "600 11px/1.6 var(--font-condensed)", letterSpacing: ".15em" }}
           >
             reading…
-            <span className="slide-rule" style={{ background: "var(--color-ink)" }} />
+            <span className="slide-rule" style={{ background: "var(--color-accent-ink)" }} />
           </div>
         )}
 
@@ -1025,8 +1041,8 @@ export default function Workbench() {
             )
           ) : view.kind === "decision" ? (
             <div className="inspector rule-t">
-              {/* Column 1 — strategy grid */}
-              <section className="flex flex-col bg-panel" data-tour="grid-strategy">
+              {/* Column 1: strategy grid */}
+              <section className="col-strategy flex flex-col bg-panel" data-tour="grid-strategy">
                 <div className="bar bar-strategy">
                   {PLAYER_NAMES[view.player]} strategy
                   <span className="meta">
@@ -1042,12 +1058,12 @@ export default function Workbench() {
                           ? "Freeze this node at the strategy shown and solve the rest of the tree around it, on the next solve."
                           : "Walk down from root to lock a node: a deep link lands here without a line."
                       }
-                      className={`border-2 px-2 py-1 text-[10px] uppercase disabled:opacity-40 ${
+                      className={`border px-2 py-1.5 uppercase disabled:opacity-40 ${
                         lockedHere
-                          ? "border-ink bg-accent text-[#101010]"
-                          : "border-dim-inv bg-[#2a2a26] text-text-inv hover:bg-accent hover:text-[#101010]"
+                          ? "border-accent bg-accent text-accent-ink"
+                          : "border-line-strong bg-raised text-text hover:bg-ink hover:text-paper"
                       }`}
-                      style={{ font: "800 10px/1 var(--font-sans)", letterSpacing: ".06em" }}
+                      style={{ font: "600 10px/1 var(--font-condensed)", letterSpacing: ".15em" }}
                     >
                       {lockedHere ? "lock updated" : "lock node"}
                     </button>
@@ -1082,7 +1098,7 @@ export default function Workbench() {
                 />
               </section>
 
-              {/* Column 2 — EV/regret twin grid, ≥1900px only */}
+              {/* Column 2: EV/regret twin grid, ≥1900px only */}
               <section className="col-ev flex-col bg-panel">
                 <div className="bar bar-ev">
                   {gridMode === "regret" ? "Regret surface" : "EV surface"}
@@ -1110,14 +1126,14 @@ export default function Workbench() {
                   />
                 </div>
                 <div
-                  className="mt-auto border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted"
+                  className="mt-auto rule-t bg-paper-2 px-2.5 py-2 text-[11px] text-muted"
                 >
                   {LEGEND_CAPTION[gridMode === "regret" ? "regret" : "ev"]}
                 </div>
               </section>
 
-              {/* Column 3 — combo breakdown */}
-              <section className="flex flex-col bg-panel" data-tour="combo-panel">
+              {/* Column 3: combo breakdown */}
+              <section className="col-combo flex flex-col bg-panel" data-tour="combo-panel">
                 <ComboPanel
                   cell={selectedCell}
                   combos={view.combos}
@@ -1133,7 +1149,7 @@ export default function Workbench() {
                 />
               </section>
 
-              {/* Side column — opponent range + blockers */}
+              {/* Side column: opponent range + blockers */}
               <div className="col-side flex flex-col" data-tour="side">
                 <section className="flex flex-col bg-panel">
                   <div className="bar bar-opp">
@@ -1143,14 +1159,16 @@ export default function Workbench() {
                   <div className="p-2">
                     {/* Width cap: in the 1100–1499px full-width side row this grid would
                         otherwise stretch to half the stage and dwarf the strategy grid. */}
-                    <div style={{ maxWidth: 360 }}>
-                      <RangeGrid cells={view.oppCells} colors={["#48566f"]} mode="reach" size="small" />
+                    <div style={{ maxWidth: 470 }}>
+                      <RangeGrid cells={view.oppCells} colors={["#5b8cff"]} mode="reach" size="small" />
                     </div>
                   </div>
-                  <p className="border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
+                  <p className="rule-t bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
+                    <span className="block max-w-[68ch]">
                     Density is that hand&apos;s reach at this node: range weight times their own
                     strategy along the line. They are not acting here, so there are no action
                     frequencies to show.
+                    </span>
                   </p>
                 </section>
                 <section className="flex min-h-0 flex-1 flex-col rule-t bg-panel">
@@ -1160,7 +1178,6 @@ export default function Workbench() {
                     oppCombos={view.oppCombos}
                     oppStrategy={view.oppActionStrategy}
                     oppActions={view.oppActionNode?.actions ?? []}
-                    oppColors={view.oppActionColors}
                     oppPlayer={PLAYER_NAMES[1 - view.player]}
                   />
                 </section>
@@ -1171,7 +1188,7 @@ export default function Workbench() {
           ) : (
             <TerminalView node={view.node} path={path} onJump={jump} />
           ))}
-      </div>
+      </main>
 
       {/* ── STATUS BAR ───────────────────────────────────────────────────── */}
       <footer className="statusbar on-ink flex items-center overflow-x-auto whitespace-nowrap px-2.5">
@@ -1180,7 +1197,7 @@ export default function Workbench() {
         <StatusSeg label="ITERS" value={meta ? meta.iterations.toLocaleString() : "0"} />
         <StatusSeg
           label={meta?.payoff_unit === "cste" ? "NASHCONV" : "EXPL"}
-          value={meta ? `${meta.exploitability_pct_of_pot.toFixed(4)}%` : "—"}
+          value={meta ? `${meta.exploitability_pct_of_pot.toFixed(4)}%` : "–"}
         />
         <StatusSeg label="NODES" value={meta ? meta.node_count.toLocaleString() : "0"} />
         <StatusSeg label="MODE" value={gridMode.toUpperCase()} />
@@ -1208,13 +1225,126 @@ export default function Workbench() {
   );
 }
 
+/** One visible h1 per view, named for what the view is. */
+const TAB_TITLES: Record<Tab, string> = {
+  inspect: "Inspector",
+  train: "Trainer",
+  solve: "Solve a spot",
+  help: "About this solver",
+};
+
+type IconName = "inspect" | "train" | "solve" | "help" | "tour" | "open" | "export";
+
+/**
+ * The rail's icon tier, which the 64px rail between 1000 and 1399px is the only place
+ * that shows. Drawn here rather than typed as Unicode dingbats: Barlow carries none of
+ * U+25A6 / U+25CE / U+2699, so those fell back per platform and one of them rendered as
+ * a colour emoji. One 16px box, one 1.5px stroke, no fills.
+ */
+const ICON_PATHS: Record<IconName, React.ReactNode> = {
+  inspect: (
+    <>
+      <rect x="2.5" y="2.5" width="11" height="11" />
+      <path d="M2.5 6.2h11M2.5 9.8h11M6.2 2.5v11M9.8 2.5v11" />
+    </>
+  ),
+  train: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <circle cx="8" cy="8" r="1.7" />
+    </>
+  ),
+  solve: (
+    <>
+      <path d="M2.5 5h11M2.5 11h11" />
+      <path d="M6 3.2v3.6M10.5 9.2v3.6" />
+    </>
+  ),
+  help: (
+    <>
+      <path d="M5.7 5.9a2.3 2.3 0 1 1 2.4 3v1" />
+      <path d="M8.1 12.1h.01" strokeLinecap="round" />
+    </>
+  ),
+  tour: (
+    <>
+      <path d="M2.8 8h9.4" />
+      <path d="M8.6 4.4 12.2 8l-3.6 3.6" />
+    </>
+  ),
+  open: (
+    <>
+      <path d="M8 2.6v7.2" />
+      <path d="M5.2 7l2.8 2.8L10.8 7" />
+      <path d="M2.6 13.4h10.8" />
+    </>
+  ),
+  export: (
+    <>
+      <path d="M8 9.8V2.6" />
+      <path d="M5.2 5.4 8 2.6l2.8 2.8" />
+      <path d="M2.6 13.4h10.8" />
+    </>
+  ),
+};
+
+function Ico({ name }: { name: IconName }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 16 16"
+      width={14}
+      height={14}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      className="inline-block align-middle"
+    >
+      {ICON_PATHS[name]}
+    </svg>
+  );
+}
+
+/**
+ * The mark: a 2x2 block of the four plate inks, a printer's registration block and the
+ * four suits at once. It stands in the workbench chrome and nowhere else.
+ */
+function PlateChip({ size = 18 }: { size?: number }) {
+  return (
+    <span
+      aria-hidden
+      className="grid flex-none grid-cols-2 grid-rows-2"
+      style={{ width: size, height: size }}
+    >
+      <i style={{ background: "var(--color-ink-2)" }} />
+      <i style={{ background: "var(--color-card-h)" }} />
+      <i style={{ background: "var(--color-card-d)" }} />
+      <i style={{ background: "var(--color-card-c)" }} />
+    </span>
+  );
+}
+
+/** The action set the empty-state spec sheet documents. Its swatches are painted by
+ *  the real `actionColors` ramp, so the legend cannot drift from the grid. */
+const SPEC_ACTIONS: NodeAction[] = [
+  { label: "bet", text: "bet, smallest sizing", amount_to: 1, percent_of_pot: 25, child: 0 },
+  { label: "bet", text: "bet", amount_to: 2, percent_of_pot: 50, child: 0 },
+  { label: "bet", text: "bet", amount_to: 3, percent_of_pot: 75, child: 0 },
+  { label: "bet", text: "bet", amount_to: 4, percent_of_pot: 125, child: 0 },
+  { label: "bet", text: "bet, largest sizing", amount_to: 5, percent_of_pot: 200, child: 0 },
+  { label: "check", text: "check", amount_to: null, percent_of_pot: null, child: 0 },
+  { label: "call", text: "call", amount_to: null, percent_of_pot: null, child: 0 },
+  { label: "fold", text: "fold", amount_to: null, percent_of_pot: null, child: 0 },
+];
+const SPEC_COLORS = actionColors(SPEC_ACTIONS);
+
 function StatusSeg({ label, value }: { label: string; value: string }) {
   return (
     <>
       <span className="num text-[11px] text-dim-inv">
         {label} <span className="text-text-inv">{value}</span>
       </span>
-      <span className="px-2.5 text-[#2a2a26]">│</span>
+      <span aria-hidden className="mx-2.5 h-3 w-px flex-none bg-line" />
     </>
   );
 }
@@ -1224,7 +1354,7 @@ function Booting() {
     <div className="on-ink relative flex flex-1 items-center">
       <span
         className="px-6 uppercase text-dim-inv"
-        style={{ font: "800 12px/1.2 var(--font-sans)", letterSpacing: ".12em" }}
+        style={{ font: "600 11px/1.2 var(--font-condensed)", letterSpacing: ".15em" }}
       >
         Reading fixture-turn.json
       </span>
@@ -1234,7 +1364,7 @@ function Booting() {
 }
 
 /**
- * Stat band: the stage's one yellow block lives here (exploitability, or NashConv).
+ * Stat band: the stage's one club-lit block lives here (exploitability, or NashConv).
  *
  * Under a tournament solve the game is general-sum, so the headline is the sum of both
  * players' unilateral best-response gains and is NOT a bound on either player's loss.
@@ -1277,7 +1407,7 @@ function StatBand({
             : "Zero-sum: what a perfect opponent could still win, measured by two full best-response walks."
         }
       >
-        <span className="inline-block bg-accent px-2 py-1 text-[#101010]">
+        <span className="inline-block bg-accent px-2 py-1 text-accent-ink">
           <span className="fig fig-1">{meta.exploitability_pct_of_pot.toFixed(4)}%</span>
         </span>
         <span className="num mt-1 block text-[11px] text-dim-inv">
@@ -1332,11 +1462,15 @@ function StatBand({
       )}
       <StatTile label="SOLVE">
         <div className="num text-[12px] leading-snug text-text-inv">
-          {meta.iterations.toLocaleString()} iters
+          {/* Each group is atomic: the tile is only ~150px, and without this the
+              browser breaks between "engine" and its version, or drops the second
+              word of the source name onto a line of its own. */}
+          <span className="whitespace-nowrap">{meta.iterations.toLocaleString()} iters</span>{" "}
+          <span className="whitespace-nowrap">· {meta.wall_seconds.toFixed(3)} s</span>{" "}
+          <span className="whitespace-nowrap">· engine {meta.engine_version}</span>
           <br />
-          {meta.wall_seconds.toFixed(3)} s · engine {meta.engine_version}
-          <br />
-          {meta.node_count.toLocaleString()} nodes{source ? ` · ${source}` : ""}
+          <span className="whitespace-nowrap">{meta.node_count.toLocaleString()} nodes</span>
+          {source ? <> <span className="whitespace-nowrap">· {source}</span></> : null}
         </div>
       </StatTile>
     </section>
@@ -1359,7 +1493,7 @@ function StatTile({
   return (
     <div
       className={`${wide ? "min-w-[230px]" : "min-w-[150px]"} flex-1 overflow-hidden px-3.5 py-2.5`}
-      style={first ? undefined : { borderLeft: "var(--rule) solid var(--color-ink)" }}
+      style={first ? undefined : { borderLeft: "var(--rule) solid var(--color-line)" }}
       title={title}
     >
       <div className="label mb-1">{label}</div>
@@ -1368,12 +1502,12 @@ function StatTile({
   );
 }
 
-/** A bubble factor the engine could not put a finite number on — a seat that already
- *  holds every prize the structure pays — is an em dash, never a silent 0 or Infinity. */
-const fmtBf = (v: number | null) => (v == null || !Number.isFinite(v) ? "—" : v.toFixed(3));
+/** A bubble factor the engine could not put a finite number on, a seat that already
+ *  holds every prize the structure pays, prints as a dash, never a silent 0 or Infinity. */
+const fmtBf = (v: number | null) => (v == null || !Number.isFinite(v) ? "–" : v.toFixed(3));
 /** `bf / (bf + 1)`: the raw equity a symmetric all-in needs to break even at that factor. */
 const fmtEq = (v: number | null) =>
-  v == null || !Number.isFinite(v) ? "—" : `${((100 * v) / (v + 1)).toFixed(1)}%`;
+  v == null || !Number.isFinite(v) ? "–" : `${((100 * v) / (v + 1)).toFixed(1)}%`;
 /** Drop the trailing `.00` on a whole-number stack or prize. */
 const trim = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
 
@@ -1383,7 +1517,7 @@ const trim = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
  * This is the whole point of solving the twin: the same tree, the same iterations, the
  * only difference being what a chip is worth at the end of it. The per-action range
  * frequency delta is the lesson every published ICM article is shaped around, and the
- * headline row underneath says what it cost — the chip solve's number is in big blinds
+ * headline row underneath says what it cost: the chip solve's number is in big blinds
  * and the ICM solve's in CSTE chips, which is why they are labelled, not subtracted.
  */
 function IcmCompare({
@@ -1418,7 +1552,7 @@ function IcmCompare({
       <h2 className="bar bar-icm">
         chipEV vs ICM · {PLAYER_NAMES[player]} at this node
         <span className="meta">
-          same tree, same iterations — only what a chip is worth at the end differs · biggest
+          same tree, same iterations, only what a chip is worth at the end differs · biggest
           move {actions[biggest]?.text}{" "}
           {((icmFreqs[biggest] - chipFreqs[biggest]) * 100 >= 0 ? "+" : "") +
             ((icmFreqs[biggest] - chipFreqs[biggest]) * 100).toFixed(1)}{" "}
@@ -1436,7 +1570,7 @@ function IcmCompare({
                   style={{
                     textAlign: i === 0 ? "left" : "right",
                     padding: "5px 10px",
-                    borderBottom: "var(--rule-thin) solid var(--color-ink)",
+                    borderBottom: "var(--rule-thin) solid var(--color-line)",
                   }}
                 >
                   {h}
@@ -1473,7 +1607,7 @@ function IcmCompare({
                     style={{
                       padding: "4px 10px",
                       background: i === biggest ? "var(--color-accent)" : undefined,
-                      color: i === biggest ? "#101010" : undefined,
+                      color: i === biggest ? "var(--color-accent-ink)" : undefined,
                       fontWeight: i === biggest ? 700 : undefined,
                     }}
                   >
@@ -1486,7 +1620,7 @@ function IcmCompare({
           </tbody>
         </table>
       </div>
-      <p className="bg-paper-2 px-2.5 py-2 text-[11px] text-muted" style={{ borderTop: "var(--rule-thin) solid var(--color-ink)" }}>
+      <p className="bg-paper-2 px-2.5 py-2 text-[11px] text-muted" style={{ borderTop: "var(--rule-thin) solid var(--color-line)" }}>
         Root EV, {PLAYER_NAMES[0]} / {PLAYER_NAMES[1]}: chipEV{" "}
         <span className="num">
           {chipRootEvs.zero_sum[0].toFixed(4)} / {chipRootEvs.zero_sum[1].toFixed(4)} bb
@@ -1534,7 +1668,10 @@ function ChanceView({
             {valid.length} of 52 available · {node.board.length} on board
           </span>
         </h2>
-        <div className="flex flex-1 items-center justify-center p-6">
+        {/* Top-aligned, not centred: vertical centring left a dead band above the
+            lattice as well as below it, and this identity fills a column from its
+            own panel head down. */}
+        <div className="flex flex-1 items-start justify-center p-6">
           <RunoutSelector node={node} onStep={onStep} hotness={hotness} size="large" />
         </div>
       </section>
@@ -1545,10 +1682,10 @@ function ChanceView({
             {rows.length} runouts · max |Δ| {maxDev.toFixed(3)} bb
           </span>
         </h2>
-        <div className="grid grid-cols-[64px_1fr_1fr] border-b-2 border-ink bg-paper-2 px-2.5 py-1.5">
+        <div className="grid grid-cols-[64px_1fr_1fr] rule-b bg-paper-2 px-2.5 py-1.5">
           <span className="label">card</span>
           <span className="label text-right">hero EV</span>
-          <span className="label text-right">vs. mean</span>
+          <span className="label text-right">vs mean</span>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {rows.map((r, i) => (
@@ -1557,19 +1694,19 @@ function ChanceView({
               onClick={() =>
                 onStep({ from: node.id, to: r.child, kind: "chance", label: `${nextStreet} ${r.card}`, token: r.card })
               }
-              /* A yellow block carries black text — the suit colour and the ok/err
-                 deviation are unreadable on it. In dark theme the EV column is ivory
-                 (#f4f1e8) and the deviation #37c97d: 1.06:1 and 1.5:1 on #ffe000. */
-              className={`grid h-[26px] w-full grid-cols-[64px_1fr_1fr] items-center px-2.5 text-left hover:bg-accent [&:hover>*]:text-[#101010] ${
+              /* Hover is the system's one selection move: a full knock-out to stock
+                 white, every child forced to the plate ground. A colour fill here would
+                 have to carry the suit ink and the ok/err deviation, and neither reads. */
+              className={`grid h-[26px] w-full grid-cols-[64px_1fr_1fr] items-center px-2.5 text-left hover:bg-ink [&:hover>*]:text-paper ${
                 i % 2 === 1 ? "bg-paper-2" : ""
               }`}
             >
               <Card card={r.card} className="text-[13px]" />
-              <span className="num text-right">{Number.isNaN(r.ev) ? "—" : r.ev.toFixed(3)}</span>
+              <span className="num text-right">{Number.isNaN(r.ev) ? "–" : r.ev.toFixed(3)}</span>
               <span
                 className={`num text-right ${Number.isNaN(r.dev) ? "text-dim" : r.dev >= 0 ? "text-ok" : "text-err"}`}
               >
-                {Number.isNaN(r.dev) ? "—" : `${r.dev >= 0 ? "+" : ""}${r.dev.toFixed(3)}`}
+                {Number.isNaN(r.dev) ? "–" : `${r.dev >= 0 ? "+" : ""}${r.dev.toFixed(3)}`}
               </span>
             </button>
           ))}
@@ -1579,7 +1716,7 @@ function ChanceView({
   );
 }
 
-/** Terminal node: the hand is over — a poster, not a hint sentence. */
+/** Terminal node: the hand is over: a poster, not a hint sentence. */
 function TerminalView({
   node,
   path,
@@ -1593,16 +1730,13 @@ function TerminalView({
   return (
     <div className="rule-t flex-1 bg-panel" style={{ padding: "clamp(24px,3vw,48px)" }}>
       <h2 className="bar mb-6">Terminal</h2>
-      <div
-        className="uppercase"
-        style={{ font: "900 clamp(32px,4vw,64px)/1 var(--font-sans)", letterSpacing: "-.04em" }}
-      >
+      <div style={{ font: "800 clamp(32px,4vw,64px)/1 var(--font-sans)", letterSpacing: "-.03em", textWrap: "balance" }}>
         {t?.kind === "fold" ? `${PLAYER_NAMES[t.folder]} folds` : "Showdown"}
       </div>
       <div className="label mt-6">POT · BB</div>
       <div className="fig fig-1">{t?.pot.toFixed(2)}</div>
-      <p className="num mt-6 text-muted">
-        no strategy here. step back up the line to keep inspecting
+      <p className="mt-6 text-muted">
+        No strategy here. Step back up the line to keep inspecting.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         <button className="chip" onClick={() => onJump(0)}>
@@ -1620,8 +1754,8 @@ function TerminalView({
 
 const LEGEND_CAPTION: Record<"strategy" | "ev" | "regret", string> = {
   strategy: "cells weighted by live combo reach · faded = zero reach · dark = no live combos",
-  ev: "color = highest-EV action · ivory = near-indifferent · dark = no EV data",
-  regret: "color = bb lost vs. the best action · ivory = no regret · dark = no EV data",
+  ev: "color = highest-EV action · palest = near-indifferent · dark = no EV data",
+  regret: "color = bb lost vs the best action · palest = no regret · dark = no EV data",
 };
 
 function Legend({
@@ -1636,12 +1770,15 @@ function Legend({
   mode: "strategy" | "ev" | "regret";
 }) {
   return (
-    <div className="mt-auto flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t-2 border-ink bg-paper-2 px-2.5 py-2">
+    <div className="mt-auto flex flex-wrap items-center gap-x-3.5 gap-y-1.5 rule-t bg-paper-2 px-2.5 py-2">
       {actions.map((a, i) => (
         <span key={i} className="flex items-center gap-1.5">
-          <span className="h-1 w-4" style={{ background: colors[i] }} />
+          <span
+            className={`h-[11px] w-[11px] ${hatched(a.label) ? "hatch" : ""}`}
+            style={{ backgroundColor: colors[i] }}
+          />
           <span className="num text-[12px]">{a.text}</span>
-          <span style={{ font: "800 12px/1 var(--font-sans)" }}>
+          <span className="num" style={{ fontWeight: 700 }}>
             {((freqs[i] ?? 0) * 100).toFixed(1)}%
           </span>
         </span>
@@ -1653,7 +1790,7 @@ function Legend({
 
 /**
  * The no-solution screen. Renders only when the boot fixture failed or a user file
- * failed to parse — three full-bleed rows: poster headline, four entry slabs, and a
+ * failed to parse: three full-bleed rows: poster headline, four entry slabs, and a
  * spec sheet that teaches the colour language. Zero exposed void.
  */
 function Empty({
@@ -1672,26 +1809,23 @@ function Empty({
   const [dragging, setDragging] = useState(false);
   return (
     <div className="rule-t grid min-h-0 flex-1 grid-rows-[auto_minmax(280px,38%)_minmax(0,1fr)] overflow-y-auto">
-      {/* Row 1 — poster headline */}
+      {/* Row 1: poster headline */}
       <div className="rule-b bg-panel" style={{ padding: "clamp(24px,3vw,56px)" }}>
-        <h1
-          className="uppercase"
-          style={{ font: "900 clamp(48px,6vw,112px)/0.92 var(--font-sans)", letterSpacing: "-.045em" }}
-        >
+        <h1 style={{ font: "800 clamp(44px,5.4vw,96px)/0.98 var(--font-sans)", letterSpacing: "-.03em", textWrap: "balance" }}>
           No solution{" "}
-          <span className="bg-accent text-[#101010]" style={{ padding: "0 .12em" }}>
+          <span className="bg-accent text-accent-ink" style={{ padding: "0 .12em" }}>
             loaded
           </span>
         </h1>
-        <p className="num mt-4 max-w-[74ch] text-[14px] text-muted">
-          load a solution file, pick a bundled sample, or solve a spot in the browser. loading
+        <p className="mt-4 max-w-[74ch] text-[14px] text-muted">
+          Load a solution file, pick a bundled sample, or solve a spot in the browser. Loading
           rebuilds the tree and reads stored strategies, it never re-solves.
         </p>
         {error && (
           <p className="num mt-3 text-[13px] text-err">
             <span
-              className="mr-2 bg-ink px-2 py-0.5 uppercase text-text-inv"
-              style={{ font: "800 10px/1.4 var(--font-sans)", letterSpacing: ".1em" }}
+              className="mr-2 bg-ink px-2 py-0.5 uppercase text-paper"
+              style={{ font: "600 10px/1.6 var(--font-condensed)", letterSpacing: ".15em" }}
             >
               could not load
             </span>
@@ -1700,7 +1834,7 @@ function Empty({
         )}
       </div>
 
-      {/* Row 2 — four entry slabs */}
+      {/* Row 2: four entry slabs */}
       <div className="rule-b flex min-h-[280px] flex-wrap">
         {SAMPLES.map((s, i) => (
           <div
@@ -1712,8 +1846,8 @@ function Empty({
             <div className="flex flex-1 flex-col gap-3 p-5">
               <Cards cards={s.board} variant="stock" size={22} className="gap-1.5" />
               <div
-                className="uppercase text-text-inv"
-                style={{ font: "900 clamp(24px,2vw,36px)/1 var(--font-sans)", letterSpacing: "-.03em" }}
+                className="text-text"
+                style={{ font: "800 clamp(24px,2vw,36px)/1 var(--font-sans)", letterSpacing: "-.03em" }}
               >
                 {s.name}
               </div>
@@ -1722,8 +1856,8 @@ function Empty({
             <button
               data-testid={`empty-sample-${s.file}`}
               onClick={() => onSample(s.file, s.name)}
-              className="h-11 w-full bg-[#2a2a26] uppercase text-text-inv hover:bg-accent hover:text-[#101010]"
-              style={{ font: "800 13px/1 var(--font-sans)", letterSpacing: ".08em" }}
+              className="h-11 w-full bg-raised uppercase text-text hover:bg-ink hover:text-paper"
+              style={{ font: "600 12px/1 var(--font-condensed)", letterSpacing: ".15em" }}
             >
               Load →
             </button>
@@ -1742,41 +1876,35 @@ function Empty({
             void onFile(e.dataTransfer.files?.[0]);
           }}
           className={`rule-l flex min-w-[280px] flex-1 basis-1/2 flex-col items-start justify-center gap-3 p-5 text-left min-[1500px]:basis-0 max-[1499px]:rule-t ${
-            dragging ? "bg-accent text-[#101010] [&_*]:text-[#101010]" : "bg-panel"
+            dragging ? "bg-accent text-accent-ink [&_*]:text-accent-ink" : "bg-panel"
           }`}
-          style={{ outline: "3px dashed var(--color-ink)", outlineOffset: "-12px" }}
+          style={{ outline: "2px dashed var(--color-line)", outlineOffset: "-12px" }}
         >
-          <span
-            className="uppercase"
-            style={{ font: "900 clamp(22px,1.8vw,30px)/1 var(--font-sans)", letterSpacing: "-.03em" }}
-          >
+          <span style={{ font: "800 clamp(22px,1.8vw,30px)/1 var(--font-sans)", letterSpacing: "-.03em" }}>
             Open file…
           </span>
-          <span className="num text-[12px] text-muted">
-            a solution written by the CLI, or exported from this page. drop it anywhere on this
-            block
+          <span className="text-[12px] text-muted">
+            A solution written by the CLI, or exported from this page. Drop it anywhere on this
+            block.
           </span>
         </button>
         <button
           onClick={onSolveTab}
-          className="rule-l flex min-w-[280px] flex-1 basis-1/2 flex-col items-start justify-center gap-3 bg-accent p-5 text-left text-[#101010] min-[1500px]:basis-0 max-[1499px]:rule-t"
+          className="rule-l flex min-w-[280px] flex-1 basis-1/2 flex-col items-start justify-center gap-3 bg-accent p-5 text-left text-accent-ink min-[1500px]:basis-0 max-[1499px]:rule-t"
         >
-          <span
-            className="uppercase"
-            style={{ font: "900 clamp(22px,1.8vw,30px)/1 var(--font-sans)", letterSpacing: "-.03em" }}
-          >
+          <span style={{ font: "800 clamp(22px,1.8vw,30px)/1 var(--font-sans)", letterSpacing: "-.03em" }}>
             Solve a new spot →
           </span>
-          <span className="num text-[12px]">
-            set a board, two ranges and a sizing tree; the engine runs as WebAssembly on this page
+          <span className="text-[12px]">
+            Set a board, two ranges and a sizing tree; the engine runs as WebAssembly on this page.
           </span>
         </button>
       </div>
 
-      {/* Row 3 — spec sheet */}
+      {/* Row 3: spec sheet */}
       <div className="grid min-h-0 grid-cols-1 min-[1000px]:grid-cols-[380px_minmax(0,1fr)] min-[1280px]:grid-cols-[380px_repeat(3,minmax(0,1fr))]">
         <div className="bg-panel p-4">
-          <div style={{ display: "grid", gridTemplateColumns: "var(--axis) repeat(13, minmax(0,1fr))", gap: 2, padding: 2, background: "var(--color-ink)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "var(--axis) repeat(13, minmax(0,1fr))", gap: 2, padding: 2, background: "var(--color-line)" }}>
             <span />
             {"AKQJT98765432".split("").map((r) => (
               <span key={`c${r}`} className="flex items-center justify-center" style={{ font: "700 8px/1 var(--font-mono)", color: "var(--color-dim-inv)", minHeight: "var(--axis)" }}>
@@ -1786,12 +1914,17 @@ function Empty({
             {Array.from({ length: 169 }, (_, i) => {
               const row = Math.floor(i / 13);
               const col = i % 13;
-              const fill = row === col ? "#48566f" : row < col ? "#2b7c50" : "#2a2a26";
+              const fill =
+                row === col
+                  ? "var(--color-plate-d)"
+                  : row < col
+                    ? "var(--color-plate-c)"
+                    : "var(--color-ink-2)";
               return (
                 <Fragment169 key={i} first={col === 0} rank={"AKQJT98765432"[row]}>
                   <span
                     className="flex aspect-square items-center justify-center"
-                    style={{ background: fill, font: "700 8px/1 var(--font-mono)", color: "rgba(244,241,232,.85)" }}
+                    style={{ background: fill, font: "700 8px/1 var(--font-mono)", color: "var(--color-text)" }}
                   >
                     {cellLabel(row, col)}
                   </span>
@@ -1800,37 +1933,31 @@ function Empty({
             })}
           </div>
           <div className="label mt-2">169 hand classes · 1,326 combinations</div>
-          <p className="num mt-1 text-[11px] text-muted">
-            six combinations per pair on the diagonal, four per suited hand above it, twelve per
-            offsuit hand below. every cell opens a combo breakdown.
+          <p className="mt-1 text-[11px] text-muted">
+            Six combinations per pair on the diagonal, four per suited hand above it, twelve per
+            offsuit hand below. Every cell opens a combo breakdown.
           </p>
         </div>
         <SpecCol title="Action colors">
-          {[
-            ["#e2705c", "bet, smallest sizing"],
-            ["#d1462f", "bet"],
-            ["#b02a16", "bet"],
-            ["#8f1a0d", "bet"],
-            ["#6e1209", "bet, largest sizing"],
-            ["#54ad72", "check"],
-            ["#2b7c50", "call"],
-            ["#48566f", "fold"],
-          ].map(([hex, label]) => (
-            <div key={hex + label} className="flex items-center gap-2.5 py-1">
-              <span className="h-[5px] w-5" style={{ background: hex }} />
-              <span className="num text-[12px]">{label}</span>
+          {SPEC_ACTIONS.map((a, i) => (
+            <div key={a.text + i} className="flex items-center gap-2.5 py-1">
+              <span
+                className={`h-[11px] w-[11px] ${hatched(a.label) ? "hatch" : ""}`}
+                style={{ backgroundColor: SPEC_COLORS[i] }}
+              />
+              <span className="num text-[12px]">{a.text}</span>
             </div>
           ))}
-          <p className="num mt-2 text-[11px] text-muted">
-            colors are consistent in every grid, table and tree block on this page.
+          <p className="mt-2 text-[11px] text-muted">
+            Colors are consistent in every grid, table and tree block on this page.
           </p>
         </SpecCol>
         <SpecCol title="Grid modes">
           {(
             [
-              ["strategy", ["#b02a16", "#54ad72", "#48566f"]],
-              ["ev", ["#b02a16", "#d8b8ae", "#f4f1e8"]],
-              ["regret", ["#f4f1e8", "#f6d199", "#e0883d"]],
+              ["strategy", [SPEC_COLORS[2], SPEC_COLORS[5], SPEC_COLORS[7]]],
+              ["ev", [1, 0.5, 0.12].map((t) => rampMix(SPEC_COLORS[2], t))],
+              ["regret", [0, 0.5, 1].map((t) => regretColor(t, 1) ?? SPEC_COLORS[2])],
             ] as [string, string[]][]
           ).map(([m, sw]) => (
             <div key={m} className="flex items-start gap-2.5 py-1.5">

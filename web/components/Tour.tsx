@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
  * One stop on the guided tour. `target` is a CSS selector; when several elements
  * match (the two grid-mode segs live at different breakpoints), the first one
  * with a nonzero box wins. `target: null` renders a centered card with no
- * spotlight — the welcome and any step whose anchor failed to mount.
+ * spotlight: the welcome and any step whose anchor failed to mount.
  */
 export interface TourStep {
   id: string;
@@ -36,16 +36,29 @@ function findTarget(selector: string): HTMLElement | null {
   return null;
 }
 
+/* Buttons on the knocked-out card. `.btn` hovers to a dark ground, which is the wrong way
+   round on stock white, so the card carries its own button style. */
+const GHOST: React.CSSProperties = {
+  border: "var(--rule) solid var(--color-line)",
+  background: "transparent",
+  color: "var(--color-paper)",
+  font: "600 12.5px/1 var(--font-sans)",
+  letterSpacing: ".01em",
+  padding: "8px 13px",
+  cursor: "pointer",
+};
+
 const RING = 4; // gap between the target's box and the spotlight ring
 const CARD_W = 380;
 const CARD_H = 300; // placement estimate; the card itself scrolls if taller
 const GAP = 14; // ring edge -> card
 
 /**
- * The guided tour overlay: a flat ink scrim in four slabs around a spotlight
- * hole, a magenta rule ringing the target (magenta is the app's selection
- * semantic), and a paper card with the step copy. The first overlay in the
- * codebase, so it defines the layer: z-index 100, nothing above it.
+ * The guided tour overlay: a flat spade scrim in four slabs around a spotlight
+ * hole, a 2px stock-white rule ringing the target (stock white is this app's
+ * selection semantic), and the card knocked out to stock white so it reads as
+ * the one sheet printed over the tool. The first overlay in the codebase, so it
+ * defines the layer: z-index 100, nothing above it.
  */
 export default function Tour({ steps, index, onIndex, onClose }: Props) {
   const step = steps[index];
@@ -69,7 +82,7 @@ export default function Tour({ steps, index, onIndex, onClose }: Props) {
 
   // prepare() flips tabs and tree state; the anchor only has a box after React
   // commits and the browser lays out, hence the double rAF before measuring.
-  // A timer backstop runs the same settle in case rAF never fires — Chrome
+  // A timer backstop runs the same settle in case rAF never fires. Chrome
   // pauses rAF entirely while the tab is hidden.
   useLayoutEffect(() => {
     step.prepare?.();
@@ -106,6 +119,17 @@ export default function Tour({ steps, index, onIndex, onClose }: Props) {
       window.removeEventListener("scroll", on, true);
     };
   }, [measure]);
+
+  // The card is the dialog, so focus starts in it and the app behind it leaves the
+  // reading order. `.app` itself cannot be inert: the tour renders inside it.
+  useEffect(() => {
+    const behind = Array.from(
+      document.querySelectorAll<HTMLElement>(".rail, .stage, .statusbar"),
+    );
+    behind.forEach((el) => el.setAttribute("inert", ""));
+    cardRef.current?.focus();
+    return () => behind.forEach((el) => el.removeAttribute("inert"));
+  }, []);
 
   // Escape closes; Tab stays inside the card. The app underneath really is
   // inert: the four scrim slabs plus a transparent cover over the spotlight
@@ -180,7 +204,7 @@ export default function Tour({ steps, index, onIndex, onClose }: Props) {
     }
   }
 
-  const scrim = "rgba(16,16,16,.55)";
+  const scrim = "rgba(23,26,24,.72)"; // plate 1, spade
   const slabs: React.CSSProperties[] = hole
     ? [
         { top: 0, left: 0, width: "100vw", height: hole.top },
@@ -224,7 +248,7 @@ export default function Tour({ steps, index, onIndex, onClose }: Props) {
             left: hole.left,
             width: hole.width,
             height: hole.height,
-            outline: "3px solid var(--color-live)",
+            outline: "2px solid var(--color-live)",
             outlineOffset: 0,
           }}
         />
@@ -232,44 +256,72 @@ export default function Tour({ steps, index, onIndex, onClose }: Props) {
       <div
         ref={cardRef}
         data-testid="tour-card"
-        className="bg-panel text-text"
+        /* The dialog role and aria-modal live on the wrapper above, which owns the
+           scrim too; the card only needs to be focusable so focus starts inside it. */
+        tabIndex={-1}
         style={{
           position: "fixed",
           zIndex: 102,
-          border: "var(--rule) solid var(--color-ink)",
+          background: "var(--color-ink)",
+          color: "var(--color-paper)",
+          border: "var(--rule) solid var(--color-line)",
           maxHeight: vh - 16,
           overflowY: "auto",
           ...cardStyle,
         }}
       >
-        <div className="bar">
+        <div
+          className="flex items-center gap-2.5"
+          style={{
+            borderBottom: "var(--rule) solid var(--color-line)",
+            padding: "9px 16px 8px",
+            font: "600 10px/1.2 var(--font-condensed)",
+            letterSpacing: ".15em",
+            textTransform: "uppercase",
+          }}
+        >
           Guided tour
-          <span className="meta">
+          <span
+            className="num"
+            style={{ fontSize: 11, letterSpacing: "-.02em", textTransform: "none", color: "var(--color-line)" }}
+          >
             {index + 1} / {steps.length}
           </span>
-          <span className="right">
-            <button
-              data-testid="tour-skip"
-              onClick={() => onClose(false)}
-              className="label border-0 bg-transparent"
-              style={{ cursor: "pointer", color: "var(--color-dim-inv)" }}
-            >
-              skip ✕
-            </button>
-          </span>
+          <button
+            data-testid="tour-skip"
+            onClick={() => onClose(false)}
+            /* The only visible way out of a 16-step modal, so its hit area clears the
+                24px minimum without moving the glyph. */
+            style={{
+              marginLeft: "auto",
+              cursor: "pointer",
+              background: "transparent",
+              border: 0,
+              font: "inherit",
+              letterSpacing: "inherit",
+              color: "var(--color-line)",
+              padding: "7px 10px",
+              margin: "-7px -10px -7px auto",
+            }}
+          >
+            skip ✕
+          </button>
         </div>
         <div className="px-4 py-3.5">
-          <h2
-            className="uppercase"
-            style={{ font: "900 19px/1.1 var(--font-sans)", letterSpacing: "-.02em" }}
-          >
+          <h2 style={{ font: "800 21px/1.1 var(--font-sans)", letterSpacing: "-.018em" }}>
             {step.title}
           </h2>
-          <p className="mt-2 text-[13px] leading-relaxed text-muted">{step.body}</p>
+          {/* Printed in the spade plate on the stock: 15.7:1. */}
+          <p className="mt-2.5" style={{ font: "400 14px/1.6 var(--font-sans)" }}>
+            {step.body}
+          </p>
         </div>
-        <div className="flex items-center gap-2 border-t-2 border-ink px-4 py-3">
+        <div
+          className="flex items-center gap-2 px-4 py-3"
+          style={{ borderTop: "var(--rule) solid var(--color-line)" }}
+        >
           {index > 0 && (
-            <button data-testid="tour-back" onClick={() => onIndex(index - 1)} className="btn">
+            <button data-testid="tour-back" onClick={() => onIndex(index - 1)} style={GHOST}>
               Back
             </button>
           )}
@@ -277,7 +329,8 @@ export default function Tour({ steps, index, onIndex, onClose }: Props) {
             ref={nextRef}
             data-testid="tour-next"
             onClick={() => (last ? onClose(true) : onIndex(index + 1))}
-            className="btn btn-primary ml-auto"
+            className="ml-auto"
+            style={{ ...GHOST, background: "var(--color-paper)", color: "var(--color-ink)", fontWeight: 700 }}
           >
             {index === 0 ? "Start the tour →" : last ? "Finish" : "Next →"}
           </button>

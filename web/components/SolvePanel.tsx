@@ -38,7 +38,7 @@ interface Report {
 type Gate = null | "warn" | "hard";
 
 interface Props {
-  /** `chipJson` is the same spot re-solved with the tournament block stripped — the
+  /** `chipJson` is the same spot re-solved with the tournament block stripped, the
    *  chipEV twin the Inspector puts beside the ICM answer. Undefined for a chip solve. */
   onSolved: (json: string, wall: number, context: SpotContext, chipJson?: string) => void;
   /** Nodes the inspector asked to freeze; emitted as `[[locks]]` on the next solve. */
@@ -47,9 +47,9 @@ interface Props {
   onClearLocks: () => void;
 }
 
-/** Sub-grouping frame inside a column: a 2px ink box, never a soft card. */
+/** Sub-grouping frame inside a column: one hairline box, never a soft card. */
 const BOX: React.CSSProperties = {
-  border: "var(--rule-thin) solid var(--color-ink)",
+  border: "var(--rule-thin) solid var(--color-line)",
   padding: 10,
 };
 
@@ -168,7 +168,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
       );
       // The chipEV twin: the identical spot with `[tournament]` stripped, so the
       // Inspector can put the two strategies side by side. Skipped when locks are
-      // pending — a lock is stamped with the spot it was read from, and re-stamping it
+      // pending: a lock is stamped with the spot it was read from, and re-stamping it
       // onto the chip spot to force the twin through is exactly the silent
       // cross-structure resolution `spotKey` exists to stop.
       let chipJson: string | undefined;
@@ -215,10 +215,11 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
               value={presetId}
               data-testid="preset-select"
               aria-label="spot preset"
+              title={PRESETS.find((p) => p.id === presetId)?.label}
               onChange={(e) => applyPreset(e.target.value)}
               style={{ minWidth: 0, padding: "3px 6px", fontSize: 11, textTransform: "none" }}
             >
-              {presetId === "" && <option value="">— custom —</option>}
+              {presetId === "" && <option value="">custom</option>}
               {PRESETS.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.label}
@@ -250,6 +251,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
                 <input
                   type="text"
                   value={form.board}
+                  aria-describedby="solve-error"
                   onChange={(e) => edit((f) => ({ ...f, board: e.target.value }))}
                 />
                 <button
@@ -259,7 +261,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
                   className="btn shrink-0"
                   style={{ padding: "4px 8px", fontSize: 11 }}
                 >
-                  random flop
+                  Random flop
                 </button>
               </div>
             </Field>
@@ -284,7 +286,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
           <div className="mt-4">
             <span className="label">bet / raise sizings</span>
             <p className="mt-1 text-[11px] text-muted">
-              percent of pot, comma separated. Add <span className="num text-muted">+</span> to also
+              Percent of pot, comma separated. Add <span className="num text-muted">+</span> to also
               offer all-in. Blank = action not built.
             </p>
             <div className="mt-2 grid gap-2">
@@ -307,7 +309,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
           <div className="mt-4">
             <span className="label">table context</span>
             <p className="mt-1 text-[11px] text-muted">
-              display only: positions and the player profile each range models. The engine solves
+              Display only: positions and the player profile each range models. The engine solves
               the ranges; this labels where they came from.
             </p>
             <div className="mt-2 grid gap-2">
@@ -339,7 +341,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
                           type="text"
                           data-testid={`ctx-${seat}-vpip`}
                           value={prof.vpip}
-                          placeholder="—"
+                          placeholder="·"
                           onChange={(e) => setProf({ vpip: e.target.value })}
                         />
                       </label>
@@ -349,7 +351,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
                           type="text"
                           data-testid={`ctx-${seat}-pfr`}
                           value={prof.pfr}
-                          placeholder="—"
+                          placeholder="·"
                           onChange={(e) => setProf({ pfr: e.target.value })}
                         />
                       </label>
@@ -415,7 +417,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
                   onChange={(e) => edit((f) => ({ ...f, target_pct: e.target.value }))}
                 />
               </Field>
-              <Field label="report every N iters" hint="each report = 2 best-response walks">
+              <Field label="report every N iters" hint="Each report = 2 best-response walks">
                 <input
                   type="text"
                   value={form.report_every}
@@ -461,6 +463,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
 
         {error && (
           <div
+            id="solve-error"
             data-testid="solve-error"
             role="alert"
             className="shrink-0"
@@ -486,17 +489,17 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
   );
 }
 
-/** Black slab naming the failure, printed above the message it belongs to. */
-function Chip({ children }: { children: React.ReactNode }) {
+/** Knocked-out stock block naming the failure, printed above the message it belongs to. */
+function Chip({ children, bg = "var(--color-ink)" }: { children: React.ReactNode; bg?: string }) {
   return (
     <span
       style={{
         display: "inline-block",
-        background: "var(--color-ink)",
-        color: "var(--color-text-inv)",
+        background: bg,
+        color: "var(--color-paper)",
         padding: "3px 7px",
-        font: "800 10px/1.2 var(--font-sans)",
-        letterSpacing: ".12em",
+        font: "700 10px/1.2 var(--font-condensed)",
+        letterSpacing: ".15em",
         textTransform: "uppercase",
       }}
     >
@@ -505,7 +508,7 @@ function Chip({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Sub-panel head inside a column: paper-2 strip, ink rule above and below. */
+/** Sub-panel head inside a column: recessed strip, hairline above and below. */
 function Head({
   title,
   meta,
@@ -521,7 +524,7 @@ function Head({
       style={{
         background: "var(--color-paper-2)",
         padding: "6px 10px",
-        borderBottom: "var(--rule-thin) solid var(--color-ink)",
+        borderBottom: "var(--rule) solid var(--color-line)",
       }}
     >
       <span className="label">{title}</span>
@@ -554,7 +557,7 @@ function Row({
         type="text"
         aria-label={`${seat} ${street} bet sizings`}
         value={cell.bet}
-        placeholder="—"
+        placeholder="·"
         onChange={(e) =>
           edit((f) => {
             f.sizings[seat][street].bet = e.target.value;
@@ -566,7 +569,7 @@ function Row({
         type="text"
         aria-label={`${seat} ${street} raise sizings`}
         value={cell.raise}
-        placeholder="—"
+        placeholder="·"
         onChange={(e) =>
           edit((f) => {
             f.sizings[seat][street].raise = e.target.value;
@@ -632,7 +635,7 @@ function TournamentEditor({
 
   return (
     <div className="mt-4" data-testid="tournament">
-      <span className="label">tournament — ICM</span>
+      <span className="label">tournament · ICM</span>
       <p className="mt-1 text-[11px] text-muted">
         Score every terminal in tournament equity instead of chips. The postflop game stays
         heads-up; the rest of the table enters through the stack vector and the payout ladder.
@@ -673,7 +676,7 @@ function TournamentEditor({
               }}
               style={{ padding: "3px 6px", fontSize: 11, textTransform: "none" }}
             >
-              <option value="">— pasted by hand —</option>
+              <option value="">pasted by hand</option>
               {PAYOUT_PRESETS.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.label}
@@ -687,7 +690,7 @@ function TournamentEditor({
           </p>
 
           <label className="grid gap-0.5">
-            <span className="label">payouts — prize per place, 1st first</span>
+            <span className="label">payouts · prize per place, 1st first</span>
             <input
               type="text"
               data-testid="tournament-payouts"
@@ -701,7 +704,7 @@ function TournamentEditor({
           </label>
 
           <label className="grid gap-0.5">
-            <span className="label">seat stacks — chips behind at this node</span>
+            <span className="label">seat stacks · chips behind at this node</span>
             <input
               type="text"
               data-testid="tournament-stacks"
@@ -710,7 +713,7 @@ function TournamentEditor({
             />
             <span className="text-[11px] text-muted">
               Every seat still in the tournament, in seat order. What is behind{" "}
-              <em>now</em>, not at the start of the hand — the preflop money is already in the
+              <em>now</em>, not at the start of the hand: the preflop money is already in the
               starting pot above.
             </span>
           </label>
@@ -774,7 +777,7 @@ function LocksPanel({
       <Head title="node locks" meta={`${locks.length} pending · ${stale} stale`}>
         {locks.length > 0 && (
           <button onClick={onClear} className="btn" style={{ padding: "3px 7px", fontSize: 10 }}>
-            clear all
+            Clear all
           </button>
         )}
       </Head>
@@ -835,7 +838,7 @@ function LocksPanel({
                   className="btn btn-danger shrink-0"
                   style={{ padding: "3px 6px", fontSize: 10 }}
                 >
-                  remove
+                  Remove
                 </button>
               </li>
             ))}
@@ -855,9 +858,16 @@ function StatsPanel({
   gate: Gate;
   onConfirm: () => void;
 }) {
+  // The run pane scrolls internally and the gate lands below its fold, so clicking
+  // Solve on an oversized spot looked like nothing happened. Pull the verdict up.
+  const gateRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (gate !== null) gateRef.current?.scrollIntoView({ block: "nearest" });
+  }, [gate]);
+
   return (
     <div className="shrink-0" data-testid="preflight">
-      <Head title="preflight — tree_stats" />
+      <Head title="preflight · tree_stats" />
       {!stats ? (
         <p className="p-3 text-[11px] text-muted">
           Builds the tree and combo tables without allocating the solver arrays, so you see the
@@ -875,9 +885,7 @@ function StatsPanel({
             <Stat i={6} k="chance maps" v={fmtBytes(stats.chance_map_bytes)} />
             <Stat i={7} k="solver storage" v={fmtBytes(stats.solver_storage_bytes)} />
           </div>
-          <div
-            style={{ padding: "8px 10px", borderTop: "var(--rule-thin) solid var(--color-ink)" }}
-          >
+          <div style={{ padding: "8px 10px", borderTop: "var(--rule) solid var(--color-line)" }}>
             <div className="label">total resident</div>
             <div className="fig fig-2 mt-1">{fmtBytes(stats.total_bytes)}</div>
           </div>
@@ -886,14 +894,16 @@ function StatsPanel({
 
       {gate === "warn" && (
         <div
+          ref={gateRef}
+          role="alert"
           style={{
-            background: "var(--color-accent)",
-            color: "var(--color-ink)",
-            borderTop: "var(--rule) solid var(--color-ink)",
+            background: "var(--color-ok-bg)",
+            borderTop: "var(--rule) solid var(--color-warn)",
             padding: "8px 10px",
           }}
         >
-          <p style={{ font: "800 11px/1.35 var(--font-sans)", textTransform: "uppercase" }}>
+          <Chip bg="var(--color-warn)">over the comfort line</Chip>
+          <p className="mt-1.5 text-[12px] text-muted">
             This solve wants {fmtBytes(stats?.total_bytes ?? 0)} resident, over the 300 MB comfort
             line for a browser tab. It may be slow or get killed.
           </p>
@@ -904,6 +914,7 @@ function StatsPanel({
       )}
       {gate === "hard" && (
         <div
+          ref={gateRef}
           role="alert"
           style={{
             background: "var(--color-err-bg)",
@@ -944,6 +955,9 @@ function Stat({ k, v, i }: { k: string; v: string; i: number }) {
   );
 }
 
+/** iter / bb / % of pot / provenance. One template, header and rows share it. */
+const ROW = "grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)_64px] gap-x-2";
+
 function ProgressPanel({
   reports,
   busy,
@@ -979,22 +993,30 @@ function ProgressPanel({
             </div>
           )}
           <Curve reports={reports} />
-          <div className="mt-2 grid grid-cols-3 gap-x-2 border-b border-line-soft pb-1">
+          <div className={`${ROW} mt-2 rule-b pb-1`}>
             <span className="label">iter</span>
             <span className="label text-right">bb</span>
             <span className="label text-right">% of pot</span>
+            <span className="label text-right">source</span>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {[...reports].reverse().map((r, i) => (
               <div
                 key={r.iter}
-                className="grid grid-cols-3 gap-x-2 py-0.5"
+                className={`${ROW} py-0.5`}
                 style={{ background: i % 2 ? "var(--color-paper-2)" : undefined }}
               >
                 <span className={`num ${i === 0 ? "text-text" : "text-muted"}`}>{r.iter}</span>
                 <span className="num text-right text-muted">{r.chips.toFixed(6)}</span>
                 <span className={`num text-right ${i === 0 ? "text-text" : "text-muted"}`}>
                   {r.pct.toFixed(4)}
+                </span>
+                {/* Every line of this table came out of two best-response walks. It says so,
+                    on every line, in club-lit: measured, never asserted. */}
+                {/* Inline, not a utility: `.num` is unlayered and hard-sets 12.5px,
+                    at which "measured" overflows its column. */}
+                <span className="num text-right text-accent" style={{ fontSize: 10.5 }}>
+                  measured
                 </span>
               </div>
             ))}
@@ -1024,20 +1046,24 @@ function Curve({ reports }: { reports: Report[] }) {
     <svg
       viewBox={`0 0 ${W} ${H}`}
       className="w-full"
-      style={{ background: "var(--color-paper-2)", border: "var(--rule-thin) solid var(--color-ink)" }}
+      style={{
+        background: "var(--color-ink-3)",
+        border: "var(--rule) solid var(--color-line)",
+        fontFamily: "var(--font-mono)",
+      }}
       role="img"
       aria-label="exploitability curve"
     >
-      <polyline points={pts} fill="none" stroke="var(--color-ink)" strokeWidth="1.5" />
+      <polyline points={pts} fill="none" stroke="var(--color-accent)" strokeWidth="1.5" />
       {reports.map((r, i) => {
         const x = reports.length === 1 ? W / 2 : (i / (reports.length - 1)) * (W - 6) + 3;
         const y = H - 6 - ((ys[i] - lo) / span) * (H - 12);
-        return <circle key={r.iter} cx={x} cy={y} r="1.8" fill="var(--color-ink)" />;
+        return <circle key={r.iter} cx={x} cy={y} r="1.8" fill="var(--color-accent)" />;
       })}
-      <text x="4" y="10" fill="var(--color-dim)" fontSize="8">
+      <text x="4" y="10" fill="var(--color-dim)" fontSize="8.5">
         {(10 ** hi).toFixed(4)}%
       </text>
-      <text x="4" y={H - 2} fill="var(--color-dim)" fontSize="8">
+      <text x="4" y={H - 2} fill="var(--color-dim)" fontSize="8.5">
         {(10 ** lo).toFixed(4)}%
       </text>
     </svg>

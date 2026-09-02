@@ -5,38 +5,53 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Page not found · postflop</title>
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#E9E5DA">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23FFE000'/%3E%3Cpath fill='%23101010' d='M16 4.5c-2.6 5-8.5 8.4-8.5 13.5 0 2.9 2.2 4.8 4.8 4.8 1.4 0 2.7-.6 3.7-1.7v3.4h-3.2v1.8h6.4v-1.8H16v-3.4c1 1.1 2.3 1.7 3.7 1.7 2.6 0 4.8-1.9 4.8-4.8 0-5.1-5.9-8.5-8.5-13.5z'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#171A18">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='16' height='16' fill='%233A403A'/%3E%3Crect x='16' width='16' height='16' fill='%23FF4D5A'/%3E%3Crect y='16' width='16' height='16' fill='%235B8CFF'/%3E%3Crect x='16' y='16' width='16' height='16' fill='%2325C97A'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;800;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;500&family=Barlow:wght@400;800&display=swap" rel="stylesheet">
 <style>
-* { margin: 0; box-sizing: border-box; border-radius: 0 !important; }
-body {
-  min-height: 100vh; display: grid; place-items: center;
-  background: #E9E5DA; color: #101010;
-  font-family: "Archivo", system-ui, sans-serif;
-  padding: 24px;
-}
-main { border: 3px solid #101010; padding: clamp(28px, 5vw, 56px); max-width: 640px; }
-.code { font-family: "JetBrains Mono", monospace; color: #55524A; font-size: 14px; }
-.code b { background: #FFE000; color: #101010; font-weight: 500; padding: 1px 6px; }
-h1 { font-size: clamp(2rem, 6vw, 3.5rem); font-weight: 900; letter-spacing: -0.04em; text-transform: uppercase; line-height: 0.95; margin: 14px 0 12px; }
-p { color: #55524A; font-size: 16px; }
-a {
-  display: inline-block; margin-top: 28px; background: #FFE000; color: #101010;
-  text-decoration: none; font-weight: 800; font-size: 13px; letter-spacing: .06em;
-  text-transform: uppercase; padding: 12px 20px; border: 2px solid #101010;
-}
-a:hover { background: #101010; color: #FFE000; }
+*{margin:0;padding:0;box-sizing:border-box;border-radius:0!important;box-shadow:none!important}
+body{min-height:100vh;display:grid;place-items:center;background:#171A18;color:#F0F3F0;
+  font:400 16px/1.55 "Barlow",system-ui,sans-serif;-webkit-font-smoothing:antialiased;padding:24px}
+::selection{background:#F0F3F0;color:#171A18}
+main{border:1px solid #333930;background:#12150F;max-width:640px;width:100%}
+.ribbon{display:flex;height:4px}
+.ribbon i{flex:1;display:block}
+.ribbon i:nth-child(1){background:#3A403A}
+.ribbon i:nth-child(2){background:#FF4D5A}
+.ribbon i:nth-child(3){background:#5B8CFF}
+.ribbon i:nth-child(4){background:#25C97A}
+.body{padding:clamp(28px,5vw,52px)}
+.chip{display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);
+  width:22px;height:22px;margin-bottom:22px}
+.chip i{display:block}
+.chip i:nth-child(1){background:#3A403A}
+.chip i:nth-child(2){background:#FF4D5A}
+.chip i:nth-child(3){background:#5B8CFF}
+.chip i:nth-child(4){background:#25C97A}
+.code{font:400 12.5px/1 "Azeret Mono",ui-monospace,Consolas,monospace;color:#9AA69C;
+  display:flex;align-items:center;gap:10px}
+.code b{background:#F0F3F0;color:#171A18;font-weight:500;padding:3px 7px}
+h1{font:800 clamp(2rem,6vw,3.2rem)/1.03 "Barlow",system-ui,sans-serif;
+  letter-spacing:-.018em;margin:16px 0 12px;text-wrap:balance}
+p.sub{color:#9AA69C;font-size:16px}
+a{display:inline-block;margin-top:28px;background:#25C97A;color:#04140C;text-decoration:none;
+  font:700 13px/1 "Barlow",system-ui,sans-serif;padding:14px 22px}
+a:hover{background:#F0F3F0;color:#171A18}
+:focus-visible{outline:2px solid #F0F3F0;outline-offset:2px}
 </style>
 </head>
 <body>
 <main>
-  <p class="code"><b>404</b> dead card</p>
-  <h1>This page is not in the deck.</h1>
-  <p>The address may have changed, or it never existed.</p>
-  <a href="/">Back to postflop</a>
+  <div class="ribbon" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="body">
+    <span class="chip" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+    <p class="code"><b>404</b> dead card</p>
+    <h1>This page is not in the deck.</h1>
+    <p class="sub">The address may have changed, or it never existed.</p>
+    <a href="/">Back to postflop</a>
+  </div>
 </main>
 </body>
 </html>
