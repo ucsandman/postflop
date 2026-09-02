@@ -1,0 +1,8 @@
+# Structure file for `solver solve --tournament`. Six seats left in a 3-paid SNG;
+# the hand in river.toml is between seats 0 and 1, and seat 0 is covered.
+# `stacks` are chips behind at the root of that node, so min(seat stacks) is
+# river.toml's effective_stack of 20.
+[tournament]
+payouts = [500.0, 300.0, 200.0]
+stacks = [20.0, 32.0, 45.0, 12.0, 8.0, 15.0]
+seats = [0, 1]

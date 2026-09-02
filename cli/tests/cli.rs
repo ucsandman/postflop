@@ -15,6 +15,10 @@ fn fixture() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/river.toml")
 }
 
+fn tournament_fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+}
+
 fn offsuit_fixture() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/offsuit.toml")
 }
@@ -291,4 +295,102 @@ fn grid_cell_keeps_the_action_code_and_frequency_separated_at_every_width() {
     assert_eq!(cell, "B100 100%", "code and frequency ran together with no separator:\n{stdout}");
 
     std::fs::remove_dir_all(&dir).ok();
+}
+
+// Stage 2: `--tournament <file.toml>` merges a prize structure into the config
+// before validation, and the report is scored in tournament equity. The headline
+// number is NashConv (the game is general-sum), never "exploitability", and the
+// ICM block prints the volume it mapped. A malformed structure file must exit
+// non-zero naming the offending seat rather than solving something else.
+#[test]
+fn tournament_solve_reports_nashconv_and_a_bad_structure_file_names_the_seat() {
+    let solve = bin()
+        .args([
+            "solve",
+            "--config",
+            fixture().to_str().unwrap(),
+            "--tournament",
+            tournament_fixture("bubble.toml").to_str().unwrap(),
+            "--report-every",
+            "200",
+        ])
+        .output()
+        .expect("run solve --tournament");
+    let stdout = String::from_utf8_lossy(&solve.stdout);
+    let stderr = String::from_utf8_lossy(&solve.stderr);
+    assert!(
+        solve.status.success(),
+        "solve exited {:?}
+stdout:
+{stdout}
+stderr:
+{stderr}",
+        solve.status.code()
+    );
+
+    assert!(stdout.contains("NashConv"), "missing the NashConv headline: {stdout}");
+    assert!(
+        !stdout.contains("exploitability"),
+        "a general-sum solve must never print the word exploitability: {stdout}"
+    );
+    assert!(
+        stdout.contains("payoff unit: cste"),
+        "missing the payoff-unit tag: {stdout}"
+    );
+    // The chip solve's own EV lines survive unchanged — `cli.rs` has pinned this
+    // substring since before tournaments existed.
+    assert!(stdout.contains("OOP EV"), "missing OOP EV line: {stdout}");
+    // The volume line: the fixture is 6 seats / 3 paid, and river.toml's tree has
+    // 3 fold + 4 showdown terminals, every one of them ICM-mapped.
+    assert!(
+        stdout.contains("icm: 6 seats, 3 paid, 7 terminals mapped"),
+        "missing or wrong ICM volume line: {stdout}"
+    );
+
+    // Both seats price a flip against each other, asymmetrically and above chipEV:
+    // an all-1.0 matrix (a no-op bubble factor) fails here.
+    let mut factors = Vec::new();
+    for line in stdout.lines() {
+        let Some(rest) = line.split("bubble factor vs seat ").nth(1) else {
+            continue;
+        };
+        let f: f64 = rest
+            .split_whitespace()
+            .nth(1)
+            .expect("a number after the seat index")
+            .parse()
+            .expect("bubble factor parses as a number");
+        factors.push(f);
+    }
+    assert_eq!(factors.len(), 2, "expected one bubble factor per seat: {stdout}");
+    assert!(
+        factors.iter().all(|f| *f > 1.0),
+        "both seats are on a bubble, so both factors must exceed 1: {factors:?}"
+    );
+    assert!(
+        (factors[0] - factors[1]).abs() > 0.05,
+        "the covered and covering seats must not price the flip alike: {factors:?}"
+    );
+
+    let bad = bin()
+        .args([
+            "solve",
+            "--config",
+            fixture().to_str().unwrap(),
+            "--tournament",
+            tournament_fixture("bad-seat.toml").to_str().unwrap(),
+        ])
+        .output()
+        .expect("run solve with a malformed tournament file");
+    let bad_stderr = String::from_utf8_lossy(&bad.stderr);
+    assert!(
+        !bad.status.success(),
+        "expected a non-zero exit for a seat that does not exist: {}",
+        String::from_utf8_lossy(&bad.stdout)
+    );
+    assert!(!bad_stderr.contains("panicked"), "must not panic: {bad_stderr}");
+    assert!(
+        bad_stderr.contains("tournament.seats[1] is 9"),
+        "the error must name the offending seat: {bad_stderr}"
+    );
 }

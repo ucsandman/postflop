@@ -38,6 +38,7 @@ use engine::cards::{self, NUM_CARDS};
 use engine::cfr::{DcfrParams, Solver};
 use engine::config::SolveConfig;
 use engine::game::Game;
+use engine::icm;
 use engine::nlhe::NlheGame;
 use engine::range::{self, Range, NUM_COMBOS};
 use engine::solution::{NodeStrategy, Solution};
@@ -434,10 +435,23 @@ impl SolutionHandle {
 
     /// Solve metadata and the headline numbers, as a JSON string:
     /// `format_version`, `engine_version`, `iterations`, `wall_seconds`,
-    /// `exploitability_chips`, `exploitability_pct_of_pot`, `root_evs`
-    /// (both conventions), `node_count`, `board`, `street`, `starting_pot`,
+    /// `exploitability_chips`, `exploitability_pct_of_pot`, `payoff_unit`, `gain`,
+    /// `root_evs` (both conventions), `node_count`, `board`, `street`, `starting_pot`,
     /// `effective_stack`, `oop_range`, `ip_range`, `root_combos` (counts per player),
-    /// and `locks`.
+    /// `tournament`, and `locks`.
+    ///
+    /// `payoff_unit` is `"chips"` for an ordinary solve and `"cste"` when the spot was
+    /// scored in tournament equity. Under `"cste"` the game is general-sum, so
+    /// `exploitability_chips` holds **NashConv**, not a bound on either player's loss,
+    /// and a UI must not call it exploitability. `gain` is `[OOP, IP]`, each player's
+    /// unilateral best-response gain, and the two sum to `exploitability_chips`.
+    ///
+    /// `tournament` is `null` for a chip solve. Otherwise it carries the structure the
+    /// spot was scored against — `stacks` (chips behind per seat at this node),
+    /// `payouts` (prize per finishing place), `seats` (`[OOP, IP]` indices into
+    /// `stacks`) — plus `bubble_factors`, the pairwise matrix `m[hero][villain]` at each
+    /// pair's effective risk. A cell is `null` where the factor is not finite (a seat
+    /// that already holds every prize the structure pays).
     ///
     /// `locks` is one `{node, player, line}` per frozen decision node, in config order —
     /// empty for an ordinary solve. Those nodes' strategies are the locked distributions
@@ -454,6 +468,23 @@ impl SolutionHandle {
             "wall_seconds": m.wall_seconds,
             "exploitability_chips": m.exploitability_chips,
             "exploitability_pct_of_pot": m.exploitability_pct_of_pot,
+            "payoff_unit": m.payoff_unit,
+            "gain": m.gain,
+            "tournament": cfg.tournament.as_ref().map(|t| json!({
+                "stacks": t.stacks,
+                "payouts": t.payouts,
+                "seats": t.seats,
+                // ponytail: recomputed per meta() call. n^2 pairs x 2 ICM DPs, which is
+                // microseconds at a real final table (<= 10 seats); cache it on the
+                // handle if a 30-seat structure ever shows up in a profile.
+                "bubble_factors": icm::bubble_factors(&t.stacks, &t.payouts)
+                    .iter()
+                    .map(|row| row
+                        .iter()
+                        .map(|&f| if f.is_finite() { json!(f) } else { Value::Null })
+                        .collect::<Vec<Value>>())
+                    .collect::<Vec<Vec<Value>>>(),
+            })),
             "root_evs": {
                 "zero_sum": m.root_evs.zero_sum,
                 "pot_share": m.root_evs.pot_share,

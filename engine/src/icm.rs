@@ -103,6 +103,45 @@ pub fn bubble_factor(
 // is only exact for a symmetric all-in with no dead money. Compute both from
 // `equity`.
 
+/// Every ordered pair's bubble factor, `m[hero][villain]`, each measured at that
+/// pair's effective risk `min(stacks[hero], stacks[villain])` — the most either
+/// seat can lose to the other in one hand.
+///
+/// The matrix is asymmetric: a covering seat and the seat it covers do not price
+/// the same flip the same way, which is why this is a matrix and not one number
+/// per seat.
+///
+/// Two degenerate cells, both reported rather than hidden:
+/// * the diagonal, and any pair where a seat is busted, is `1.0` — no chips can
+///   move, so a chip is worth a chip;
+/// * a pair where winning cannot raise the hero's equity at all (the hero already
+///   holds every prize the structure pays) is `f64::INFINITY`.
+///
+/// Cost is `n^2` pairs times two [`equity`] evaluations. Nothing is cached.
+pub fn bubble_factors(stacks: &[f64], payouts: &[f64]) -> Vec<Vec<f64>> {
+    let n = stacks.len();
+    let now = equity(stacks, payouts);
+    let mut m = vec![vec![1.0; n]; n];
+    for hero in 0..n {
+        for villain in 0..n {
+            let risk = stacks[hero].min(stacks[villain]);
+            if hero == villain || risk <= 0.0 {
+                continue;
+            }
+            let mut w = stacks.to_vec();
+            w[hero] += risk;
+            w[villain] -= risk;
+            let mut l = stacks.to_vec();
+            l[hero] -= risk;
+            l[villain] += risk;
+            let up = equity(&w, payouts)[hero] - now[hero];
+            let down = now[hero] - equity(&l, payouts)[hero];
+            m[hero][villain] = if up > 0.0 { down / up } else { f64::INFINITY };
+        }
+    }
+    m
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,6 +268,65 @@ mod tests {
             "covering {big} vs covered {small}"
         );
         assert!(big > 1.0 && small > 1.0, "both above chipEV on a bubble");
+    }
+
+    /// The pairwise matrix the CLI and the web tile read. It must agree with
+    /// `bubble_factor` at the pair's effective risk, must be asymmetric on a
+    /// covering/covered pair, and must not report pressure where no chips can move.
+    #[test]
+    fn bubble_factors_is_a_pairwise_asymmetric_matrix() {
+        let stacks = [6000.0, 1500.0, 1500.0, 1000.0, 0.0];
+        let payouts = [500.0, 300.0, 200.0];
+        let m = bubble_factors(&stacks, &payouts);
+        let n = stacks.len();
+        assert_eq!(m.len(), n);
+        let mut pairs = 0;
+        let mut asymmetric = 0;
+        for (hero, row) in m.iter().enumerate() {
+            assert_eq!(row.len(), n);
+            assert_eq!(row[hero], 1.0, "diagonal seat {hero}");
+            for (villain, &f) in row.iter().enumerate() {
+                if hero == villain {
+                    continue;
+                }
+                pairs += 1;
+                if (f - m[villain][hero]).abs() > 1e-9 {
+                    asymmetric += 1;
+                }
+            }
+        }
+        println!(
+            "bubble_factors: {n} seats, {pairs} ordered pairs evaluated, {asymmetric} asymmetric, \
+             leader-vs-short {:.6} / {:.6}, busted column {:?}",
+            m[0][3], m[3][0], m[4]
+        );
+        // Covering vs covered: BF(i,j) != BF(j,i). The gate the plan names.
+        assert!(
+            (m[0][3] - m[3][0]).abs() > 0.05,
+            "chip leader {} vs short stack {} priced the same flip alike",
+            m[0][3],
+            m[3][0]
+        );
+        assert!(m[0][3] > 1.0 && m[3][0] > 1.0, "both above chipEV on a bubble");
+        // Equal stacks (seats 1 and 2) are symmetric to each other, so the matrix
+        // is not asymmetric by construction — it is asymmetric where the stacks are.
+        assert!(
+            (m[1][2] - m[2][1]).abs() < 1e-12,
+            "equal stacks must price each other identically"
+        );
+        // Seat 4 is busted: nothing can move either way.
+        assert!(
+            m[4].iter().all(|&v| v == 1.0) && (0..n).all(|h| m[h][4] == 1.0),
+            "a busted seat cannot apply or feel pressure: {:?}",
+            m[4]
+        );
+        // Agreement with the single-pair function at the same risk.
+        let single = bubble_factor(&stacks, &payouts, 0, 3, 1000.0);
+        assert!(
+            (m[0][3] - single).abs() < 1e-12,
+            "matrix {} vs bubble_factor {single}",
+            m[0][3]
+        );
     }
 
     /// Invariants that must hold for any stack vector: the prize pool is fully

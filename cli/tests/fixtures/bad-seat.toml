@@ -1,0 +1,6 @@
+# Deliberately malformed: seat 9 does not exist at a six-handed table. The solve
+# must exit non-zero with the offending seat named.
+[tournament]
+payouts = [500.0, 300.0, 200.0]
+stacks = [20.0, 32.0, 45.0, 12.0, 8.0, 15.0]
+seats = [0, 9]

@@ -264,4 +264,115 @@ bet = { percents = [100.0], allin = false }
   ok("bad input throws instead of panicking", "4 error paths");
 }
 
+// --- in-browser ICM solve ---------------------------------------------------------
+// The same tiny river spot scored in tournament equity. The reconciliation below is
+// the real gate: if the per-combo path and the root path disagree under a general-sum
+// payoff map, one of them is wrong and the workbench would show a number nothing
+// backs up.
+console.log("\n=== solve_spot (ICM: 4-seat bubble, 3 paid) ===");
+{
+  const toml = `
+board = "Ks 7d 2c 8h 3d"
+oop_range = "KK,A4s,A5s"
+ip_range = "TT,JJ"
+effective_stack = 10.0
+starting_pot = 10.0
+raise_cap = 0
+[sizings.oop.river]
+bet = { percents = [100.0], allin = false }
+[sizings.ip.river]
+bet = { percents = [100.0], allin = false }
+[tournament]
+payouts = [500.0, 300.0, 200.0]
+stacks = [10.0, 18.0, 25.0, 6.0]
+seats = [0, 1]
+`;
+  const solved = wasm.solve_spot(toml, 2000, 0.02, 500, () => {});
+  const meta = JSON.parse(solved.meta());
+  console.log(`  meta: ${JSON.stringify(meta)}`);
+
+  assert.equal(meta.payoff_unit, "cste", "an ICM solve must be tagged cste");
+  assert.equal(meta.format_version, 3, "a tournament block raises the format version");
+  assert.ok(meta.tournament, "meta must carry the structure the spot was scored against");
+  assert.deepEqual(meta.tournament.payouts, [500, 300, 200]);
+  assert.deepEqual(meta.tournament.stacks, [10, 18, 25, 6]);
+  assert.deepEqual(meta.tournament.seats, [0, 1]);
+
+  // gain is per player and sums to the headline NashConv.
+  assert.equal(meta.gain.length, 2);
+  assert.ok(meta.gain.every((g) => Number.isFinite(g) && g >= 0), `gain ${meta.gain}`);
+  close(
+    meta.gain[0] + meta.gain[1],
+    meta.exploitability_chips,
+    1e-4,
+    "gain[0] + gain[1] vs NashConv"
+  );
+  ok(
+    "meta tags the payoff unit and splits NashConv per player",
+    `${meta.payoff_unit}, gain ${meta.gain[0].toFixed(6)} + ${meta.gain[1].toFixed(6)} = ` +
+      `${meta.exploitability_chips.toFixed(6)} cste chips`
+  );
+
+  // The bubble-factor matrix: square, asymmetric where the stacks differ, above 1
+  // for the two seats in the hand.
+  const bf = meta.tournament.bubble_factors;
+  const seats = meta.tournament.stacks.length;
+  assert.equal(bf.length, seats);
+  for (const row of bf) assert.equal(row.length, seats);
+  for (let i = 0; i < seats; i += 1) assert.equal(bf[i][i], 1, `diagonal seat ${i}`);
+  const [oopSeat, ipSeat] = meta.tournament.seats;
+  assert.ok(bf[oopSeat][ipSeat] > 1, `OOP bubble factor ${bf[oopSeat][ipSeat]}`);
+  assert.ok(bf[ipSeat][oopSeat] > 1, `IP bubble factor ${bf[ipSeat][oopSeat]}`);
+  assert.ok(
+    Math.abs(bf[oopSeat][ipSeat] - bf[ipSeat][oopSeat]) > 0.01,
+    `covered and covering seats priced the flip alike: ${bf[oopSeat][ipSeat]} vs ${bf[ipSeat][oopSeat]}`
+  );
+  ok(
+    "bubble_factors is a pairwise asymmetric matrix",
+    `${seats}x${seats}, OOP ${bf[oopSeat][ipSeat].toFixed(4)} vs IP ${bf[ipSeat][oopSeat].toFixed(4)}`
+  );
+
+  // --- root-EV reconciliation under ICM ---
+  const rootEvs = JSON.parse(solved.root_evs());
+  console.log(`  root_evs: ${JSON.stringify(rootEvs)}`);
+  for (const player of [0, 1]) {
+    const evs = solved.combo_evs(0, player);
+    const w = solved.combo_ev_weights(0, player);
+    assert.equal(evs.length, w.length);
+    let num = 0;
+    let den = 0;
+    let finite = 0;
+    for (let i = 0; i < evs.length; i += 1) {
+      assert.ok(Number.isFinite(evs[i]), `player ${player} combo ${i} ev ${evs[i]}`);
+      finite += 1;
+      num += w[i] * evs[i];
+      den += w[i];
+    }
+    const mean = num / den;
+    const delta = Math.abs(mean - rootEvs.zero_sum[player]);
+    close(mean, rootEvs.zero_sum[player], 1e-4, `ICM player ${player} reach-weighted mean vs root_evs`);
+    ok(
+      `ICM combo_evs reconcile with root_evs.zero_sum[${player}]`,
+      `${finite} combos, mean ${mean.toFixed(8)} vs ${rootEvs.zero_sum[player].toFixed(8)}, delta ${delta.toExponential(2)}`
+    );
+  }
+
+  // Under ICM the two seats' pot-share EVs are absolute equities in CSTE chips, so
+  // they do NOT sum to the starting pot the way a chip solve's do.
+  const potShareSum = rootEvs.pot_share[0] + rootEvs.pot_share[1];
+  assert.ok(
+    Math.abs(potShareSum - 10.0) > 1.0,
+    `ICM pot-share EVs summed to ${potShareSum}, which is the chip convention, not equity`
+  );
+  ok(
+    "ICM pot-share EVs are absolute seat equity, not a pot split",
+    `sum ${potShareSum.toFixed(4)} cste chips vs a 10.0 chip pot`
+  );
+
+  // The structure survives export/import.
+  const reloaded = wasm.load_solution(solved.to_json());
+  assert.equal(reloaded.meta(), solved.meta());
+  ok("ICM solution round-trips through load_solution", `meta identical, ${solved.to_json().length} chars`);
+}
+
 console.log(`\nALL GREEN — ${checks} checks`);

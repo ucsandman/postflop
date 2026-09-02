@@ -18,12 +18,13 @@
 //!
 //! Everything else is unchanged, and a config with no locks solves exactly as before.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use clap::{Args, ValueEnum};
 use engine::cfr::{DcfrParams, Solver, StorageMode};
-use engine::config::SolveConfig;
+use engine::config::{SolveConfig, Tournament};
+use engine::icm;
 use engine::nlhe::NlheGame;
 use engine::solution::Solution;
 
@@ -64,6 +65,11 @@ pub struct SolveArgs {
     /// Override: starting pot, in chips.
     #[arg(long)]
     pot: Option<f64>,
+    /// Override: a TOML file holding a `[tournament]` table (payouts, stacks, seats).
+    /// Its block replaces the config's, so one structure file is reused across boards.
+    /// Present means payoffs are scored in tournament equity (CSTE) instead of chips.
+    #[arg(long)]
+    tournament: Option<PathBuf>,
     /// Override: hard iteration ceiling.
     #[arg(long = "max-iterations")]
     max_iterations: Option<u64>,
@@ -112,6 +118,9 @@ pub fn run(args: SolveArgs) -> Result<(), String> {
     if let Some(p) = args.pot {
         cfg.starting_pot = p;
     }
+    if let Some(path) = &args.tournament {
+        cfg.tournament = Some(read_tournament(path)?);
+    }
     if let Some(m) = args.max_iterations {
         cfg.max_iterations = m;
     }
@@ -139,13 +148,20 @@ pub fn run(args: SolveArgs) -> Result<(), String> {
     let mut solver = Solver::new_with_storage(game, args.storage.into());
     print_tree_stats(&solver);
 
+    // Under a tournament payoff map the headline metric is NashConv in CSTE chips,
+    // not exploitability in chips: the game is general-sum. Same number, different
+    // meaning, so it never wears the chip label.
+    let (metric, unit) = match cfg.tournament {
+        None => ("exploitability", "chips"),
+        Some(_) => ("NashConv", "cste chips"),
+    };
     let start = Instant::now();
     let mut done = 0u64;
     let mut last_pct = f32::INFINITY;
     while done < cfg.max_iterations {
         let chunk = args.report_every.min(cfg.max_iterations - done);
         solver.run(chunk, &params, chunk, |i, chips, pct| {
-            println!("iter {i:>8}  exploitability {chips:.6} chips  {pct:.4}% of pot  [measured]");
+            println!("iter {i:>8}  {metric} {chips:.6} {unit}  {pct:.4}% of pot  [measured]");
             last_pct = pct;
         });
         done += chunk;
@@ -194,18 +210,91 @@ fn print_tree_stats(solver: &Solver<NlheGame>) {
 
 fn print_final_report(solver: &Solver<NlheGame>, wall_seconds: f64) {
     let game = solver.game();
+    let cfg = game.config();
     let report = solver.exploitability();
     println!("=== final report ===");
     println!("iterations: {}", solver.iterations());
     println!("wall time: {wall_seconds:.4} s [measured]");
-    println!(
-        "exploitability: {:.6} chips  {:.4}% of pot  [measured]",
-        report.chips, report.pct_of_pot
-    );
+    match &cfg.tournament {
+        // Chips: the game is zero-sum, so this number is a genuine bound on what
+        // either player can win by deviating.
+        None => println!(
+            "exploitability: {:.6} chips  {:.4}% of pot  [measured]",
+            report.chips, report.pct_of_pot
+        ),
+        // Tournament equity: the game is general-sum (the frozen field absorbs
+        // equity), so the same slot holds NashConv and is never called
+        // exploitability. See the `engine::br` module docs.
+        Some(_) => {
+            println!("payoff unit: cste (chip-scaled tournament equity)");
+            println!(
+                "NashConv: {:.6} cste chips  {:.4}% of pot  [measured]",
+                report.chips, report.pct_of_pot
+            );
+            println!(
+                "  (both players' unilateral best-response gains, summed; the game is \
+                 general-sum, so zero does not certify a minimum EV)"
+            );
+        }
+    }
     for p in 0..2u8 {
         let who = if p == 0 { "OOP" } else { "IP " };
         let zero_sum = solver.expected_value(p);
         let pot_share = game.ev_pot_share(p, zero_sum);
         println!("{who} EV: zero-sum {zero_sum:.4}  pot-share {pot_share:.4}  [measured]");
     }
+    if let Some(t) = &cfg.tournament {
+        print_icm_block(game, t, report.gain);
+    }
+}
+
+/// The tournament half of the final report: which table seats are in the hand, what
+/// each player gains by deviating alone, how the two seats price a flip against each
+/// other, and the volume the ICM map covered.
+fn print_icm_block(game: &NlheGame, t: &Tournament, gain: [f32; 2]) {
+    let counts = game.tree().counts();
+    let bf = icm::bubble_factors(&t.stacks, &t.payouts);
+    let paid = t.payouts.len().min(t.stacks.len());
+    for (p, g) in gain.iter().enumerate() {
+        let who = if p == 0 { "OOP" } else { "IP " };
+        let seat = t.seats[p];
+        let other = t.seats[1 - p];
+        let f = bf[seat][other];
+        println!(
+            "{who} seat {seat} ({} chips)  gain {:.6} cste chips  \
+             bubble factor vs seat {other} {f:.4} (required equity {:.2}%)  [measured]",
+            t.stacks[seat],
+            g,
+            100.0 * f / (f + 1.0)
+        );
+    }
+    println!(
+        "icm: {} seats, {paid} paid, {} terminals mapped  [measured]",
+        t.stacks.len(),
+        counts.fold + counts.showdown
+    );
+}
+
+/// Reads a `[tournament]` table out of its own file, for `--tournament`.
+///
+/// Nothing is checked here beyond the file's shape: the block goes into the config
+/// and `SolveConfig::validate` rejects a bad one with the offending seat, stack or
+/// payout named.
+fn read_tournament(path: &Path) -> Result<Tournament, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {path:?}: {e}"))?;
+    let mut doc: toml::Table =
+        toml::from_str(&text).map_err(|e| format!("invalid tournament file {path:?}: {e}"))?;
+    let block = doc
+        .remove("tournament")
+        .ok_or_else(|| format!("{path:?} has no [tournament] table"))?;
+    if !doc.is_empty() {
+        let keys: Vec<&str> = doc.keys().map(String::as_str).collect();
+        return Err(format!(
+            "{path:?} has keys outside [tournament] ({}); a tournament file carries the              prize structure and the table's stacks, nothing else",
+            keys.join(", ")
+        ));
+    }
+    block
+        .try_into()
+        .map_err(|e| format!("invalid [tournament] in {path:?}: {e}"))
 }

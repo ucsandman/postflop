@@ -11,3 +11,6 @@ path = "src/main.rs"
 engine = { path = "../engine" }
 clap = { version = "4", features = ["derive"] }
 rayon = "1"
+# Only for `--tournament <file.toml>`: parse the file's `[tournament]` table and
+# hand the value to the engine's own `Tournament` deserializer.
+toml = "0.8"
