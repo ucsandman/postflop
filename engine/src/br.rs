@@ -139,6 +139,10 @@ pub fn exploitability<G: Game, P: StrategyProfile>(game: &G, profile: &P) -> Exp
             br[1] - expected_value(game, 1, profile),
         ]
     };
+    debug_assert!(
+        gain[0] >= -1e-3 && gain[1] >= -1e-3,
+        "a unilateral best response cannot lose to the profile it deviates from: gain {gain:?}"
+    );
     let chips = gain[0] + gain[1];
     ExploitReport { br, gain, chips, pct_of_pot: 100.0 * chips / game.root_pot() }
 }

@@ -89,7 +89,9 @@ pub struct SolveArgs {
     #[arg(long)]
     out: Option<PathBuf>,
     /// Per-node regret/strategy storage. `i16` roughly halves peak memory; results
-    /// are the same up to the codec's quantization error. See `StorageMode`.
+    /// are the same up to the codec's quantization error. See `StorageMode`. That
+    /// error was measured on chip payoffs only: with `--tournament`, i16 parity is
+    /// not yet measured and the report says so.
     #[arg(long, value_enum, default_value_t = StorageArg::F32)]
     storage: StorageArg,
 }
@@ -244,7 +246,7 @@ fn print_final_report(solver: &Solver<NlheGame>, wall_seconds: f64) {
         println!("{who} EV: zero-sum {zero_sum:.4}  pot-share {pot_share:.4}  [measured]");
     }
     if let Some(t) = &cfg.tournament {
-        print_icm_block(game, t, report.gain);
+        print_icm_block(game, t, report.gain, matches!(solver.storage_mode(), StorageMode::I16));
     }
 }
 
@@ -256,7 +258,7 @@ fn print_final_report(solver: &Solver<NlheGame>, wall_seconds: f64) {
 /// `tournament.stacks` of the file: the payoff map is centred on the stacks with the
 /// starting pot credited half to each in-hand seat, and the preflop money moves the
 /// quoted factor well inside the four decimals printed here.
-fn print_icm_block(game: &NlheGame, t: &Tournament, gain: [f32; 2]) {
+fn print_icm_block(game: &NlheGame, t: &Tournament, gain: [f32; 2], i16: bool) {
     let counts = game.tree().counts();
     let base = game.icm_base_stacks().expect("an ICM solve has a base stack vector");
     let bf = icm::bubble_factors(base, &t.payouts);
@@ -280,6 +282,9 @@ fn print_icm_block(game: &NlheGame, t: &Tournament, gain: [f32; 2]) {
         t.stacks.len(),
         counts.fold + counts.showdown
     );
+    if i16 {
+        println!("note: i16 storage parity was measured on chip payoffs only; not yet on CSTE (ICM) payoffs");
+    }
 }
 
 /// Reads a `[tournament]` table out of its own file, for `--tournament`.

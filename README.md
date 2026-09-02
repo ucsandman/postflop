@@ -211,6 +211,10 @@ IP  seat 1 (32 chips, 37 with this pot)  gain 0.011367 cste chips  bubble factor
 icm: 6 seats, 3 paid, 7 terminals mapped  [measured]
 ```
 
+`--storage i16` works with `--tournament`, but its quantization floor was
+measured on chip payoffs only; no i16 parity claim is made for ICM solves yet,
+and the report says so.
+
 Only the shape of the ladder matters — the engine divides by the prize pool, so
 `[50, 30, 20]` and `[$5000, $3000, $2000]` solve to the same strategy. The
 shorter of the two in-hand seats must hold exactly `effective_stack`; the

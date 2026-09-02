@@ -145,8 +145,13 @@ pub struct BetSizings {
 }
 
 impl BetSizings {
-    /// The tables for one player: `0` = OOP, anything else = IP.
+    /// The tables for one player: `0` = OOP, `1` = IP.
+    ///
+    /// The engine is two-player, so any other id is a caller bug, not a third
+    /// seat. Without the assert it silently returns IP's tables — the failure
+    /// mode a multiway build would hit first.
     pub fn player(&self, player: u8) -> &PlayerSizings {
+        debug_assert!(player < 2, "sizings requested for player {player}: the engine is two-player");
         if player == 0 {
             &self.oop
         } else {
@@ -1247,6 +1252,26 @@ seats = [0, 1]
             crate::icm::work_estimate(4, 3, 3),
             crate::icm::work_estimate(10, 10, 10),
         );
+    }
+
+    /// Both real ids reach their own tables, and nothing aliases.
+    #[test]
+    fn sizings_player_maps_both_seats() {
+        let mut s = BetSizings::default();
+        s.oop.flop.bet = Sizings::new(&[33.0], false);
+        s.ip.flop.bet = Sizings::new(&[75.0], true);
+        assert_eq!(s.player(0).flop.bet, s.oop.flop.bet);
+        assert_eq!(s.player(1).flop.bet, s.ip.flop.bet);
+        assert_ne!(s.player(0).flop.bet, s.player(1).flop.bet);
+    }
+
+    /// A third seat must trip the assert instead of silently getting IP's
+    /// tables. `debug_assert` is compiled out in release, so is the test.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "the engine is two-player")]
+    fn sizings_player_rejects_a_third_seat() {
+        let _ = BetSizings::default().player(2);
     }
 
     #[test]
