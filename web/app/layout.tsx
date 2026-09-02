@@ -11,14 +11,14 @@ export const viewport: Viewport = { themeColor: "#E9E5DA" };
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://postflop-workbench.vercel.app"),
-  title: "postflop workbench: solve and inspect HU NLHE spots in your browser",
+  title: "postflop workbench: solve and inspect HU NLHE spots, in chips or ICM",
   description:
-    "Browser inspector and solver for heads-up no-limit hold'em postflop spots, running the postflop Rust engine as WebAssembly. Solve small spots on the page or load solutions produced by the CLI.",
+    "Browser inspector and solver for heads-up no-limit hold'em postflop spots, running the postflop Rust engine as WebAssembly. Solve for chipEV, or give it a payout ladder and per-seat stacks and solve the same spot in tournament equity with the two answers side by side.",
   alternates: { canonical: "/" },
   openGraph: {
     title: "postflop workbench",
     description:
-      "Solve and inspect heads-up NLHE postflop spots in your browser. The postflop Rust engine, compiled to WebAssembly.",
+      "Solve and inspect heads-up NLHE postflop spots in your browser, for chipEV or under tournament ICM. The postflop Rust engine, compiled to WebAssembly.",
     url: "https://postflop-workbench.vercel.app/",
     siteName: "postflop",
     images: [{ url: "/og.png", width: 2400, height: 1260 }],
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "postflop workbench",
     description:
-      "Solve and inspect heads-up NLHE postflop spots in your browser. The postflop Rust engine, compiled to WebAssembly.",
+      "Solve and inspect heads-up NLHE postflop spots in your browser, for chipEV or under tournament ICM. The postflop Rust engine, compiled to WebAssembly.",
     images: ["/og.png"],
   },
 };

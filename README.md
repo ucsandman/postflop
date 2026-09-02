@@ -4,7 +4,7 @@
 
 <h1 align="center">postflop</h1>
 
-<p align="center"><strong>A heads-up no-limit hold'em postflop GTO solver whose convergence is measured, never asserted.</strong></p>
+<p align="center"><strong>A heads-up no-limit hold'em postflop GTO solver whose convergence is measured, never asserted. ChipEV or tournament ICM.</strong></p>
 
 <p align="center">
   <a href="https://postflop-workbench.vercel.app">Workbench</a> ·
@@ -40,6 +40,7 @@ the pot. The `[measured]` tag in its output is literal.
 - [Quick start](#quick-start)
   - [Solve a spot](#solve-a-spot)
   - [Node locking](#node-locking)
+  - [Tournament ICM](#tournament-icm)
   - [Inspect a solution](#inspect-a-solution)
   - [Browser workbench](#browser-workbench)
 - [Correctness](#correctness)
@@ -76,6 +77,10 @@ per-hand EVs, action frequencies, and every runout.
 - **Memory-conscious.** Flat arena game tree (no pointer chasing), chance
   tables shared across betting lines by board, and an optional `i16` storage
   mode with per-node scale factors that roughly halves peak memory.
+- **Tournament ICM.** Exact Malmuth-Harville equity at every terminal, driven
+  by a payout ladder and per-seat stacks. The postflop game stays heads-up; the
+  rest of the table enters through the stack vector. ChipEV solves are
+  bit-identical to before, gated by `engine/tests/fingerprint.rs`.
 
 ## Workspace
 
@@ -147,7 +152,7 @@ IP  EV: zero-sum 0.3006  pot-share 3.3006  [measured]
 
 Flags: `--board`, `--oop-range`, `--ip-range`, `--stack`, `--pot`,
 `--max-iterations`, `--target-exploitability`, `--report-every`, `--threads`,
-`--storage f32|i16`, `--out`. Every printed exploitability and EV figure comes
+`--storage f32|i16`, `--tournament`, `--out`. Every printed exploitability and EV figure comes
 straight out of the best-response calculator against the current average
 strategy — the `[measured]` tag is literal.
 
@@ -173,6 +178,59 @@ Locks travel inside the solution file (format v2; lock-free solves still write
 v1), the structure guard holds stored strategies to them, and reported
 exploitability is measured against the locked profile — the locked player
 cannot deviate at locked nodes, the other player best-responds normally.
+
+### Tournament ICM
+
+Give it a payout ladder and every remaining seat's stack and each terminal pays
+**exact Malmuth-Harville tournament equity** instead of chips, rescaled by the
+table's chip count over the prize pool so the numbers stay in chip-sized units
+(CSTE). The structure is its own file, so one ladder is reused across boards:
+
+```toml
+# bubble.toml — six seats left in a 3-paid SNG
+[tournament]
+payouts = [500.0, 300.0, 200.0]   # prize per place, 1st first, never increasing
+stacks  = [20.0, 32.0, 45.0, 12.0, 8.0, 15.0]   # chips behind at THIS node, seat order
+seats   = [0, 1]                  # which seats are OOP and IP in the hand
+```
+
+```sh
+solver solve --config river.toml --tournament bubble.toml --report-every 200
+```
+
+```
+iter      200  NashConv 0.014386 cste chips  0.1439% of pot  [measured]
+=== final report ===
+payoff unit: cste (chip-scaled tournament equity)
+NashConv: 0.014386 cste chips  0.1439% of pot  [measured]
+  (both players' unilateral best-response gains, summed; the game is general-sum, so zero does not certify a minimum EV)
+OOP EV: zero-sum -1.1330  pot-share 25.4120  [measured]
+IP  EV: zero-sum 0.2960  pot-share 35.3722  [measured]
+OOP seat 0 (20 chips)  gain 0.003019 cste chips  bubble factor vs seat 1 1.5062 (required equity 60.10%)  [measured]
+IP  seat 1 (32 chips)  gain 0.011367 cste chips  bubble factor vs seat 0 1.3241 (required equity 56.97%)  [measured]
+icm: 6 seats, 3 paid, 7 terminals mapped  [measured]
+```
+
+Only the shape of the ladder matters — the engine divides by the prize pool, so
+`[50, 30, 20]` and `[$5000, $3000, $2000]` solve to the same strategy. The
+shorter of the two in-hand seats must hold exactly `effective_stack`; the
+covering seat may hold more, and its excess rides through every terminal as a
+constant. Rake plus ICM is rejected: tournament pots are not raked.
+
+**The headline number changes, and that is the honest part.** Under ICM the two
+players' equities do not sum to a constant — equity leaks to the frozen field,
+or drains from it — so the game is general-sum and `br[0] + br[1]` bounds
+nothing. What is reported instead is **NashConv**: each player's unilateral gain
+from deviating while the other stays put, and their sum. Zero NashConv does not
+certify a minimum EV, adding a bet size can lower both players' EV, and playing
+the equilibrium against a mistake can lose equity. Those are properties of the
+game. The model is exact Malmuth-Harville to 32 seats and nothing else: no blind
+levels, no future-game simulation, no bounties, equal skill assumed.
+
+Solutions written under a tournament block are format v3 and carry
+`payoff_unit: "cste"`, the per-player `gain`, and the structure with its pairwise
+bubble-factor matrix. The browser workbench reads all of it, and solves the
+chipEV twin of every ICM spot so the two strategies sit side by side.
 
 ### Inspect a solution
 
@@ -308,6 +366,13 @@ real screen recording. See the folder's
 Aggregate reports across the 1,755 canonical flops, and preflop solving (which
 needs bunching effects, heavier abstraction, and disk-backed storage — a
 separate project by design).
+
+Multiway is not implemented and is not planned here. With three or more players
+CFR minimizes external regret and converges to the set of coarse correlated
+equilibria, not Nash, and no exploitability bound exists to report — so the
+tournament support above puts the whole table into the ICM stack vector and
+keeps the postflop tree heads-up. Per-seat stacks inside the tree (side pots)
+are a separate project for the same reason.
 
 ## License
 

@@ -65,6 +65,18 @@ export interface LockInfo {
   line: string;
 }
 
+/** The tournament structure a spot was scored against; `null` on a chip solve. */
+export interface TournamentMeta {
+  /** Chips behind per seat at the root of this node, in seat order. */
+  stacks: number[];
+  /** Prize per finishing place, index 0 = first. */
+  payouts: number[];
+  /** Indices into `stacks`: `[OOP seat, IP seat]`. */
+  seats: [number, number];
+  /** Pairwise `m[hero][villain]` at each pair's effective risk; `null` where not finite. */
+  bubble_factors: (number | null)[][];
+}
+
 export interface Meta {
   format_version: number;
   engine_version: string;
@@ -81,6 +93,19 @@ export interface Meta {
   oop_range: string;
   ip_range: string;
   root_combos: [number, number];
+  /**
+   * `"chips"` for an ordinary solve, `"cste"` when the spot was scored in tournament
+   * equity. Absent on a pre-v3 solution file, which is by definition a chip solve.
+   *
+   * Under `"cste"` the game is general-sum: `exploitability_chips` holds **NashConv**,
+   * the sum of both players' unilateral best-response gains, and is NOT a bound on
+   * either player's loss. Nothing may label it exploitability.
+   */
+  payoff_unit?: "chips" | "cste";
+  /** `[OOP, IP]` unilateral best-response gain; the two sum to `exploitability_chips`. */
+  gain?: [number, number];
+  /** The tournament structure, or `null`/absent on a chip solve. */
+  tournament?: TournamentMeta | null;
   /** One entry per frozen decision node, in config order; empty for an ordinary solve. */
   locks: LockInfo[];
 }

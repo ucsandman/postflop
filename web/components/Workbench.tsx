@@ -102,6 +102,10 @@ const SAMPLES = [
 
 export default function Workbench() {
   const [handle, setHandle] = useState<SolutionHandle | null>(null);
+  /** The chipEV twin of an ICM solve: the same spot, same iterations, `[tournament]`
+   *  stripped. Null for a chip solve, a loaded file or a sample — nothing else in the
+   *  app produces a matched pair. */
+  const [chipTwin, setChipTwin] = useState<SolutionHandle | null>(null);
   const [source, setSource] = useState<string>("");
   /** Table context of the loaded spot — positions and modeled player profiles. Known for
    *  samples and browser solves; `null` for an opened file, which carries no story. */
@@ -137,6 +141,7 @@ export default function Workbench() {
   const fileInput = useRef<HTMLInputElement>(null);
   /** The handle currently owned by this component, so it can be freed exactly once. */
   const live = useRef<SolutionHandle | null>(null);
+  const liveTwin = useRef<SolutionHandle | null>(null);
   /** Only the first solution load consults the URL; every later load resets to root
    *  the way it always has (loading a different solution mid-session isn't a restore). */
   const restoredFromUrl = useRef(false);
@@ -161,7 +166,7 @@ export default function Workbench() {
     } catch {}
   };
 
-  const adopt = useCallback((json: string, label: string, keepTab = false) => {
+  const adopt = useCallback((json: string, label: string, keepTab = false, chipJson?: string) => {
     setError(null);
     setLoading(true);
     return loadWasm()
@@ -176,6 +181,15 @@ export default function Workbench() {
         setHandle(next);
         previous?.free();
         setSource(label);
+
+        // Same treatment for the twin: replace the ref first, free the old pointer after
+        // the state updater has run. A solve without a twin clears the previous one, so
+        // the comparison band can never outlive the pair it was measured on.
+        const twin = chipJson ? wasm.load_solution(chipJson) : null;
+        const previousTwin = liveTwin.current;
+        liveTwin.current = twin;
+        setChipTwin(twin);
+        previousTwin?.free();
 
         let initNode = 0;
         let initSelected: { row: number; col: number } | null = null;
@@ -322,6 +336,29 @@ export default function Workbench() {
       oppActionColors: actionColors(oppActionNode?.actions ?? []),
     };
   }, [handle, nodeId]);
+
+  /**
+   * The two strategies at the node on screen, as range-level action frequencies.
+   *
+   * Stripping `[tournament]` changes payoffs, never the tree, so the twin has the same
+   * node ids, acting players and action lists — but that is an argument, not a promise,
+   * so the widths are checked before the two are put beside each other and a mismatch
+   * renders nothing rather than a wrong delta.
+   */
+  const icmCompare = useMemo(() => {
+    if (!chipTwin || !view || view.kind !== "decision") return null;
+    try {
+      if (chipTwin.num_actions(view.node.id) !== view.numActions) return null;
+      const chipCombos = JSON.parse(chipTwin.combos(view.node.id, view.player)) as Combo[];
+      if (chipCombos.length !== view.combos.length) return null;
+      const chipFreqs = rangeFreqs(chipCombos, chipTwin.strategy(view.node.id), view.numActions);
+      const chipMeta = JSON.parse(chipTwin.meta()) as Meta;
+      const chipRootEvs = JSON.parse(chipTwin.root_evs()) as RootEvs;
+      return { chipFreqs, chipMeta, chipRootEvs };
+    } catch {
+      return null;
+    }
+  }, [chipTwin, view]);
 
   // One entry per selectable runout card: its own live-combo list, `combo_evs`, and
   // `combo_ev_weights` for the hero, all read at that specific child (see
@@ -562,7 +599,7 @@ export default function Workbench() {
       id: "stats",
       target: '[data-tour="statband"]',
       title: "The spot's vitals",
-      body: "Board, pot, stacks, and each player's EV at the root. The yellow figure is exploitability, measured by a separate best-response calculator at every report, never estimated from regret.",
+      body: "Board, pot, stacks, and each player's EV at the root. The yellow figure is exploitability, measured by a separate best-response calculator at every report, never estimated from regret. On a tournament solve it becomes NashConv and the band gains bubble factors and the payout ladder.",
       prepare: () => {
         setTab("inspect");
         goRoot();
@@ -713,7 +750,7 @@ export default function Workbench() {
             <span className="hidden min-[460px]:max-[999px]:inline"> POSTFLOP</span>
           </div>
           <div className="mt-1.5 h-[3px] w-full bg-accent max-[1399px]:hidden min-[1000px]:max-[1399px]:hidden" />
-          <div className="label mt-1 text-[9px] max-[1399px]:hidden">HU NLHE WORKBENCH</div>
+          <div className="label mt-1 text-[9px] max-[1399px]:hidden">HU NLHE · CHIPEV &amp; ICM</div>
         </a>
 
         <nav className="flex flex-col max-[999px]:flex-1 max-[999px]:flex-row">
@@ -777,7 +814,9 @@ export default function Workbench() {
                 </div>
               </div>
               <div className="px-3 pb-3 min-[1400px]:pt-0 max-[1399px]:px-1 max-[1399px]:pt-2">
-                <div className="label mb-1 min-[1000px]:max-[1399px]:hidden">EXPLOITABILITY</div>
+                <div className="label mb-1 min-[1000px]:max-[1399px]:hidden">
+                  {meta.payoff_unit === "cste" ? "NASHCONV" : "EXPLOITABILITY"}
+                </div>
                 <div className="w-full bg-accent px-2 py-1.5 text-[#101010]">
                   <span className="fig fig-2">{meta.exploitability_pct_of_pot.toFixed(4)}%</span>
                 </div>
@@ -904,6 +943,20 @@ export default function Workbench() {
           <StatBand meta={meta} rootEvs={rootEvs} source={source} node={view.node} />
         )}
 
+        {tab === "inspect" && loaded && view?.kind === "decision" && meta && rootEvs && icmCompare && (
+          <IcmCompare
+            actions={view.actions}
+            colors={view.colors}
+            icmFreqs={view.freqs}
+            chipFreqs={icmCompare.chipFreqs}
+            player={view.player}
+            icmRootEvs={rootEvs}
+            chipRootEvs={icmCompare.chipRootEvs}
+            icmMeta={meta}
+            chipMeta={icmCompare.chipMeta}
+          />
+        )}
+
         {tab === "inspect" && loaded && view && (
           <TreeNav
             node={view.node}
@@ -925,9 +978,9 @@ export default function Workbench() {
             locks={locks}
             onRemoveLock={(l) => setLocks((ls) => ls.filter((x) => x.line !== l))}
             onClearLocks={() => setLocks([])}
-            onSolved={(json, wall, ctx) => {
+            onSolved={(json, wall, ctx, chipJson) => {
               setSpotContext(ctx);
-              return adopt(json, `browser solve (${wall.toFixed(2)}s)`);
+              return adopt(json, `browser solve (${wall.toFixed(2)}s)`, false, chipJson);
             }}
           />
         </div>
@@ -1070,6 +1123,7 @@ export default function Workbench() {
                   colors={view.colors}
                   freqs={view.freqs}
                   player={PLAYER_NAMES[view.player]}
+                  unit={meta?.payoff_unit}
                   onPickCell={(c) => setSelected(c)}
                 />
               </section>
@@ -1119,7 +1173,10 @@ export default function Workbench() {
         <StatusSeg label={loaded ? `NODE ${nodeId}` : "NO SPOT"} value={loaded && view ? view.node.kind.toUpperCase() : booted ? "WASM IDLE" : "BOOTING"} />
         <StatusSeg label="COMBOS" value={view?.kind === "decision" ? view.combos.length.toLocaleString() : "0"} />
         <StatusSeg label="ITERS" value={meta ? meta.iterations.toLocaleString() : "0"} />
-        <StatusSeg label="EXPL" value={meta ? `${meta.exploitability_pct_of_pot.toFixed(4)}%` : "—"} />
+        <StatusSeg
+          label={meta?.payoff_unit === "cste" ? "NASHCONV" : "EXPL"}
+          value={meta ? `${meta.exploitability_pct_of_pot.toFixed(4)}%` : "—"}
+        />
         <StatusSeg label="NODES" value={meta ? meta.node_count.toLocaleString() : "0"} />
         <StatusSeg label="MODE" value={gridMode.toUpperCase()} />
         <StatusSeg
@@ -1171,7 +1228,14 @@ function Booting() {
   );
 }
 
-/** Stat band: the stage's one yellow block lives here (exploitability). */
+/**
+ * Stat band: the stage's one yellow block lives here (exploitability, or NashConv).
+ *
+ * Under a tournament solve the game is general-sum, so the headline is the sum of both
+ * players' unilateral best-response gains and is NOT a bound on either player's loss.
+ * The label, the unit on every EV tile and the per-player split all follow
+ * `meta.payoff_unit`; nothing here may print "exploitability" over a CSTE number.
+ */
 function StatBand({
   meta,
   rootEvs,
@@ -1183,6 +1247,10 @@ function StatBand({
   source: string;
   node: NodeInfo;
 }) {
+  const icm = meta.payoff_unit === "cste";
+  const unit = icm ? "CSTE" : "BB";
+  const t = meta.tournament ?? null;
+  const bf = (hero: number, villain: number) => t?.bubble_factors?.[hero]?.[villain] ?? null;
   return (
     <section className="on-ink rule-b flex flex-wrap" data-tour="statband">
       <StatTile label="BOARD" first wide>
@@ -1196,22 +1264,64 @@ function StatBand({
           {node.stacks[0].toFixed(2)} / {node.stacks[1].toFixed(2)}
         </span>
       </StatTile>
-      <StatTile label="EXPLOITABILITY">
+      <StatTile
+        label={icm ? "NASHCONV" : "EXPLOITABILITY"}
+        title={
+          icm
+            ? "General-sum: the sum of both players' unilateral best-response gains. Zero does not certify a minimum EV for either player."
+            : "Zero-sum: what a perfect opponent could still win, measured by two full best-response walks."
+        }
+      >
         <span className="inline-block bg-accent px-2 py-1 text-[#101010]">
           <span className="fig fig-1">{meta.exploitability_pct_of_pot.toFixed(4)}%</span>
         </span>
         <span className="num mt-1 block text-[11px] text-dim-inv">
-          {meta.exploitability_chips.toFixed(6)} bb
+          {meta.exploitability_chips.toFixed(6)} {icm ? "cste" : "bb"}
+          {icm && meta.gain && (
+            <>
+              <br />
+              gain OOP {meta.gain[0].toFixed(6)} / IP {meta.gain[1].toFixed(6)}
+            </>
+          )}
         </span>
       </StatTile>
-      <StatTile label="ROOT EV · ZERO-SUM · BB">
+      <StatTile label={`ROOT EV · ZERO-SUM · ${unit}`}>
         <span className="fig fig-2">{rootEvs.zero_sum[0].toFixed(4)}</span>
         <span className="num text-dim-inv"> / {rootEvs.zero_sum[1].toFixed(4)}</span>
+        {icm && (
+          <span className="num mt-1 block text-[11px] text-dim-inv">
+            not zero-sum: equity leaks to the field
+          </span>
+        )}
       </StatTile>
-      <StatTile label="ROOT EV · POT-SHARE">
+      <StatTile label={`ROOT EV · ${icm ? "SEAT EQUITY" : "POT-SHARE"}`}>
         <span className="fig fig-2">{rootEvs.pot_share[0].toFixed(4)}</span>
         <span className="num text-dim-inv"> / {rootEvs.pot_share[1].toFixed(4)}</span>
       </StatTile>
+      {icm && t && (
+        <StatTile
+          label="BUBBLE FACTOR"
+          title="How many chips of equity the hero risks per chip they can win against this villain. 1.00 is chipEV; above it, calling needs more than pot odds."
+        >
+          <span className="fig fig-2">{fmtBf(bf(t.seats[0], t.seats[1]))}</span>
+          <span className="num text-dim-inv"> / {fmtBf(bf(t.seats[1], t.seats[0]))}</span>
+          <span className="num mt-1 block text-[11px] text-dim-inv">
+            OOP / IP · needs {fmtEq(bf(t.seats[0], t.seats[1]))} / {fmtEq(bf(t.seats[1], t.seats[0]))} equity
+          </span>
+        </StatTile>
+      )}
+      {icm && t && (
+        <StatTile label="STRUCTURE">
+          <div className="num text-[12px] leading-snug text-text-inv">
+            {t.stacks.length} seats · {t.payouts.length} paid
+            <br />
+            pays {t.payouts.map((v) => trim(v)).join(" / ")}
+            <br />
+            seat {t.seats[0]} ({trim(t.stacks[t.seats[0]])}) vs seat {t.seats[1]} (
+            {trim(t.stacks[t.seats[1]])})
+          </div>
+        </StatTile>
+      )}
       <StatTile label="SOLVE">
         <div className="num text-[12px] leading-snug text-text-inv">
           {meta.iterations.toLocaleString()} iters
@@ -1229,21 +1339,159 @@ function StatTile({
   label,
   first = false,
   wide = false,
+  title,
   children,
 }: {
   label: string;
   first?: boolean;
   wide?: boolean;
+  title?: string;
   children: React.ReactNode;
 }) {
   return (
     <div
       className={`${wide ? "min-w-[230px]" : "min-w-[150px]"} flex-1 overflow-hidden px-3.5 py-2.5`}
       style={first ? undefined : { borderLeft: "var(--rule) solid var(--color-ink)" }}
+      title={title}
     >
       <div className="label mb-1">{label}</div>
       {children}
     </div>
+  );
+}
+
+/** A bubble factor the engine could not put a finite number on — a seat that already
+ *  holds every prize the structure pays — is an em dash, never a silent 0 or Infinity. */
+const fmtBf = (v: number | null) => (v == null || !Number.isFinite(v) ? "—" : v.toFixed(3));
+/** `bf / (bf + 1)`: the raw equity a symmetric all-in needs to break even at that factor. */
+const fmtEq = (v: number | null) =>
+  v == null || !Number.isFinite(v) ? "—" : `${((100 * v) / (v + 1)).toFixed(1)}%`;
+/** Drop the trailing `.00` on a whole-number stack or prize. */
+const trim = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
+
+/**
+ * chipEV beside ICM, at the node on screen.
+ *
+ * This is the whole point of solving the twin: the same tree, the same iterations, the
+ * only difference being what a chip is worth at the end of it. The per-action range
+ * frequency delta is the lesson every published ICM article is shaped around, and the
+ * headline row underneath says what it cost — the chip solve's number is in big blinds
+ * and the ICM solve's in CSTE chips, which is why they are labelled, not subtracted.
+ */
+function IcmCompare({
+  actions,
+  colors,
+  icmFreqs,
+  chipFreqs,
+  player,
+  icmRootEvs,
+  chipRootEvs,
+  icmMeta,
+  chipMeta,
+}: {
+  actions: NodeAction[];
+  colors: string[];
+  icmFreqs: number[];
+  chipFreqs: number[];
+  player: 0 | 1;
+  icmRootEvs: RootEvs;
+  chipRootEvs: RootEvs;
+  icmMeta: Meta;
+  chipMeta: Meta;
+}) {
+  const biggest = actions.reduce(
+    (best, _a, i) =>
+      Math.abs(icmFreqs[i] - chipFreqs[i]) > Math.abs(icmFreqs[best] - chipFreqs[best]) ? i : best,
+    0,
+  );
+  const pts = (v: number) => `${(v * 100).toFixed(1)}%`;
+  return (
+    <section className="rule-b bg-panel" data-testid="icm-compare">
+      <h2 className="bar bar-icm">
+        chipEV vs ICM · {PLAYER_NAMES[player]} at this node
+        <span className="meta">
+          same tree, same iterations — only what a chip is worth at the end differs · biggest
+          move {actions[biggest]?.text}{" "}
+          {((icmFreqs[biggest] - chipFreqs[biggest]) * 100 >= 0 ? "+" : "") +
+            ((icmFreqs[biggest] - chipFreqs[biggest]) * 100).toFixed(1)}{" "}
+          pts
+        </span>
+      </h2>
+      <div className="overflow-x-auto">
+        <table className="w-full" style={{ borderCollapse: "collapse", minWidth: 480 }}>
+          <thead>
+            <tr>
+              {["action", "chipEV", "ICM", "Δ pts"].map((h, i) => (
+                <th
+                  key={h}
+                  className="label"
+                  style={{
+                    textAlign: i === 0 ? "left" : "right",
+                    padding: "5px 10px",
+                    borderBottom: "var(--rule-thin) solid var(--color-ink)",
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {actions.map((a, i) => {
+              const d = (icmFreqs[i] - chipFreqs[i]) * 100;
+              return (
+                <tr key={a.child} style={{ borderTop: "1px solid var(--color-line-soft)" }}>
+                  <td style={{ padding: "4px 10px" }}>
+                    <span
+                      aria-hidden
+                      style={{
+                        display: "inline-block",
+                        width: 10,
+                        height: 10,
+                        marginRight: 7,
+                        background: colors[i],
+                      }}
+                    />
+                    <span className="num text-[12px]">{a.text}</span>
+                  </td>
+                  <td className="num text-right text-[12px] text-muted" style={{ padding: "4px 10px" }}>
+                    {pts(chipFreqs[i])}
+                  </td>
+                  <td className="num text-right text-[12px]" style={{ padding: "4px 10px" }}>
+                    {pts(icmFreqs[i])}
+                  </td>
+                  <td
+                    className="num text-right text-[12px]"
+                    style={{
+                      padding: "4px 10px",
+                      background: i === biggest ? "var(--color-accent)" : undefined,
+                      color: i === biggest ? "#101010" : undefined,
+                      fontWeight: i === biggest ? 700 : undefined,
+                    }}
+                  >
+                    {d >= 0 ? "+" : ""}
+                    {d.toFixed(1)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="bg-paper-2 px-2.5 py-2 text-[11px] text-muted" style={{ borderTop: "var(--rule-thin) solid var(--color-ink)" }}>
+        Root EV, {PLAYER_NAMES[0]} / {PLAYER_NAMES[1]}: chipEV{" "}
+        <span className="num">
+          {chipRootEvs.zero_sum[0].toFixed(4)} / {chipRootEvs.zero_sum[1].toFixed(4)} bb
+        </span>{" "}
+        at exploitability <span className="num">{chipMeta.exploitability_pct_of_pot.toFixed(4)}%</span>
+        {" · "}ICM{" "}
+        <span className="num">
+          {icmRootEvs.zero_sum[0].toFixed(4)} / {icmRootEvs.zero_sum[1].toFixed(4)} cste
+        </span>{" "}
+        at NashConv <span className="num">{icmMeta.exploitability_pct_of_pot.toFixed(4)}%</span>. The
+        two EVs are in different units and are not comparable; the frequencies above are.
+      </p>
+    </section>
   );
 }
 

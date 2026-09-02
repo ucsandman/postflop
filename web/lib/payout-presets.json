@@ -1,0 +1,35 @@
+{
+  "_note": "Prize per finishing place, index 0 = first. The engine's CSTE scale divides by sum(payouts), so a payoff is invariant to scaling the whole structure: these are written as percent of the prize pool, and entering the same shape in dollars solves to the identical strategy. Every structure here fits a six-seat table (payouts.len() <= stacks.len() is an engine rule) and is non-increasing, which validate() also requires.",
+  "presets": [
+    {
+      "id": "wta",
+      "label": "Winner-take-all",
+      "note": "One prize. ICM collapses to chip proportion exactly, so this solves to the chipEV strategy — the control case.",
+      "payouts": [100]
+    },
+    {
+      "id": "top-heavy",
+      "label": "Top-heavy — 3 paid of 6",
+      "note": "Half the pool to first. The steepest ladder here, and the one that punishes calling off a covering stack hardest.",
+      "payouts": [50, 30, 20]
+    },
+    {
+      "id": "standard",
+      "label": "Standard MTT final table — 6 paid",
+      "note": "The conventional final-table taper: every seat paid, first worth about nine times last.",
+      "payouts": [38, 24, 16, 11, 7, 4]
+    },
+    {
+      "id": "flat",
+      "label": "Flat — 6 paid, near-equal",
+      "note": "Everyone cashes for nearly the same. Chips are worth nearly what they are worth in a cash game, so play should look closest to chipEV.",
+      "payouts": [17, 16.6, 16.6, 16.6, 16.6, 16.6]
+    },
+    {
+      "id": "satellite",
+      "label": "Satellite — 5 equal seats of 6",
+      "note": "Five identical seats and one bubble. Chips above the seat threshold are worth nothing, which produces the most extreme bubble factors in the set.",
+      "payouts": [20, 20, 20, 20, 20]
+    }
+  ]
+}

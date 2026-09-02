@@ -4,9 +4,21 @@
 // wasm module, so it needs `npm run sync-wasm` to have run.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { DEFAULT_FORM, PRESETS, actionToken, findPresetId, loadForm, saveForm, spotKey, toToml } from "./config.ts";
-import type { NodeLock, SolveForm } from "./config.ts";
-import type { Meta, NodeInfo } from "./types.ts";
+import {
+  DEFAULT_FORM,
+  PAYOUT_PRESETS,
+  PRESETS,
+  actionToken,
+  findPresetId,
+  loadForm,
+  saveForm,
+  seedTournament,
+  spotKey,
+  toToml,
+} from "./config.ts";
+import type { NodeLock, SolveForm, TournamentForm } from "./config.ts";
+import { rangeFreqs } from "./grid.ts";
+import type { Combo, Meta, NodeInfo } from "./types.ts";
 
 // --- in-memory localStorage stand-in -------------------------------------------------
 // Plain Node has no `localStorage`; saveForm/loadForm's own try/catch already has to
@@ -190,6 +202,219 @@ assert.equal(findPresetId(edited), "", "a hand-edited form matches no preset");
 
   for (const h of [plain, lockedRoot, lockedChild]) h.free();
   console.log(`  locks: root + ${JSON.stringify(line)} both froze, ${frozen.length} values each`);
+}
+
+// --- Tournament ICM, against the real engine -----------------------------------------
+// Nothing mocked here either: `toToml` writes `[tournament]`, the wasm build parses it,
+// and the solution that comes back is asked what unit it was scored in and what the
+// structure did to the strategy. A pure test could not tell an emitted-but-ignored block
+// from a working one.
+{
+  const glue = await import("../vendor/solver-wasm/solver_wasm.js");
+  const form = PRESETS.find((p) => p.id === "river-drill")!.form;
+  const ITERS = 400;
+  // targetPct 0 so the run never stops early: the pinned frequencies below are the
+  // strategy after exactly ITERS iterations, not after whichever report first crossed
+  // a threshold.
+  const solve = (f: SolveForm, locks: NodeLock[] = []) =>
+    glue.solve_spot(toToml(f, locks), ITERS, 0.0, ITERS, () => {});
+
+  /** Six seats, the hand between seat 0 (short, 20 behind = the form's effective stack)
+   *  and seat 1 (covering, 40). Seat 0 is the one a bubble punishes. */
+  const structure = (payouts: number[]): TournamentForm => ({
+    payouts: payouts.join(", "),
+    stacks: "20, 40, 10, 10, 30, 60",
+    seats: [0, 1],
+  });
+  const withStructure = (payouts: number[]): SolveForm => ({
+    ...structuredClone(form),
+    tournament: structure(payouts),
+  });
+
+  // The seeded block is solvable as seeded: the engine rejects a table where neither
+  // in-hand seat holds exactly `effective_stack`, so a default that violates rule 5
+  // would greet every first-time user with a validation error.
+  const seeded: SolveForm = { ...structuredClone(form), tournament: seedTournament(form.effective_stack) };
+  const seededSolve = solve(seeded);
+  assert.equal(
+    (JSON.parse(seededSolve.meta()) as Meta).payoff_unit,
+    "cste",
+    "seedTournament must produce a block the engine accepts",
+  );
+  seededSolve.free();
+
+  // Every shipped preset is a structure the engine accepts on that same table.
+  for (const preset of PAYOUT_PRESETS) {
+    const h = solve(withStructure(preset.payouts));
+    assert.equal(
+      (JSON.parse(h.meta()) as Meta).payoff_unit,
+      "cste",
+      `payout preset "${preset.id}" must solve`,
+    );
+    h.free();
+  }
+
+  // 1. The unit tag, the per-player gain and the structure all come back on `meta()`,
+  //    and a chip solve of the same spot carries none of it.
+  const satellite = withStructure(PAYOUT_PRESETS.find((p) => p.id === "satellite")!.payouts);
+  const topHeavy = withStructure(PAYOUT_PRESETS.find((p) => p.id === "top-heavy")!.payouts);
+  const chipSolve = solve(form);
+  const satSolve = solve(satellite);
+  const topSolve = solve(topHeavy);
+
+  const chipMeta = JSON.parse(chipSolve.meta()) as Meta;
+  const satMeta = JSON.parse(satSolve.meta()) as Meta;
+  assert.equal(chipMeta.payoff_unit, "chips", "a chip solve is tagged chips");
+  assert.equal(chipMeta.tournament ?? null, null, "a chip solve carries no structure");
+  assert.equal(satMeta.payoff_unit, "cste", "a tournament solve is tagged cste");
+  assert.ok(satMeta.tournament, "a tournament solve carries its structure");
+  assert.equal(satMeta.tournament!.stacks.length, 6, "six seats round-tripped");
+  assert.equal(satMeta.tournament!.payouts.length, 5, "five places round-tripped");
+  assert.deepEqual(satMeta.tournament!.seats, [0, 1], "seats round-tripped");
+  assert.ok(
+    Math.abs(satMeta.gain![0] + satMeta.gain![1] - satMeta.exploitability_chips) < 1e-6,
+    `gain must sum to NashConv: ${satMeta.gain![0]} + ${satMeta.gain![1]} vs ${satMeta.exploitability_chips}`,
+  );
+
+  // 2. The bubble-factor matrix is asymmetric on a covered/covering pair. A symmetric
+  //    implementation — or a chipEV-shaped one, all 1.0 — is the whole failure mode.
+  const bf = satMeta.tournament!.bubble_factors;
+  assert.equal(bf.length, 6, "the matrix is square over the seats");
+  for (let i = 0; i < bf.length; i++) {
+    assert.equal(bf[i][i], 1, "a seat against itself risks nothing");
+  }
+  assert.ok(
+    bf[0][1]! > bf[1][0]! + 0.5,
+    `the covered seat must pay a steeper bubble factor than the covering one: ${bf[0][1]} vs ${bf[1][0]}`,
+  );
+  assert.ok(bf[0][1]! > 1 && bf[1][0]! > 1, "both seats are on a bubble, so both exceed 1");
+
+  // 3. The strategy actually moves, and moves with the shape of the ladder. IP's
+  //    response to the root bet is the canonical ICM lesson: facing the same bet with
+  //    the same range, a covering stack folds more as the ladder flattens toward a
+  //    satellite. Constants are measured at ITERS=400 on this build.
+  const ipFoldFreq = (h: ReturnType<typeof solve>) => {
+    const root = JSON.parse(h.node(0)) as NodeInfo;
+    const bet = root.actions!.find((a) => a.label === "bet")!;
+    const child = JSON.parse(h.node(bet.child)) as NodeInfo;
+    assert.equal(child.player, 1, "the node after OOP's bet is IP's decision");
+    const combos = JSON.parse(h.combos(child.id, 1)) as Combo[];
+    const f = rangeFreqs(combos, h.strategy(child.id), h.num_actions(child.id));
+    const fold = child.actions!.findIndex((a) => a.label === "fold");
+    return { id: child.id, fold: f[fold], combos: combos.length };
+  };
+  const chipFold = ipFoldFreq(chipSolve);
+  const satFold = ipFoldFreq(satSolve);
+  const topFold = ipFoldFreq(topSolve);
+  assert.equal(chipFold.id, satFold.id, "the ICM twin has the identical tree, so the same node id");
+  for (const [name, got, want] of [
+    ["chipEV", chipFold.fold, 0.500006],
+    ["satellite", satFold.fold, 0.717869],
+    ["top-heavy", topFold.fold, 0.540098],
+  ] as [string, number, number][]) {
+    assert.ok(
+      Math.abs(got - want) < 1e-4,
+      `${name} IP fold frequency: got ${got.toFixed(6)}, committed ${want} (tol 1e-4)`,
+    );
+  }
+  assert.ok(
+    satFold.fold > chipFold.fold + 0.1,
+    `a satellite must fold strictly more than chipEV: ${satFold.fold} vs ${chipFold.fold}`,
+  );
+  assert.ok(
+    satFold.fold > topFold.fold && topFold.fold > chipFold.fold,
+    `fold frequency must rise with the steepness of the bubble: chip ${chipFold.fold} < top-heavy ${topFold.fold} < satellite ${satFold.fold}`,
+  );
+
+  // 4. `spotKey(meta) === spotKey(form)` on a tournament spot. The Inspector stamps a
+  //    lock with the first and the Solve panel checks it against the second; if the
+  //    tournament block were normalized differently on the two sides no lock taken on a
+  //    tournament spot would ever be solvable.
+  assert.equal(
+    spotKey(satMeta),
+    spotKey(satellite),
+    "spotKey(meta) and spotKey(form) must agree on a tournament spot",
+  );
+
+  // 5. THE POINT OF PUTTING THE STRUCTURE IN THE KEY. Two solves that differ only in the
+  //    payouts build byte-identical trees — same node ids, same acting player, same
+  //    action and combo counts — so every one of the engine's own lock checks passes and
+  //    it would happily freeze a strategy solved for a different prize ladder. Prove
+  //    that first, then prove `toToml` refuses it.
+  const rootPlayer = (JSON.parse(satSolve.node(0)) as NodeInfo).player!;
+  const numActions = satSolve.num_actions(0);
+  const combos = satSolve.strategy(0).length / numActions;
+  const frozen = new Array(numActions * combos).fill(0);
+  frozen.fill(1, 0, combos);
+  assert.equal(topSolve.num_actions(0), numActions, "the two ladders build the same node 0");
+  assert.equal(
+    topSolve.strategy(0).length / topSolve.num_actions(0),
+    combos,
+    "...with the same combo count, which is every check the engine itself can make",
+  );
+  const satLock: NodeLock = {
+    line: "",
+    spot: spotKey(satellite),
+    player: rootPlayer,
+    strategy: frozen,
+    label: "root",
+  };
+  const wouldHaveSilentlyLocked = solve(topHeavy, [{ ...satLock, spot: spotKey(topHeavy) }]);
+  assert.equal(
+    (JSON.parse(wouldHaveSilentlyLocked.node(0)) as NodeInfo).locked,
+    true,
+    "the other ladder accepts the stale line/shape — nothing downstream would have caught it",
+  );
+  wouldHaveSilentlyLocked.free();
+  assert.throws(
+    () => toToml(topHeavy, [satLock]),
+    /different spot/,
+    "a lock captured under another payout structure must be refused, not emitted",
+  );
+  // The same lock against its own structure is fine, so the refusal above is about the
+  // payouts and not about tournament locks in general.
+  assert.doesNotThrow(() => toToml(satellite, [satLock]), "a lock on its own structure emits");
+  // Only the payouts differ between these two; stacks and seats are identical.
+  assert.notEqual(spotKey(satellite), spotKey(topHeavy), "payouts alone must change the key");
+  assert.notEqual(spotKey(satellite), spotKey(form), "a chip spot and an ICM spot are not the same spot");
+
+  for (const h of [chipSolve, satSolve, topSolve]) h.free();
+  console.log(
+    `  icm: ${PAYOUT_PRESETS.length} payout presets solved · 6 seats, 5 paid · ` +
+      `BF(0,1) ${bf[0][1]!.toFixed(4)} vs BF(1,0) ${bf[1][0]!.toFixed(4)} · ` +
+      `IP fold ${(chipFold.fold * 100).toFixed(2)}% chipEV -> ${(topFold.fold * 100).toFixed(2)}% top-heavy ` +
+      `-> ${(satFold.fold * 100).toFixed(2)}% satellite over ${satFold.combos} combos at ${ITERS} iters`,
+  );
+}
+
+// --- isSolveForm and the saved-form round trip, with a block -------------------------
+{
+  storage.clear();
+  (globalThis as { localStorage: unknown }).localStorage = storage;
+  const withBlock: SolveForm = {
+    ...structuredClone(DEFAULT_FORM),
+    tournament: seedTournament(DEFAULT_FORM.effective_stack),
+  };
+  saveForm(withBlock);
+  assert.deepEqual(loadForm(), withBlock, "a form with a tournament block round trips");
+
+  // A form saved before tournaments existed has no block and must still load.
+  const { tournament: _none, ...legacy } = withBlock;
+  storage.setItem("solver-web.solveForm", JSON.stringify(legacy));
+  assert.deepEqual(loadForm(), legacy, "a pre-tournament form still loads");
+
+  // A block that IS there and is malformed is a corrupted blob, not a chip solve.
+  for (const [why, bad] of [
+    ["payouts is not a string", { ...seedTournament("100"), payouts: [50, 30] }],
+    ["stacks is not a string", { ...seedTournament("100"), stacks: 100 }],
+    ["seats is not a pair", { ...seedTournament("100"), seats: [0] }],
+    ["seats are not indices", { ...seedTournament("100"), seats: [0, -1] }],
+    ["the block is null", null],
+  ] as [string, unknown][]) {
+    storage.setItem("solver-web.solveForm", JSON.stringify({ ...withBlock, tournament: bad }));
+    assert.equal(loadForm(), null, `${why} -> null, not a half-valid form`);
+  }
+  console.log("  tournament form: round trip + legacy form + 5 malformed blocks rejected");
 }
 
 console.log("PASS: config.test.ts");

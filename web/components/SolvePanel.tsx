@@ -6,6 +6,7 @@ import {
   DEFAULT_FORM,
   EMPTY_CONTEXT,
   HARD_BYTES,
+  PAYOUT_PRESETS,
   type NodeLock,
   PRESETS,
   SEATS,
@@ -13,10 +14,13 @@ import {
   type SeatProfile,
   SolveForm,
   type SpotContext,
+  type TournamentForm,
   WARN_BYTES,
   findPresetId,
   loadForm,
+  parseNums,
   saveForm,
+  seedTournament,
   spotKey,
   toToml,
 } from "@/lib/config";
@@ -33,7 +37,9 @@ interface Report {
 type Gate = null | "warn" | "hard";
 
 interface Props {
-  onSolved: (json: string, wall: number, context: SpotContext) => void;
+  /** `chipJson` is the same spot re-solved with the tournament block stripped — the
+   *  chipEV twin the Inspector puts beside the ICM answer. Undefined for a chip solve. */
+  onSolved: (json: string, wall: number, context: SpotContext, chipJson?: string) => void;
   /** Nodes the inspector asked to freeze; emitted as `[[locks]]` on the next solve. */
   locks: NodeLock[];
   onRemoveLock: (line: string) => void;
@@ -63,7 +69,7 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
   const setStats = (s: TreeStats | null) => setMeasured(s ? { locks, stats: s } : null);
   const [gate, setGate] = useState<Gate>(null);
   const [reports, setReports] = useState<Report[]>([]);
-  const [busy, setBusy] = useState<"" | "preflight" | "solving">("");
+  const [busy, setBusy] = useState<"" | "preflight" | "solving" | "comparing">("");
   const [error, setError] = useState<string | null>(null);
   const [wall, setWall] = useState<number | null>(null);
 
@@ -159,8 +165,26 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
         },
         (r) => setReports((prev) => [...prev, r]),
       );
+      // The chipEV twin: the identical spot with `[tournament]` stripped, so the
+      // Inspector can put the two strategies side by side. Skipped when locks are
+      // pending — a lock is stamped with the spot it was read from, and re-stamping it
+      // onto the chip spot to force the twin through is exactly the silent
+      // cross-structure resolution `spotKey` exists to stop.
+      let chipJson: string | undefined;
+      if (form.tournament && locks.length === 0) {
+        setBusy("comparing");
+        const { tournament: _stripped, ...chipForm } = form;
+        const twin = await ask({
+          kind: "solve",
+          toml: toToml(chipForm),
+          maxIterations: Math.max(1, Number(form.max_iterations)),
+          targetPct: Number(form.target_pct),
+          reportEvery: Math.max(1, Number(form.report_every)),
+        });
+        chipJson = twin.json;
+      }
       setWall(res.wall ?? 0);
-      onSolved(res.json!, res.wall ?? 0, form.context ?? EMPTY_CONTEXT);
+      onSolved(res.json!, res.wall ?? 0, form.context ?? EMPTY_CONTEXT, chipJson);
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     } finally {
@@ -349,6 +373,8 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
               />
             </label>
           </div>
+
+          <TournamentEditor form={form} edit={edit} />
         </div>
       </section>
 
@@ -411,7 +437,13 @@ export default function SolvePanel({ onSolved, locks, onRemoveLock, onClearLocks
             className="btn btn-primary w-full"
             style={{ height: 48, fontSize: 14 }}
           >
-            {busy === "solving" ? "Solving…" : busy === "preflight" ? "Preflight…" : "Solve this spot →"}
+            {busy === "solving"
+              ? "Solving…"
+              : busy === "comparing"
+                ? "Solving the chipEV twin…"
+                : busy === "preflight"
+                  ? "Preflight…"
+                  : "Solve this spot →"}
           </button>
           <button
             disabled={busy !== ""}
@@ -560,6 +592,192 @@ function Field({
       {children}
       {hint && <span className="mt-1 block text-[11px] text-muted">{hint}</span>}
     </label>
+  );
+}
+
+/**
+ * Everything the engine's `[tournament]` block needs, and the reasons a spot gets
+ * rejected shown before the solve rather than after it.
+ *
+ * The vectors are free text rather than one input per seat: the seat count is the
+ * length of the stack list, so a per-seat row grid would have to be added and removed
+ * as the user types, and pasting a table's stacks off a screenshot is the actual entry
+ * gesture. `check` below re-states the engine's own validate() rules in the same words
+ * so a rejected config is diagnosed here, on the page, with nothing to run.
+ */
+function TournamentEditor({
+  form,
+  edit,
+}: {
+  form: SolveForm;
+  edit: (fn: (f: SolveForm) => SolveForm) => void;
+}) {
+  const t = form.tournament;
+  const set = (patch: Partial<TournamentForm>) =>
+    edit((f) => ({ ...f, tournament: { ...(f.tournament ?? seedTournament(f.effective_stack)), ...patch } }));
+
+  const check = (() => {
+    if (!t) return null;
+    let payouts: number[];
+    let stacks: number[];
+    try {
+      payouts = parseNums("payouts", t.payouts);
+      stacks = parseNums("seat stacks", t.stacks);
+    } catch (e) {
+      return { bad: e instanceof Error ? e.message : String(e), payouts: [] as number[], stacks: [] as number[] };
+    }
+    const eff = Number(form.effective_stack);
+    const [a, b] = t.seats;
+    const bad =
+      stacks.length < 2 || stacks.length > 32
+        ? `seat stacks: need between 2 and 32 seats, got ${stacks.length}`
+        : stacks.some((v) => v < 0)
+          ? "seat stacks: every stack must be zero or more"
+          : payouts.length === 0
+            ? "payouts: at least one prize"
+            : payouts.some((v, i) => i > 0 && v > payouts[i - 1])
+              ? "payouts: places must not pay more than the place above"
+              : payouts.some((v) => v < 0) || payouts.reduce((x, y) => x + y, 0) <= 0
+                ? "payouts: all non-negative and the pool above zero"
+                : payouts.length > stacks.length
+                  ? `payouts: ${payouts.length} places paid but only ${stacks.length} seats at the table`
+                  : a === b
+                    ? "seats: OOP and IP must be different seats"
+                    : a >= stacks.length || b >= stacks.length
+                      ? `seats: index out of range for ${stacks.length} seats`
+                      : !Number.isFinite(eff)
+                        ? null
+                        : Math.min(stacks[a], stacks[b]) < eff - 1e-9
+                          ? `seats: the shorter in-hand seat has ${Math.min(stacks[a], stacks[b])} behind, less than the ${eff} effective stack above`
+                          : Math.abs(Math.min(stacks[a], stacks[b]) - eff) > 1e-9
+                            ? `seats: the shorter in-hand seat must hold exactly the ${eff} effective stack (it has ${Math.min(stacks[a], stacks[b])}); the covering seat may hold more`
+                            : null;
+    return { bad, payouts, stacks };
+  })();
+
+  return (
+    <div className="mt-4" data-testid="tournament">
+      <span className="label">tournament — ICM</span>
+      <p className="mt-1 text-[11px] text-muted">
+        Score every terminal in tournament equity instead of chips. The postflop game stays
+        heads-up; the rest of the table enters through the stack vector and the payout ladder.
+        Solving one also solves the chipEV twin, so the Inspector shows both.
+      </p>
+
+      <label className="mt-2 flex items-center gap-2">
+        <input
+          type="checkbox"
+          data-testid="tournament-on"
+          checked={!!t}
+          onChange={(e) =>
+            edit((f) => {
+              if (!e.target.checked) {
+                const { tournament: _off, ...rest } = f;
+                return rest;
+              }
+              return { ...f, tournament: f.tournament ?? seedTournament(f.effective_stack) };
+            })
+          }
+        />
+        <span className="label" style={{ color: "var(--color-text)" }}>
+          score this spot with ICM
+        </span>
+      </label>
+
+      {t && (
+        <div className="mt-2 grid gap-2" style={BOX}>
+          <label className="grid gap-0.5">
+            <span className="label">payout structure</span>
+            <select
+              data-testid="payout-preset"
+              aria-label="payout structure preset"
+              value={PAYOUT_PRESETS.find((p) => p.payouts.join(", ") === t.payouts)?.id ?? ""}
+              onChange={(e) => {
+                const preset = PAYOUT_PRESETS.find((p) => p.id === e.target.value);
+                if (preset) set({ payouts: preset.payouts.join(", ") });
+              }}
+              style={{ padding: "3px 6px", fontSize: 11, textTransform: "none" }}
+            >
+              <option value="">— pasted by hand —</option>
+              {PAYOUT_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-[11px] text-muted" data-testid="payout-note">
+            {PAYOUT_PRESETS.find((p) => p.payouts.join(", ") === t.payouts)?.note ??
+              "Your own ladder. Prize per finishing place, first place first, never increasing."}
+          </p>
+
+          <label className="grid gap-0.5">
+            <span className="label">payouts — prize per place, 1st first</span>
+            <input
+              type="text"
+              data-testid="tournament-payouts"
+              value={t.payouts}
+              onChange={(e) => set({ payouts: e.target.value })}
+            />
+            <span className="text-[11px] text-muted">
+              Any unit. Only the shape matters: the engine divides by the pool, so 50/30/20
+              and $5,000/$3,000/$2,000 solve to the same strategy.
+            </span>
+          </label>
+
+          <label className="grid gap-0.5">
+            <span className="label">seat stacks — chips behind at this node</span>
+            <input
+              type="text"
+              data-testid="tournament-stacks"
+              value={t.stacks}
+              onChange={(e) => set({ stacks: e.target.value })}
+            />
+            <span className="text-[11px] text-muted">
+              Every seat still in the tournament, in seat order. What is behind{" "}
+              <em>now</em>, not at the start of the hand — the preflop money is already in the
+              starting pot above.
+            </span>
+          </label>
+
+          <div className="grid grid-cols-2 gap-1.5">
+            {SEATS.map((seat, i) => (
+              <label key={seat} className="grid gap-0.5">
+                <span className="label">{seat.toUpperCase()} is seat</span>
+                <select
+                  data-testid={`tournament-seat-${seat}`}
+                  aria-label={`${seat} seat index`}
+                  value={t.seats[i]}
+                  onChange={(e) => {
+                    const seats: [number, number] = [...t.seats];
+                    seats[i] = Number(e.target.value);
+                    set({ seats });
+                  }}
+                  style={{ padding: "3px 6px", fontSize: 11 }}
+                >
+                  {(check?.stacks ?? []).map((v, idx) => (
+                    <option key={idx} value={idx}>
+                      {idx} · {v} behind
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+
+          <p
+            data-testid="tournament-check"
+            className="text-[11px]"
+            style={{ color: check?.bad ? "var(--color-err)" : "var(--color-muted)" }}
+          >
+            {check?.bad ??
+              `${check?.stacks.length ?? 0} seats · ${check?.payouts.length ?? 0} paid · ` +
+                `OOP seat ${t.seats[0]} and IP seat ${t.seats[1]} contest a ` +
+                `${form.starting_pot} pot with ${form.effective_stack} behind.`}
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 

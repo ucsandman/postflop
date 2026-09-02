@@ -384,6 +384,14 @@ export default function TrainPanel({
     }
   }, [randoming, rng, ask, onSolved, handle]);
 
+  /** The unit `evLoss` is denominated in. Read from the solution rather than from
+   *  `spotInfo` below, which is declared after this and would drag the whole spot memo
+   *  into every graded hand. */
+  const payoffUnit = useMemo(
+    () => (handle ? ((JSON.parse(handle.meta()) as Meta).payoff_unit ?? "chips") : "chips"),
+    [handle],
+  );
+
   const answer = (chosen: number) => {
     if (!spot || result) return;
     const g = grade(spot.actionEvs, spot.freqs, chosen, spot.node.pot);
@@ -399,6 +407,9 @@ export default function TrainPanel({
       evLoss: g.evLoss,
       pctPot: g.pctPot,
       freq: g.freq,
+      // The unit `evLoss` is in. Under a tournament solve the trainer is grading CSTE
+      // chips, not big blinds, and a row that does not say so is a row that reads as bb.
+      unit: payoffUnit,
     };
     setRows((prev) => {
       const next = [rec, ...prev];

@@ -133,6 +133,10 @@ html, body {
 .bar-ev       { --stripe: var(--color-live); }
 .bar-opp      { --stripe: #48566f; }
 .bar-blockers { --stripe: var(--color-ok); }
+/* ICM: its own hue, not a borrowed one. Yellow is the strategy stripe and the law says
+   yellow is a filled block, magenta is EV, slate is the opponent, green is blockers —
+   a tournament panel that reused any of them would read as that panel at a glance. */
+.bar-icm      { --stripe: #7a4ec2; }
 
 .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -.02em; font-weight: 500; font-size: 13px; }
 

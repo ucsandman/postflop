@@ -8,7 +8,11 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "solver", version, about = "Heads-up NLHE postflop GTO solver")]
+#[command(
+    name = "solver",
+    version,
+    about = "Heads-up NLHE postflop GTO solver, for chipEV or tournament ICM"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -16,7 +20,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Solve a spot with Discounted CFR and optionally save it.
+    /// Solve a spot with Discounted CFR and optionally save it. Pass `--tournament` to
+    /// score it in tournament equity (ICM) instead of chips.
     Solve(solve::SolveArgs),
     /// Inspect a saved solution without re-solving.
     Show(show::ShowArgs),

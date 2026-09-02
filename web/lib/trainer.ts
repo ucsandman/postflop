@@ -167,6 +167,11 @@ export interface HandRecord {
   evLoss: number;
   pctPot: number;
   freq: number;
+  /** Unit `evLoss` is denominated in, from the solution's `meta().payoff_unit`. Missing
+   *  on a row recorded before tournaments existed, which was a chip solve by definition.
+   *  `pctPot` is a ratio and so is unit-free, which is why every grading threshold above
+   *  is a fraction of pot: they stay dimensionally sane whichever unit a session is in. */
+  unit?: "chips" | "cste";
 }
 
 const HISTORY_KEY = "solver-web.trainHistory";
@@ -184,7 +189,8 @@ function isRecord(v: unknown): v is HandRecord {
     typeof r.evLoss === "number" &&
     typeof r.pctPot === "number" &&
     typeof r.tier === "string" &&
-    (TIERS as string[]).includes(r.tier)
+    (TIERS as string[]).includes(r.tier) &&
+    (r.unit === undefined || r.unit === "chips" || r.unit === "cste")
   );
 }
 

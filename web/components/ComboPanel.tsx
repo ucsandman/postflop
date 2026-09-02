@@ -16,6 +16,9 @@ interface Props {
   /** Range-wide frequency per action (view.freqs), for the no-selection ladder. */
   freqs: number[];
   player: string;
+  /** The solution's `meta().payoff_unit`. Under `"cste"` these EVs are tournament
+   *  equity, not big blinds, and are NOT zero-sum — the footnote below says which. */
+  unit?: "chips" | "cste";
   /** Jump the grid selection to a cell — wired from the top-regret rows. */
   onPickCell: (c: { row: number; col: number }) => void;
 }
@@ -30,6 +33,7 @@ export default function ComboPanel({
   colors,
   freqs,
   player,
+  unit,
   onPickCell,
 }: Props) {
   const n = combos.length;
@@ -143,8 +147,10 @@ export default function ComboPanel({
       </div>
 
       <div className="border-t-2 border-ink bg-paper-2 px-2.5 py-2 text-[11px] text-muted">
-        EV is zero-sum net big blinds from the start of the solve, both players on the solved
-        average strategy. “—” means the EV is undefined here, not zero.
+        {unit === "cste"
+          ? "EV is tournament equity in CSTE chips, measured against the start of the solve, both players on the solved average strategy. It is not zero-sum: equity leaks to the rest of the table."
+          : "EV is zero-sum net big blinds from the start of the solve, both players on the solved average strategy."}{" "}
+        “—” means the EV is undefined here, not zero.
       </div>
     </div>
   );

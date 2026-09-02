@@ -170,6 +170,26 @@ assert.deepEqual(loadHistory(), [], "structurally bad rows are filtered out");
 storage.setItem("solver-web.trainHistory", "not json");
 assert.deepEqual(loadHistory(), []);
 
+// `unit` says what evLoss is denominated in. A row from before tournaments existed has
+// no unit and is a chip row by definition; a row claiming a unit nothing solves in is a
+// corrupted blob, not a third convention to guess at.
+{
+  const chips = { ...rec("best", 0), unit: "chips" as const };
+  const cste = { ...rec("wrong", 0.03), unit: "cste" as const };
+  const { unit: _dropped, ...legacy } = chips;
+  storage.setItem("solver-web.trainHistory", JSON.stringify([chips, cste, legacy]));
+  assert.deepEqual(
+    loadHistory().map((r) => r.unit),
+    ["chips", "cste", undefined],
+    "both units survive, and a row with no unit is kept as the chip row it is",
+  );
+  storage.setItem(
+    "solver-web.trainHistory",
+    JSON.stringify([{ ...chips, unit: "bb" }, { ...chips, unit: 7 }, cste]),
+  );
+  assert.deepEqual(loadHistory(), [cste], "a row claiming an unknown unit is dropped");
+}
+
 delete (globalThis as { localStorage?: unknown }).localStorage;
 assert.doesNotThrow(() => loadHistory(), "no localStorage global must not escape loadHistory");
 assert.doesNotThrow(() => saveHistory([rec("best", 0)]), "nor saveHistory");

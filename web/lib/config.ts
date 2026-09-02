@@ -2,6 +2,7 @@
 // Only keys the form exposes are emitted; everything else keeps the engine's own
 // documented defaults (allin_threshold, raise_cap, DCFR alpha/beta/gamma, rake).
 import { canonicalRange, topWeights } from "./range.ts";
+import payoutPresets from "./payout-presets.json" with { type: "json" };
 import type { NodeAction, PathStep } from "./types.ts";
 
 export const STREETS = ["flop", "turn", "river"] as const;
@@ -24,6 +25,50 @@ export interface SolveForm {
   /** Table context the engine never sees — positions and the modeled player profiles.
    *  Display-only: `toToml` ignores it, so old saved forms without it load fine. */
   context?: SpotContext;
+  /** The tournament structure to score the spot in. Absent = an ordinary chip solve.
+   *  Solve-affecting, so it lives here and not on `SpotContext`: it changes every
+   *  terminal's payoff, which changes the strategy at every node. */
+  tournament?: TournamentForm;
+}
+
+/**
+ * `[tournament]` as the form holds it: free text for the two vectors, so a half-typed
+ * list is a state the input can be in rather than a parse error on every keystroke.
+ * `toToml` is where the strings have to become numbers.
+ */
+export interface TournamentForm {
+  /** Prize per finishing place, index 0 = first. Comma or space separated. */
+  payouts: string;
+  /** Chips behind per seat at the root of THIS node, in seat order. Not start-of-hand
+   *  stacks: preflop investment is already in `starting_pot`. */
+  stacks: string;
+  /** Indices into `stacks`: `[OOP seat, IP seat]`. */
+  seats: [number, number];
+}
+
+/** The five structures shipped as data in `lib/payout-presets.json`. */
+export const PAYOUT_PRESETS: { id: string; label: string; note: string; payouts: number[] }[] =
+  payoutPresets.presets;
+
+/**
+ * A tournament block seeded from the spot the form already describes: six seats, the two
+ * in-hand ones at seats 0 and 1 with IP covering.
+ *
+ * The engine requires `min(stacks[seats[0]], stacks[seats[1]]) == effective_stack` — the
+ * tree seeds both players from that one scalar, so a table where neither in-hand seat
+ * matches it describes a spot the tree does not build. Seeding from the form's own
+ * effective stack is what makes the default block solvable instead of an error the user
+ * has to decode.
+ */
+export function seedTournament(effectiveStack: string): TournamentForm {
+  const e = Number(effectiveStack.trim());
+  const eff = Number.isFinite(e) && e > 0 ? e : 100;
+  const at = (mult: number) => Number((eff * mult).toFixed(2));
+  return {
+    payouts: PAYOUT_PRESETS[1].payouts.join(", "),
+    stacks: [at(1), at(2), at(0.5), at(0.5), at(1.5), at(3)].join(", "),
+    seats: [0, 1],
+  };
 }
 
 /** The profile one seat's range models. `vpip`/`pfr` are display strings ("24"), empty
@@ -263,6 +308,20 @@ const num = (name: string, raw: string): number => {
   return v;
 };
 
+/** `"3000, 1500 900"` -> `[3000, 1500, 900]`. Empty is empty; anything unparseable throws. */
+export function parseNums(name: string, raw: string): number[] {
+  const parts = raw.split(/[\s,]+/).filter(Boolean);
+  return parts.map((t) => {
+    const v = Number(t);
+    if (!Number.isFinite(v)) throw new Error(`${name} must be a list of numbers (got "${t}")`);
+    return v;
+  });
+}
+
+/** TOML types a bare `0` as an integer and serde then refuses it for the engine's
+ *  `Vec<f64>`, so every tournament figure is written with a decimal point. */
+const f64 = (v: number) => (Number.isInteger(v) ? v.toFixed(1) : String(v));
+
 const quote = (s: string) => JSON.stringify(s);
 
 // --- Node locks ---------------------------------------------------------------------
@@ -294,20 +353,33 @@ export function lineOf(path: PathStep[]): string {
  * not in `meta()` and so are not in the key; a changed bet size renames the line's own
  * `bet:<amount>` token, which makes the lock fail to resolve in the engine instead.
  */
+/**
+ * The tournament structure IS in the key. Two solves of the same board and ranges under
+ * different payouts have identical trees — same node ids, same acting players, same
+ * action and combo counts — so every one of the engine's own lock checks passes while
+ * the frozen strategy came from a spot where chips were worth something else. Payouts
+ * are the one input that changes the answer without changing the tree at all, which is
+ * precisely the silent mis-resolution this key exists to stop.
+ */
 export function spotKey(spot: {
   board: string;
   oop_range: string;
   ip_range: string;
   effective_stack: number | string;
   starting_pot: number | string;
+  tournament?: { payouts: string | number[]; stacks: string | number[]; seats: number[] } | null;
 }): string {
   const cards = (v: string) => v.replace(/[\s,]+/g, "").toLowerCase();
+  const list = (v: string | number[]) =>
+    (typeof v === "string" ? v.split(/[\s,]+/).filter(Boolean) : v).map(Number).join(",");
+  const t = spot.tournament;
   return [
     cards(spot.board),
     cards(spot.oop_range),
     cards(spot.ip_range),
     Number(spot.effective_stack),
     Number(spot.starting_pot),
+    t ? `${list(t.payouts)}/${list(t.stacks)}/${t.seats.join(",")}` : "chips",
   ].join("|");
 }
 
@@ -343,7 +415,8 @@ function lockLines(locks: NodeLock[], spot: string): string[] {
     if (lock.spot !== spot) {
       throw new Error(
         `the lock on "${lock.label}" was captured on a different spot (board/ranges/stack/pot ` +
-          `have changed since). Remove it, or restore the spot it came from, then solve.`,
+          `or the payout structure have changed since). Remove it, or restore the spot it ` +
+          `came from, then solve.`,
       );
     }
     out.push(
@@ -388,6 +461,20 @@ export function toToml(form: SolveForm, locks: NodeLock[] = []): string {
         );
     }
   }
+  const t = form.tournament;
+  if (t) {
+    const payouts = parseNums("payouts", t.payouts);
+    const stacks = parseNums("seat stacks", t.stacks);
+    if (payouts.length === 0) throw new Error("a tournament needs at least one payout");
+    if (stacks.length < 2) throw new Error("a tournament needs a stack for at least two seats");
+    lines.push(
+      ``,
+      `[tournament]`,
+      `payouts = [${payouts.map(f64).join(", ")}]`,
+      `stacks = [${stacks.map(f64).join(", ")}]`,
+      `seats = [${t.seats[0]}, ${t.seats[1]}]`,
+    );
+  }
   lines.push(...lockLines(locks, spotKey(form)));
   return lines.join("\n") + "\n";
 }
@@ -409,6 +496,22 @@ function isSolveForm(v: unknown): v is SolveForm {
   const f = v as Record<string, unknown>;
   if (typeof f.board !== "string" || typeof f.oop_range !== "string" || typeof f.ip_range !== "string") {
     return false;
+  }
+  // A form saved before tournaments existed has no block at all, and that is a chip
+  // solve, not a broken form. Only a block that IS present and malformed rejects.
+  if (f.tournament !== undefined) {
+    const t = f.tournament as Partial<TournamentForm> | null;
+    if (
+      !t ||
+      typeof t !== "object" ||
+      typeof t.payouts !== "string" ||
+      typeof t.stacks !== "string" ||
+      !Array.isArray(t.seats) ||
+      t.seats.length !== 2 ||
+      !t.seats.every((v) => Number.isInteger(v) && v >= 0)
+    ) {
+      return false;
+    }
   }
   const sizings = f.sizings as SizingGrid | undefined;
   if (!sizings || typeof sizings !== "object") return false;

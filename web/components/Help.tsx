@@ -45,7 +45,7 @@ export default function Help() {
       <article className="bg-panel">
         <div className="bar">
           About this solver
-          <span className="meta">4 sections · algorithm, browser, grid, files</span>
+          <span className="meta">5 sections · algorithm, tournaments, browser, grid, files</span>
         </div>
 
         <div className="max-w-[74ch]" style={{ padding: "clamp(20px,3vw,48px)" }}>
@@ -65,6 +65,12 @@ export default function Help() {
             starting pot and the bet sizings each player may use; it builds the full game tree for
             that spot and computes an approximate Nash equilibrium for it.
           </p>
+          <p className="mt-3 text-[14px] leading-[1.6] text-muted">
+            Hand it a payout ladder and every seat&apos;s stack as well and it scores the same spot in{" "}
+            <strong className="font-bold text-text">tournament equity</strong> instead of chips. The
+            postflop game is still two players; the rest of the table enters through the stack
+            vector, never through a multiway tree.
+          </p>
 
           <Section title="The algorithm">
             <p>
@@ -81,8 +87,41 @@ export default function Help() {
               Exploitability is computed by two full best-response walks, one per player, against
               the current average strategy, and reported in big blinds and as a percent of the starting
               pot. That is the number in the header, and the one plotted while a browser solve runs.
+              Under a tournament solve the header says <Code>NashConv</Code> instead, because there
+              the number is no longer a bound — see below.
               There are no estimated or placeholder figures anywhere in this UI: every number on
               screen came out of the engine.
+            </p>
+          </Section>
+
+          <Section title="Tournaments and ICM">
+            <p>
+              Tick <Code>score this spot with ICM</Code> on the Solve tab, paste the payout ladder
+              and every remaining seat&apos;s stack, and each terminal pays{" "}
+              <strong className="font-bold text-text">exact Malmuth-Harville tournament equity</strong>{" "}
+              instead of chips, rescaled so the numbers stay in chip-sized units (CSTE). Five
+              structures ship as presets — winner-take-all, top-heavy, a standard final-table taper,
+              flat, and a satellite — and any ladder can be pasted in. Only the shape matters: the
+              engine divides by the prize pool, so percentages and dollars solve identically.
+            </p>
+            <p>
+              The honesty cost is paid in the header. Under ICM the two players&apos; equities do not
+              sum to a constant — chips move to the frozen field, or drain out of it — so the game is{" "}
+              <strong className="font-bold text-text">general-sum</strong> and the sum of two
+              best-response values is no longer a bound on anything. What is reported instead is{" "}
+              <Code>NashConv</Code>: each player&apos;s unilateral gain from deviating while the other
+              stays put, and their sum. Zero NashConv does <em>not</em> certify a minimum EV, adding a
+              bet size can lower both players&apos; EV, and playing the equilibrium against a mistake
+              can lose equity. Those are properties of the game, not bugs in the solver.
+            </p>
+            <p>
+              The band under the header carries the pairwise{" "}
+              <strong className="font-bold text-text">bubble factor</strong> for the two seats in the
+              hand — how much equity the hero risks per unit they can win, and therefore the raw
+              equity a symmetric all-in needs to break even — and every ICM solve also solves its
+              chipEV twin, so the strategy at the node on screen is shown both ways with the
+              per-action delta between them. The model is exact Malmuth-Harville and nothing else: no
+              blind levels, no future-game simulation, no bounties, equal skill assumed.
             </p>
           </Section>
 
@@ -119,9 +158,10 @@ export default function Help() {
                 from the range. A faded cell has combos but zero reach on this line.
               </li>
               <li>
-                Per-hand EV in the combo panel is zero-sum net big blinds from the start of the solve. A
-                dash means the EV is undefined at that node (no opponent mass can face the hand),
-                which is a different statement from zero.
+                Per-hand EV in the combo panel is zero-sum net big blinds from the start of the
+                solve, or CSTE chips on a tournament solve, where it is not zero-sum. A dash means
+                the EV is undefined at that node (no opponent mass can face the hand), which is a
+                different statement from zero.
               </li>
             </ul>
           </Section>
