@@ -199,6 +199,163 @@ impl Rake {
     }
 }
 
+/// Largest table [`Tournament`] accepts. The ICM DP keys its subsets by a `u32`
+/// bitmask ([`crate::icm::equity`]), which caps there.
+pub const MAX_SEATS: usize = 32;
+
+/// How close a stack has to be to `effective_stack` to count as equal to it. Both
+/// numbers are read from the same TOML file by hand, so this only absorbs float
+/// noise, never a genuine difference.
+const STACK_EPS: f64 = 1e-9;
+
+/// The tournament context around this hand: who is at the table with how many
+/// chips, and what the places pay. Present means the solve is scored in
+/// tournament equity (ICM) instead of chips.
+///
+/// ```toml
+/// [tournament]
+/// # Prize per finishing place, index 0 = first. Shorter than `stacks` is fine;
+/// # the rest pay 0.
+/// payouts = [500, 300, 200]
+/// # Chips behind at the root of THIS node, every remaining seat, in seat order.
+/// # Preflop investments are already in `starting_pot`; do not enter
+/// # start-of-hand stacks.
+/// stacks  = [3000, 1500, 1500, 900, 600, 1100]
+/// # Indices into `stacks`: [OOP seat, IP seat].
+/// seats   = [1, 3]
+/// ```
+///
+/// The two in-hand seats need not have equal stacks: the tree is built from the
+/// single scalar [`SolveConfig::effective_stack`], and an all-in is capped there,
+/// so the covering seat's excess never enters the pot. It rides through every
+/// terminal as a constant added to that seat's final stack, which only the ICM
+/// vector sees. Per-seat stacks *inside* the tree (side pots) are a different
+/// project. [`SolveConfig::validate`] therefore requires the shorter in-hand seat
+/// to equal `effective_stack` exactly.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Tournament {
+    /// Prize per finishing place, index 0 = first, non-increasing.
+    pub payouts: Vec<f64>,
+    /// Chips behind per remaining seat at this node, in seat order.
+    pub stacks: Vec<f64>,
+    /// Indices into `stacks` for the two players in the hand: `[OOP, IP]`.
+    pub seats: [usize; 2],
+}
+
+impl Tournament {
+    /// The six rules, in order, each naming the value it rejected. `effective_stack`
+    /// and `rake_percent` come from the enclosing [`SolveConfig`]: rules 4-6 are
+    /// about the fit between this block and the rest of the config, not about the
+    /// block alone.
+    fn validate(&self, effective_stack: f64, rake_percent: f64) -> Result<(), String> {
+        // 1. The table.
+        let n = self.stacks.len();
+        if !(2..=MAX_SEATS).contains(&n) {
+            return Err(format!(
+                "tournament.stacks must list 2 to {MAX_SEATS} seats, got {n}"
+            ));
+        }
+        for (i, &s) in self.stacks.iter().enumerate() {
+            if !s.is_finite() || s < 0.0 {
+                return Err(format!(
+                    "tournament.stacks[{i}] is {s}; every stack must be finite and non-negative"
+                ));
+            }
+        }
+        let alive = self.stacks.iter().filter(|&&s| s > 0.0).count();
+        if alive < 2 {
+            return Err(format!(
+                "tournament.stacks has {alive} positive stack(s) of {n}; at least two seats must \
+                 still have chips"
+            ));
+        }
+
+        // 2. The prize ladder.
+        if self.payouts.is_empty() {
+            return Err("tournament.payouts is empty; list at least first prize".to_string());
+        }
+        if self.payouts.len() > n {
+            return Err(format!(
+                "tournament.payouts lists {} places but tournament.stacks has only {n} seats; \
+                 nobody can finish in the extra places",
+                self.payouts.len()
+            ));
+        }
+        for (i, &p) in self.payouts.iter().enumerate() {
+            if !p.is_finite() || p < 0.0 {
+                return Err(format!(
+                    "tournament.payouts[{i}] is {p}; every prize must be finite and non-negative"
+                ));
+            }
+        }
+        for i in 1..self.payouts.len() {
+            if self.payouts[i] > self.payouts[i - 1] {
+                return Err(format!(
+                    "tournament.payouts[{i}] is {} but tournament.payouts[{}] is {}; prizes must \
+                     not increase down the ladder",
+                    self.payouts[i],
+                    i - 1,
+                    self.payouts[i - 1]
+                ));
+            }
+        }
+        let pool: f64 = self.payouts.iter().sum();
+        if pool <= 0.0 {
+            return Err(format!(
+                "tournament.payouts sum to {pool}; the prize pool must be positive"
+            ));
+        }
+
+        // 3. The two seats in the hand.
+        for (p, &seat) in self.seats.iter().enumerate() {
+            if seat >= n {
+                return Err(format!(
+                    "tournament.seats[{p}] is {seat} but tournament.stacks has only {n} seats"
+                ));
+            }
+        }
+        if self.seats[0] == self.seats[1] {
+            return Err(format!(
+                "tournament.seats are both {}; the OOP and IP seats must be different",
+                self.seats[0]
+            ));
+        }
+
+        // 4. Neither in-hand seat may be shorter than the tree's stack.
+        for (p, &seat) in self.seats.iter().enumerate() {
+            if self.stacks[seat] < effective_stack - STACK_EPS {
+                return Err(format!(
+                    "tournament.seats[{p}] is seat {seat} with {} chips, less than \
+                     effective_stack {effective_stack}; the tree gives that player more chips \
+                     than they have at the table",
+                    self.stacks[seat]
+                ));
+            }
+        }
+
+        // 5. ...and the shorter of the two must *be* the tree's stack.
+        let shorter = self.stacks[self.seats[0]].min(self.stacks[self.seats[1]]);
+        if (shorter - effective_stack).abs() > STACK_EPS {
+            return Err(format!(
+                "the shorter in-hand seat has {shorter} chips but effective_stack is \
+                 {effective_stack}; the tree seeds both players from that one scalar, so a \
+                 config where neither of tournament.seats equals it describes a spot the tree \
+                 does not build"
+            ));
+        }
+
+        // 6. Tournament pots are not raked.
+        if rake_percent != 0.0 {
+            return Err(format!(
+                "rake.percent is {rake_percent} and [tournament] is set; tournament pots are not \
+                 raked, so the two cannot be combined"
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// How far a locked combo's action probabilities may miss 1 before the lock is
 /// rejected. Loose enough for three-decimal frequencies typed by hand, tight enough
 /// that a genuinely unnormalized row (`0.9`, `1.1`) never slips through.
@@ -458,6 +615,11 @@ pub struct SolveConfig {
     /// See [`NodeLock`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub locks: Vec<NodeLock>,
+    /// Tournament context: present means payoffs are scored in tournament equity
+    /// rather than chips. Default: none, and a solve with none is exactly the chip
+    /// solve it always was. See [`Tournament`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tournament: Option<Tournament>,
 }
 
 impl Default for SolveConfig {
@@ -480,6 +642,7 @@ impl Default for SolveConfig {
             rake: Rake::default(),
             sizings: BetSizings::default(),
             locks: Vec::new(),
+            tournament: None,
         }
     }
 }
@@ -605,6 +768,10 @@ impl SolveConfig {
         for (i, lock) in self.locks.iter().enumerate() {
             lock.validate_shape()
                 .map_err(|e| format!("locks[{i}] (line {:?}): {e}", lock.line))?;
+        }
+
+        if let Some(t) = &self.tournament {
+            t.validate(self.effective_stack, self.rake.percent)?;
         }
         Ok(())
     }
@@ -872,6 +1039,143 @@ starting_pot = 10.0
         assert!(per_combo.expand(2, 2).unwrap_err().contains("= 4"));
         let err = per_combo.expand(3, 1).unwrap_err();
         assert!(err.contains("sum to 0.5, not 1"), "unnormalized row must be rejected: {err}");
+    }
+
+    // MINIMAL has effective_stack = 100. Seat 0 is the shorter in-hand seat and
+    // equals it; seat 1 covers; seat 3 is already busted.
+    const TOURNEY: &str = r#"
+[tournament]
+payouts = [500.0, 300.0, 200.0]
+stacks = [100.0, 250.0, 150.0, 0.0]
+seats = [0, 1]
+"#;
+
+    fn tourney_cfg() -> SolveConfig {
+        SolveConfig::from_toml_str(&format!("{MINIMAL}{TOURNEY}")).expect("parse")
+    }
+
+    #[test]
+    fn tournament_round_trips_and_is_absent_by_default() {
+        let plain = SolveConfig::from_toml_str(MINIMAL).expect("parse");
+        assert_eq!(plain.tournament, None);
+        let out = toml::to_string(&plain).expect("serialize");
+        assert!(
+            !out.contains("tournament"),
+            "no block means no key, or the existing round-trip tests break: {out}"
+        );
+
+        let cfg = tourney_cfg();
+        let t = cfg.tournament.as_ref().expect("block parsed");
+        assert_eq!(t.payouts, vec![500.0, 300.0, 200.0]);
+        assert_eq!(t.stacks, vec![100.0, 250.0, 150.0, 0.0]);
+        assert_eq!(t.seats, [0, 1]);
+
+        let out = toml::to_string(&cfg).expect("serialize");
+        assert_eq!(SolveConfig::from_toml_str(&out).expect("reparse"), cfg);
+    }
+
+    #[test]
+    fn unknown_key_in_tournament_is_rejected() {
+        let bad = format!("{MINIMAL}{TOURNEY}bounty = 50.0
+");
+        let err = SolveConfig::from_toml_str(&bad).unwrap_err();
+        assert!(err.contains("bounty"), "{err}");
+    }
+
+    #[test]
+    fn validate_rejects_a_bad_tournament() {
+        let ok = tourney_cfg();
+        let good = ok.tournament.clone().expect("block parsed");
+        // Every case is the valid config with exactly one thing wrong, so the needle
+        // identifies which rule fired.
+        let with = |t: Tournament| SolveConfig { tournament: Some(t), ..ok.clone() };
+        let cases: [(SolveConfig, &str, &str); 12] = [
+            // 1. the table
+            (
+                with(Tournament { stacks: vec![100.0], seats: [0, 0], ..good.clone() }),
+                "2 to 32 seats",
+                "rule 1: seat count",
+            ),
+            (
+                with(Tournament { stacks: vec![100.0, 250.0, -5.0, 0.0], ..good.clone() }),
+                "tournament.stacks[2] is -5",
+                "rule 1: negative stack",
+            ),
+            (
+                with(Tournament { stacks: vec![100.0, 0.0, 0.0, 0.0], ..good.clone() }),
+                "at least two seats must still have chips",
+                "rule 1: one player left",
+            ),
+            // 2. the prize ladder
+            (
+                with(Tournament { payouts: vec![], ..good.clone() }),
+                "list at least first prize",
+                "rule 2: empty payouts",
+            ),
+            (
+                with(Tournament {
+                    payouts: vec![500.0, 400.0, 300.0, 200.0, 100.0],
+                    ..good.clone()
+                }),
+                "nobody can finish in the extra places",
+                "rule 2: more places than seats",
+            ),
+            (
+                with(Tournament { payouts: vec![500.0, 300.0, 400.0], ..good.clone() }),
+                "must not increase down the ladder",
+                "rule 2: ascending payouts",
+            ),
+            (
+                with(Tournament { payouts: vec![0.0, 0.0, 0.0], ..good.clone() }),
+                "prize pool must be positive",
+                "rule 2: empty prize pool",
+            ),
+            // 3. the two seats
+            (
+                with(Tournament { seats: [0, 9], ..good.clone() }),
+                "tournament.seats[1] is 9",
+                "rule 3: seat out of range",
+            ),
+            (
+                with(Tournament { seats: [1, 1], ..good.clone() }),
+                "must be different",
+                "rule 3: duplicate seats",
+            ),
+            // 4. an in-hand seat shorter than the tree's stack
+            (
+                with(Tournament {
+                    stacks: vec![100.0, 60.0, 150.0, 0.0],
+                    ..good.clone()
+                }),
+                "less than effective_stack 100",
+                "rule 4: in-hand seat below effective_stack",
+            ),
+            // 5. neither in-hand seat equal to it
+            (
+                with(Tournament {
+                    stacks: vec![150.0, 250.0, 150.0, 0.0],
+                    ..good.clone()
+                }),
+                "the tree seeds both players from that one scalar",
+                "rule 5: no seat equals effective_stack",
+            ),
+            // 6. rake
+            (
+                SolveConfig { rake: Rake { percent: 5.0, cap: 0.0 }, ..ok.clone() },
+                "tournament pots are not raked",
+                "rule 6: rake plus tournament",
+            ),
+        ];
+        for (cfg, needle, label) in &cases {
+            let err = cfg.validate().expect_err(label);
+            assert!(err.contains(needle), "{label}: wanted {needle:?}, got {err}");
+        }
+        // The baseline itself must pass, or every case above proves nothing.
+        ok.validate().expect("the valid tournament config validates");
+        println!(
+            "tournament validate(): {} rejection cases over 6 rules, 1 accepted config",
+            cases.len()
+        );
     }
 
     #[test]

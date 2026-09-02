@@ -55,7 +55,13 @@ use crate::tree::{ActionLabel, GameTree, NodeKind};
 ///   of the bump — it would rebuild the tree and silently solve a different game.
 ///   A lock-free solve is layout-identical to v1, so [`Solution::from_solver`] stamps
 ///   it `1` and only a file that actually carries locks gets the refusing version.
-pub const FORMAT_VERSION: u32 = 2;
+/// * `3` — [`crate::config::Tournament`] joined the embedded config, and
+///   [`SolveMeta`] gained `payoff_unit` and `gain`. Same reasoning as the v2 bump:
+///   an older build would rebuild the tree, ignore the tournament block and score
+///   the spot in chips, which is a different game. The two new `SolveMeta` fields
+///   are `#[serde(default)]`, so a v1 or v2 file on disk still loads — see
+///   [`SolveMeta::payoff_unit`] for what the defaults mean.
+pub const FORMAT_VERSION: u32 = 3;
 
 /// One player's root combo: enough to label a strategy slot without rebuilding a
 /// [`crate::range::Range`].
@@ -128,6 +134,26 @@ pub struct SolveMeta {
     pub wall_seconds: f64,
     /// `CARGO_PKG_VERSION` of the engine that produced this file.
     pub engine_version: String,
+    /// What the EV figures in this file are denominated in: `"chips"` for an
+    /// ordinary chipEV solve, `"cste"` for chip-scaled tournament equity.
+    ///
+    /// A file written before format version 3 has no such key and reads as
+    /// `"chips"`, which is what every solve before then was.
+    #[serde(default = "default_payoff_unit")]
+    pub payoff_unit: String,
+    /// Each player's unilateral best-response gain against the stored profile,
+    /// `[OOP, IP]` — what they would win by deviating alone. Their sum is
+    /// `exploitability_chips`.
+    ///
+    /// A file written before format version 3 has no such key and reads as
+    /// `[0.0, 0.0]`, which is **not** a measurement of a perfect equilibrium; read
+    /// `exploitability_chips` for those files.
+    #[serde(default)]
+    pub gain: [f32; 2],
+}
+
+fn default_payoff_unit() -> String {
+    "chips".to_string()
 }
 
 /// A solved spot, self-describing enough to reload and inspect without re-solving.
@@ -186,12 +212,20 @@ impl Solution {
                 .collect()
         });
 
+        let cfg = game.config();
         Solution {
-            // A lock-free solve is layout-identical to a v1 file, so stamp v1 and keep
-            // it readable by older builds; only a file that actually carries locks
-            // needs the v2 refusal.
-            format_version: if game.config().locks.is_empty() { 1 } else { FORMAT_VERSION },
-            config: game.config().clone(),
+            // Stamp the oldest version that can read this file back correctly, so a
+            // plain solve stays readable by older builds: a lock-free chip solve is
+            // layout-identical to v1, locks alone need the v2 refusal, and a
+            // tournament block needs v3's.
+            format_version: if cfg.tournament.is_some() {
+                FORMAT_VERSION
+            } else if cfg.locks.is_empty() {
+                1
+            } else {
+                2
+            },
+            config: cfg.clone(),
             meta: SolveMeta {
                 iterations: solver.iterations(),
                 exploitability_chips: report.chips,
@@ -199,6 +233,12 @@ impl Solution {
                 root_evs: RootEvs { zero_sum: root_ev_zero_sum, pot_share: root_ev_pot_share },
                 wall_seconds,
                 engine_version: env!("CARGO_PKG_VERSION").to_string(),
+                // The tournament block is inert until the ICM payoff branch lands in
+                // `nlhe::term_data`, so every solve this build produces is still scored
+                // in chips — where each player's gain is exactly their best-response
+                // value, the two equilibrium values cancelling.
+                payoff_unit: default_payoff_unit(),
+                gain: report.br,
             },
             node_count: tree.len() as u32,
             nodes,
@@ -346,7 +386,7 @@ impl Solution {
 mod tests {
     use super::*;
     use crate::cfr::DcfrParams;
-    use crate::config::{NodeLock, Sizings};
+    use crate::config::{NodeLock, Sizings, Tournament};
 
     // Same tiny river spot as `nlhe`'s milestone-3 test: 3 decision nodes, hand
     // solvable, and (per the ground truth measured on this machine) fast — 20k
@@ -483,6 +523,68 @@ mod tests {
         assert!(!text.contains("locks"), "an unlocked config writes no locks key");
         assert_eq!(loaded.format_version, 1);
         assert!(loaded.config.locks.is_empty());
+    }
+
+    /// A tournament block changes what the payoffs mean, so an older build that
+    /// silently ignored it would score a different game. Version 3 is the refusal.
+    #[test]
+    fn a_tournament_solve_stamps_version_three() {
+        let mut cfg = small_cfg();
+        // small_cfg has effective_stack = 10, so seat 0 is the shorter in-hand seat
+        // and equals it; seat 1 covers.
+        cfg.tournament = Some(Tournament {
+            payouts: vec![500.0, 300.0, 200.0],
+            stacks: vec![10.0, 30.0, 20.0],
+            seats: [0, 1],
+        });
+        cfg.validate().expect("the tournament block validates");
+        let game = NlheGame::new(&cfg).expect("game builds");
+        let mut solver = Solver::new(game);
+        solver.run(500, &DcfrParams::default(), 0, |_, _, _| {});
+
+        let sol = Solution::from_solver(&solver, 0.0);
+        assert_eq!(sol.format_version, 3, "a tournament block arrived in format version 3");
+        assert_eq!(sol.config.tournament, cfg.tournament, "the block is embedded, not dropped");
+        assert_eq!(
+            sol.meta.payoff_unit, "chips",
+            "the block is inert until the ICM payoff branch lands, so this is still a chip solve"
+        );
+        assert_eq!(
+            sol.meta.gain[0] + sol.meta.gain[1],
+            sol.meta.exploitability_chips,
+            "in chips each player's gain is their best-response value and the two sum to the              exploitability"
+        );
+
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("solution_tournament_{}.json", std::process::id()));
+        sol.save(&path).expect("save");
+        let loaded = Solution::load(&path).expect("a tournament solution reloads");
+        std::fs::remove_file(&path).ok();
+        assert_eq!(loaded, sol);
+    }
+
+    /// The two new `SolveMeta` keys carry `#[serde(default)]` precisely so files
+    /// written by a pre-v3 build keep loading. This builds one by deleting them.
+    #[test]
+    fn a_pre_v3_file_without_the_new_meta_keys_still_loads() {
+        let solver = solved();
+        let sol = Solution::from_solver(&solver, 0.0);
+        assert_eq!(sol.format_version, 1, "a plain chip solve is still stamped v1");
+
+        let mut doc = serde_json::to_value(&sol).expect("to value");
+        let meta = doc["meta"].as_object_mut().expect("meta is an object");
+        assert!(meta.remove("payoff_unit").is_some(), "key must exist to be removed");
+        assert!(meta.remove("gain").is_some(), "key must exist to be removed");
+        let text = serde_json::to_string(&doc).expect("to string");
+        assert!(!text.contains("payoff_unit"), "the pre-v3 shape has no such key");
+
+        let loaded = Solution::from_reader(text.as_bytes()).expect("a pre-v3 file still loads");
+        assert_eq!(loaded.meta.payoff_unit, "chips", "every solve before v3 was in chips");
+        assert_eq!(
+            loaded.meta.gain,
+            [0.0, 0.0],
+            "no gain was recorded; exploitability_chips is the number to read for these"
+        );
     }
 
     #[test]
