@@ -414,7 +414,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
       <a class="cta-hi" href="https://postflop-workbench.vercel.app">Open the workbench</a>
       <a class="cta-flat" href="https://github.com/ucsandman/postflop">Read the source</a>
     </div>
-    <p class="hero-sub">MIT licensed · Rust engine · solves right in your browser, nothing to install</p>
+    <p class="hero-sub">MIT licensed · Rust engine · tournament ICM · solves right in your browser, nothing to install</p>
   </div>
   <div class="hero-split">
     <div class="term" role="img" aria-label="Terminal output of a solve: exploitability falls from 0.40% to 0.12% of pot over 200 iterations, each report tagged [measured]">
@@ -594,6 +594,7 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
       <a href="#workbench-regret">EV and regret</a>
       <a href="#workbench-trainer">Trainer</a>
       <a href="#workbench-locks">Node locks</a>
+      <a href="#workbench-icm">Tournaments and ICM</a>
     </nav>
   </div>
 
@@ -669,6 +670,15 @@ footer{background:var(--ink);color:var(--text-inv);border-top:var(--rule) solid 
     <figcaption class="shot-caption"><b>Every runout, colored by consequence.</b> A 52-card selector re-roots the inspector at any turn or river card, heat-colored green to red by how each runout shifts hero EV, range-wide or for one selected combo, with arrow-key stepping between sibling cards.</figcaption>
   </figure>
 </section>
+
+<div class="media-row" id="workbench-icm">
+    <div class="media-copy">
+      <h3>Tournaments: solve for equity, not chips</h3>
+      <p>Tick <b>score this spot with ICM</b>, enter every remaining stack at the table and the payout ladder, and say which two seats are in the hand. Terminal payoffs switch from chips to exact Malmuth-Harville tournament equity, so the strategy itself moves under ICM pressure. The chipEV solve of the same spot sits beside it with the frequency shift called out, plus your bubble factor and required equity against the other seat. Five payout presets, or paste your own; the same block works from the CLI as <code>--tournament</code>.</p>
+      <p>Honest limit: under ICM the game is general-sum, so the headline is <b>NashConv</b>, each player's unilateral best-response gain, not exploitability. Zero means neither player gains by deviating alone; it does not promise a minimum result. The hand is still heads-up; the other seats are stacks that price your chips, not players who act.</p>
+    </div>
+    <figure class="media-shot"><img src="screens/11-icm-statband.png" alt="The workbench stat band on a satellite spot: NashConv 0.0022 percent, root EV in chip-scaled tournament equity, bubble factor 11.33 for OOP against IP needing 91.9 percent equity, and the six-seat five-paid structure" width="1397" height="235" loading="lazy"></figure>
+  </div>
 
 <section id="correctness" aria-label="Correctness">
   <div class="section-head wrap">
@@ -800,7 +810,7 @@ solver solve --config spot.toml \
     </nav>
   </div>
   <div class="statusbar">
-    <span>RUST ENGINE · DISCOUNTED CFR</span><span class="sep">│</span><span>4 MILESTONE GATES PASSED</span><span class="sep">│</span><span>MIT LICENSE</span><span class="sep">│</span><span>0 ESTIMATED FIGURES</span>
+    <span>RUST ENGINE · DISCOUNTED CFR</span><span class="sep">│</span><span>4 MILESTONE GATES PASSED</span><span class="sep">│</span><span>ICM · MALMUTH-HARVILLE</span><span class="sep">│</span><span>MIT LICENSE</span><span class="sep">│</span><span>0 ESTIMATED FIGURES</span>
   </div>
 </footer>
 
