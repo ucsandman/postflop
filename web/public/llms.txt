@@ -1,0 +1,40 @@
+# postflop workbench
+
+postflop is a heads-up no-limit hold'em postflop GTO solver. The engine is
+written in Rust and runs Discounted CFR (Brown and Sandholm 2019) with a
+full best-response exploitability calculator, so every convergence figure
+it reports is measured against the current average strategy at every
+report interval, in chips and as a percentage of the pot, not just
+asserted.
+
+## Who it is for
+
+Poker players and researchers who want to solve or inspect heads-up
+postflop spots, either for chip EV or under tournament ICM (exact
+Malmuth-Harville equity from a payout ladder and per-seat stacks).
+
+## What it does
+
+The browser workbench at https://postflop-workbench.vercel.app runs the
+Rust engine compiled to WebAssembly. Give it a board, both ranges, stacks,
+pot, and bet sizings, and it solves the spot in the browser with nothing to
+install, or load a solution produced by the command-line build. It shows a
+13x13 strategy grid with per-hand action frequencies, per-combo EV
+drill-down, a tree navigator, a 52-card runout selector, EV and regret grid
+overlays, blocker scores, node locking, a trainer mode for drilling spots
+against graded feedback, and JSON export that round-trips with the CLI. The
+same engine also ships as a native CLI (`solver`) that runs on every CPU
+core, for larger spots or offline use.
+
+The marketing and launch-film site is at https://postflop.vercel.app.
+
+## Pricing
+
+Free and open source. No account, signup, or payment. MIT licensed.
+
+## Pages
+
+- / -- the workbench: inspector, range editor, tree navigator, trainer, and
+  node locking, all in one single-page app. The active tab, node, and
+  selected combo are reflected in the URL, so any view is a shareable deep
+  link.
