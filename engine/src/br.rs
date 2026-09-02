@@ -26,6 +26,32 @@
 //! the sum is offset by the expected rake and no longer bottoms out at 0. Compare it
 //! against the raked game's own floor, or solve rake-free to check convergence.
 //!
+//! # NashConv, when the game is general-sum
+//!
+//! Under a tournament (ICM) payoff map the two utilities sum to a *varying* negative
+//! number rather than a constant one ([`crate::game::Game::zero_sum`] returns `false`),
+//! so `BR_0 + BR_1` is not an exploitability, not an upper bound, and not offset by
+//! anything you can subtract. What is still well defined is each player's **unilateral
+//! gain**
+//!
+//! ```text
+//! gain_i = BR_value(i) - EV(i)
+//! ```
+//!
+//! That is how much player `i` picks up by deviating alone while the opponent keeps
+//! playing the profile. [`ExploitReport::gain`] holds the pair and [`ExploitReport::chips`]
+//! their sum, **NashConv**. In a zero-sum game `EV_0 + EV_1 == 0`, so NashConv is
+//! numerically the figure this module has always reported: `gain` is then exactly `br`,
+//! and the chip path takes that branch without the two extra walks, bit for bit.
+//!
+//! What NashConv certifies, and what it does not. It measures one profile: at zero,
+//! neither player can improve unilaterally, which is a Nash equilibrium of the
+//! general-sum game. It is **not** a guaranteed minimum EV - a general-sum equilibrium
+//! has no value in the minimax sense, the equilibrium need not be unique, and two
+//! equilibria of the same spot can pay differently. Two consequences that get reported
+//! as bugs and are not: adding a bet size can lower *both* players' EV, and playing the
+//! equilibrium against an opponent's mistake can lose you equity.
+//!
 //! # Exploitability under a node lock
 //!
 //! A locked node ([`crate::game::Game::locked_strategy`]) is not a decision the best
@@ -73,7 +99,12 @@ impl<G: Game> StrategyProfile for UniformProfile<'_, G> {
 pub struct ExploitReport {
     /// Best-response value for each player against the profile: `[player 0, player 1]`.
     pub br: [f32; 2],
-    /// `br[0] + br[1]` — the total exploitability. Zero at an exact equilibrium.
+    /// Each player's unilateral gain, `br[i] - EV(i)`: what they win by deviating on
+    /// their own. In a zero-sum game the two equilibrium values cancel in the sum, so
+    /// this is exactly `br` and is produced without the extra walks.
+    pub gain: [f32; 2],
+    /// `gain[0] + gain[1]`. The total exploitability in a zero-sum game (where it also
+    /// equals `br[0] + br[1]`); **NashConv** in a general-sum one. Zero at equilibrium.
     pub chips: f32,
     /// `chips` as a percentage of the root pot.
     pub pct_of_pot: f32,
@@ -95,8 +126,19 @@ pub fn exploitability<G: Game, P: StrategyProfile>(game: &G, profile: &P) -> Exp
         best_response_value(game, 0, profile),
         best_response_value(game, 1, profile),
     ];
-    let chips = br[0] + br[1];
-    ExploitReport { br, chips, pct_of_pot: 100.0 * chips / game.root_pot() }
+    // Zero-sum: `EV_0 + EV_1 == 0`, so `gain[0] + gain[1] == br[0] + br[1]` exactly and
+    // the two expected-value walks would only recompute a cancelling pair. Taking this
+    // branch is what keeps every chip solve bit-identical to before `gain` existed.
+    let gain = if game.zero_sum() {
+        br
+    } else {
+        [
+            br[0] - expected_value(game, 0, profile),
+            br[1] - expected_value(game, 1, profile),
+        ]
+    };
+    let chips = gain[0] + gain[1];
+    ExploitReport { br, gain, chips, pct_of_pot: 100.0 * chips / game.root_pot() }
 }
 
 /// Hero's per-combo counterfactual value vector for the subtree rooted at `node`.

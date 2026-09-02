@@ -233,12 +233,16 @@ impl Solution {
                 root_evs: RootEvs { zero_sum: root_ev_zero_sum, pot_share: root_ev_pot_share },
                 wall_seconds,
                 engine_version: env!("CARGO_PKG_VERSION").to_string(),
-                // The tournament block is inert until the ICM payoff branch lands in
-                // `nlhe::term_data`, so every solve this build produces is still scored
-                // in chips — where each player's gain is exactly their best-response
-                // value, the two equilibrium values cancelling.
-                payoff_unit: default_payoff_unit(),
-                gain: report.br,
+                // A tournament block now means the payoffs really are tournament
+                // equity: `nlhe::term_data` takes the ICM branch and `br` reports
+                // NashConv. In the chip case `report.gain` is `report.br` exactly, so
+                // this line is unchanged for every chip solve.
+                payoff_unit: if cfg.tournament.is_some() {
+                    "cste".to_string()
+                } else {
+                    default_payoff_unit()
+                },
+                gain: report.gain,
             },
             node_count: tree.len() as u32,
             nodes,
@@ -526,7 +530,8 @@ mod tests {
     }
 
     /// A tournament block changes what the payoffs mean, so an older build that
-    /// silently ignored it would score a different game. Version 3 is the refusal.
+    /// silently ignored it would score a different game. Version 3 is the refusal, and
+    /// `payoff_unit` is what tells a reader which unit the EV figures are in.
     #[test]
     fn a_tournament_solve_stamps_version_three() {
         let mut cfg = small_cfg();
@@ -546,14 +551,27 @@ mod tests {
         assert_eq!(sol.format_version, 3, "a tournament block arrived in format version 3");
         assert_eq!(sol.config.tournament, cfg.tournament, "the block is embedded, not dropped");
         assert_eq!(
-            sol.meta.payoff_unit, "chips",
-            "the block is inert until the ICM payoff branch lands, so this is still a chip solve"
+            sol.meta.payoff_unit, "cste",
+            "the ICM payoff branch is live, so this solve is scored in tournament equity"
+        );
+        assert!(
+            !NlheGame::new(&cfg).expect("game builds").zero_sum(),
+            "an ICM solve is general-sum, so `gain` is NashConv's two halves, not `br`"
         );
         assert_eq!(
             sol.meta.gain[0] + sol.meta.gain[1],
             sol.meta.exploitability_chips,
-            "in chips each player's gain is their best-response value and the two sum to the              exploitability"
+            "gain always sums to the reported figure, chips or CSTE"
         );
+
+        // ...and a chip solve of the same spot still says chips, with `gain == br`.
+        let mut chip_cfg = cfg.clone();
+        chip_cfg.tournament = None;
+        let mut chip = Solver::new(NlheGame::new(&chip_cfg).expect("game builds"));
+        chip.run(500, &DcfrParams::default(), 0, |_, _, _| {});
+        let chip_sol = Solution::from_solver(&chip, 0.0);
+        assert_eq!(chip_sol.meta.payoff_unit, "chips");
+        assert_eq!(chip_sol.format_version, 1);
 
         let dir = std::env::temp_dir();
         let path = dir.join(format!("solution_tournament_{}.json", std::process::id()));

@@ -81,6 +81,47 @@
 //! `-rake` instead of `0`, so `br::exploitability` is offset by the expected rake and
 //! no longer bottoms out at zero. Measure convergence against that shifted baseline, or
 //! solve rake-free. The milestone tests are rake-free.
+//!
+//! # Tournament payoffs (ICM), and why they are general-sum
+//!
+//! With a `[tournament]` block ([`crate::config::Tournament`]) the payoff at a terminal
+//! is not chips but the change in the seat's **tournament equity**. Write `stacks` for
+//! the chips behind every seat at the root of this node, `S` for `starting_pot` and
+//! `eq` for [`crate::icm::equity`]. Then, once per game:
+//!
+//! ```text
+//! scale = (sum(stacks) + S) / sum(payouts)     // chips at the table per payout unit
+//! base  = stacks, with S/2 added to each in-hand seat  // the same re-centering
+//! root  = eq(base, payouts)                    // computed once, not per terminal
+//! ```
+//!
+//! and at each terminal, for each of the three outcomes (player 0 awarded the pot,
+//! player 1 awarded it, split), the two in-hand seats end with `stacks[seat] - c_p`
+//! plus their award, every other seat is untouched, and
+//!
+//! ```text
+//! payoff_p = (eq(final, payouts)[seat_p] - root[seat_p]) * scale
+//! ```
+//!
+//! `scale` puts the answer back on a chip axis - **CSTE**, chip-scaled tournament
+//! equity - so pot percentages, the i16 quantizer and every existing display stay
+//! dimensionally sane. Under winner-take-all `eq` is exactly chip-proportional and
+//! `scale` cancels it, so the payoff collapses to `award - stake_p`: the chip game,
+//! reached by a different arithmetic path.
+//!
+//! Three consequences, all deliberate:
+//!
+//! * **The chop is not the midpoint.** `eq` is concave in chips, so splitting a pot is
+//!   worth strictly more than half of winning it plus half of losing it. That is why
+//!   [`TermData`] states `chop` rather than deriving it; under chips the two agree.
+//! * **The game is general-sum.** Chips moving between two seats changes the frozen
+//!   field's equity too, so `u0(i,j) + u1(j,i)` is negative and *varies* with how many
+//!   chips moved. [`Game::zero_sum`] returns `false` and `br::exploitability` reports
+//!   NashConv; see the `br` module docs for what that does and does not certify.
+//! * **The covering seat's excess never enters the tree.** An all-in is capped at
+//!   `effective_stack`, so `stacks[seat] - effective_stack` rides through every
+//!   terminal as a constant added to that seat's final stack. Only the ICM vector sees
+//!   it. Per-seat stacks *inside* the tree (side pots) remain a separate project.
 
 use std::collections::HashMap;
 
@@ -88,6 +129,7 @@ use crate::br::{self, StrategyProfile};
 use crate::cards::{self, Card, NUM_CARDS};
 use crate::config::SolveConfig;
 use crate::game::{ChanceEdge, Game, NodeInfo};
+use crate::icm;
 use crate::range::Range;
 use crate::terminal::{self, Hand, SortedRanks};
 use crate::tree::{GameTree, Node, NodeKind, Terminal as TreeTerminal, NO_CHILD};
@@ -136,6 +178,59 @@ struct TermData {
     chop: [f64; 2],
 }
 
+/// Everything the ICM payoff branch needs, built once in [`NlheGame::new`].
+///
+/// Absent for a chip solve, in which case nothing here is ever consulted and the
+/// original payoff arithmetic runs unchanged. See the module docs for the algebra.
+#[derive(Debug)]
+struct Icm {
+    /// Chips at the table divided by the prize pool. Multiplying an equity delta in
+    /// payout units by this puts it back on a chip axis (CSTE).
+    scale: f64,
+    /// Every seat's equity at the root of this solve, in payout units. Subtracted at
+    /// every terminal so payoffs stay net vs. the start of the solve, exactly as the
+    /// chip convention is.
+    root: Vec<f64>,
+    /// `[OOP, IP]` indices into `stacks`.
+    seats: [usize; 2],
+    /// Chips behind per seat at the root of this node, straight from the config.
+    stacks: Vec<f64>,
+    payouts: Vec<f64>,
+}
+
+impl Icm {
+    fn new(cfg: &SolveConfig, t: &crate::config::Tournament) -> Icm {
+        let chips: f64 = t.stacks.iter().sum::<f64>() + cfg.starting_pot;
+        let pool: f64 = t.payouts.iter().sum();
+        // The same re-centering the chip convention uses: the starting pot is credited
+        // half to each player, so "no chips moved" means "equity unchanged".
+        let mut base = t.stacks.clone();
+        for &seat in &t.seats {
+            base[seat] += cfg.starting_pot * 0.5;
+        }
+        Icm {
+            scale: chips / pool,
+            root: icm::equity(&base, &t.payouts),
+            seats: t.seats,
+            stacks: t.stacks.clone(),
+            payouts: t.payouts.clone(),
+        }
+    }
+
+    /// Payoff to each in-hand seat, in CSTE chips, when the two of them leave this
+    /// terminal with `behind` chips each and every other seat is untouched.
+    fn payoff(&self, behind: [f64; 2]) -> [f64; 2] {
+        let mut fin = self.stacks.clone();
+        fin[self.seats[0]] = behind[0];
+        fin[self.seats[1]] = behind[1];
+        let eq = icm::equity(&fin, &self.payouts);
+        [
+            (eq[self.seats[0]] - self.root[self.seats[0]]) * self.scale,
+            (eq[self.seats[1]] - self.root[self.seats[1]]) * self.scale,
+        ]
+    }
+}
+
 /// A solvable heads-up NLHE postflop spot.
 #[derive(Debug)]
 pub struct NlheGame {
@@ -154,6 +249,9 @@ pub struct NlheGame {
     maps: HashMap<u32, Vec<CardMap>>,
     root_weights: [Vec<f32>; 2],
     normalizer: f32,
+    /// Present exactly when `cfg.tournament` is. Also the flag [`Game::zero_sum`]
+    /// reads, so the two can never disagree.
+    icm: Option<Icm>,
     /// Node id -> index into `locks`, or [`NONE`]. **Empty** when the config locks
     /// nothing, which is what keeps an unlocked solve free of a per-node table.
     lock_at: Vec<u32>,
@@ -217,6 +315,9 @@ impl NlheGame {
         let mut node_aux = vec![NONE; n];
         let mut chance: Vec<ChanceData> = Vec::new();
         let mut terms: Vec<TermData> = Vec::new();
+        // Built once, before the walk: the root equity vector is the same for every
+        // terminal, and re-deriving it per terminal would triple the DP cost.
+        let icm = cfg.tournament.as_ref().map(|t| Icm::new(cfg, t));
 
         let mut stack = vec![(tree.root(), 0u32)];
         while let Some((idx, b)) = stack.pop() {
@@ -275,7 +376,7 @@ impl NlheGame {
                 NodeKind::Terminal(t) => {
                     info[idx as usize] = NodeInfo::Terminal;
                     node_aux[idx as usize] = terms.len() as u32;
-                    terms.push(Self::term_data(cfg, node, t, b));
+                    terms.push(Self::term_data(cfg, icm.as_ref(), node, t, b));
                 }
             }
         }
@@ -394,22 +495,55 @@ impl NlheGame {
             maps,
             root_weights,
             normalizer,
+            icm,
             lock_at,
             locks,
         })
     }
 
-    /// Terminal payoffs. See the module docs for the derivation.
-    fn term_data(cfg: &SolveConfig, node: &Node, t: &TreeTerminal, board: u32) -> TermData {
+    /// Terminal payoffs. See the module docs for both derivations.
+    fn term_data(
+        cfg: &SolveConfig,
+        icm: Option<&Icm>,
+        node: &Node,
+        t: &TreeTerminal,
+        board: u32,
+    ) -> TermData {
         let pot = node.pot;
         let net = pot - cfg.rake.amount(pot);
-        // stake_p = starting_pot/2 + postflop contribution of p.
-        let stake = [
-            cfg.starting_pot * 0.5 + (cfg.effective_stack - node.stacks[0]),
-            cfg.starting_pot * 0.5 + (cfg.effective_stack - node.stacks[1]),
-        ];
-        let win = [net - stake[0], net - stake[1]];
-        let lose = [-stake[0], -stake[1]];
+        let (win, lose, chop) = match icm {
+            // Chips. The original branch, untouched.
+            None => {
+                // stake_p = starting_pot/2 + postflop contribution of p.
+                let stake = [
+                    cfg.starting_pot * 0.5 + (cfg.effective_stack - node.stacks[0]),
+                    cfg.starting_pot * 0.5 + (cfg.effective_stack - node.stacks[1]),
+                ];
+                let win = [net - stake[0], net - stake[1]];
+                let lose = [-stake[0], -stake[1]];
+                // Half the post-rake pot, minus the stake. The same f64 midpoint
+                // `showdown_ev_ranked` used to compute internally, moved out here.
+                let chop = [(win[0] + lose[0]) * 0.5, (win[1] + lose[1]) * 0.5];
+                (win, lose, chop)
+            }
+            // Tournament equity. Three DP evaluations per terminal, one per outcome.
+            Some(icm) => {
+                // What each in-hand seat still has at the table with the pot not yet
+                // awarded: their stack at the root of the node, less what they put in
+                // here. The uncalled part of a bet is already back in `node.stacks`.
+                let kept = [
+                    icm.stacks[icm.seats[0]] - cfg.effective_stack + node.stacks[0],
+                    icm.stacks[icm.seats[1]] - cfg.effective_stack + node.stacks[1],
+                ];
+                let p0 = icm.payoff([kept[0] + net, kept[1]]);
+                let p1 = icm.payoff([kept[0], kept[1] + net]);
+                let split = icm.payoff([kept[0] + net * 0.5, kept[1] + net * 0.5]);
+                // `win[p]` is p's payoff when p is awarded the pot, `lose[p]` when the
+                // opponent is. Those are two readings of the same two vectors — which
+                // is exactly why they no longer sum to zero.
+                ([p0[0], p1[1]], [p1[0], p0[1]], split)
+            }
+        };
         TermData {
             board,
             folder: match t {
@@ -418,9 +552,7 @@ impl NlheGame {
             },
             win,
             lose,
-            // Half the post-rake pot, minus the stake. The same f64 midpoint
-            // `showdown_ev_ranked` used to compute internally, moved out here.
-            chop: [(win[0] + lose[0]) * 0.5, (win[1] + lose[1]) * 0.5],
+            chop,
         }
     }
 
@@ -526,9 +658,18 @@ impl NlheGame {
     ///
     /// The two players' pot-share EVs sum to `starting_pot` (less rake), which is what a
     /// solver UI shows beside a range.
+    ///
+    /// Under a tournament payoff map the credit handed back is the seat's own root
+    /// equity in CSTE chips instead, so the figure reads as "what this seat is worth
+    /// right now" — the same question, the same slot, in the unit the solve is scored
+    /// in. The two seats' figures then sum to the pair's absolute equity, not to
+    /// `starting_pot`; nothing in the file format changes.
     pub fn ev_pot_share(&self, hero: u8, ev_zero_sum: f32) -> f32 {
         debug_assert!(hero < 2, "player must be 0 or 1");
-        ev_zero_sum + (self.cfg.starting_pot * 0.5) as f32
+        match &self.icm {
+            None => ev_zero_sum + (self.cfg.starting_pot * 0.5) as f32,
+            Some(icm) => ev_zero_sum + (icm.root[icm.seats[hero as usize]] * icm.scale) as f32,
+        }
     }
 }
 
@@ -601,6 +742,12 @@ impl Game for NlheGame {
 
     fn root_pot(&self) -> f32 {
         self.cfg.starting_pot as f32
+    }
+
+    fn zero_sum(&self) -> bool {
+        // An ICM spot is general-sum: the frozen field absorbs equity whenever chips
+        // move, and by a different amount at every terminal. See the module docs.
+        self.icm.is_none()
     }
 
     fn locked_strategy(&self, node: u32) -> Option<&[f32]> {
@@ -1539,6 +1686,468 @@ mod tests {
             assert!(
                 (mean - ev).abs() < 2e-3,
                 "player {hero}: weighted mean of per-combo EVs {mean} != range EV {ev}"
+            );
+        }
+    }
+
+    // =====================================================================
+    // TOURNAMENT PAYOFFS (ICM)
+    // =====================================================================
+    //
+    // One spot throughout: the milestone-3 river shape (Ks 7d 2c 8h 3d, KK/A4s/A5s
+    // vs TT/JJ, disjoint card sets so no pair ever chops) rescaled to tournament
+    // chips. Ten seats of 1500 behind, 300 already in the middle between the two
+    // in-hand seats, one all-in sizing. A shove-call therefore moves 1650 chips,
+    // more than a full starting stack, which is where ICM pressure lives.
+    //
+    // Two things make this the right spot. The ranges are disjoint, so every
+    // showdown pair has a strict winner and `u0 + u1` is never the trivially-zero
+    // chop case. And the tree has two chip-transfer magnitudes (150 at a
+    // check-check showdown or a shove-fold, 1650 at a shove-call), so the leakage
+    // has to *vary*: a constant-sum bug cannot hide in it.
+
+    const T_STACKS: [f64; 10] = [1500.0; 10];
+    /// A standard 10-man SNG ladder: the bubble is seat 4.
+    const TOP_HEAVY: [f64; 3] = [500.0, 300.0, 200.0];
+    /// Seven equal prizes out of ten seats: a satellite, where surviving is
+    /// everything and winning chips is worth almost nothing.
+    const SATELLITE: [f64; 7] = [100.0; 7];
+    /// `sum(stacks) + starting_pot`, the chips at the table.
+    const T_CHIPS: f64 = 15_000.0 + 300.0;
+
+    /// The committed NashConv curve for `nashconv_falls_on_a_bubble_spot`: CSTE chips
+    /// at every 1000th of 20000 iterations, measured on x86_64-pc-windows-msvc and
+    /// identical with and without the `parallel` feature (this tree has no chance
+    /// nodes, so there is nothing to fork). DCFR is not monotone report to report and
+    /// this curve is not pinned as if it were; what is pinned is the shape and the
+    /// magnitude, to 2%. If a change moves it, the change moved the ICM payoff map.
+    const CURVE: [f32; 20] = [
+        0.102616, 0.066776, 0.028905, 0.061686, 0.047737, 0.043317, 0.028395, 0.012058,
+        0.011430, 0.024952, 0.017841, 0.005245, 0.023282, 0.008537, 0.006163, 0.010473,
+        0.010642, 0.010539, 0.008914, 0.005733,
+    ];
+
+    fn bubble_cfg() -> SolveConfig {
+        let mut cfg = SolveConfig {
+            board: M3_BOARD.to_string(),
+            oop_range: M3_OOP.to_string(),
+            ip_range: M3_IP.to_string(),
+            effective_stack: 1500.0,
+            starting_pot: 300.0,
+            raise_cap: 0,
+            ..SolveConfig::default()
+        };
+        cfg.sizings.oop.river.bet = Sizings::new(&[], true);
+        cfg.sizings.ip.river.bet = Sizings::new(&[], true);
+        cfg
+    }
+
+    fn with_payouts(payouts: &[f64]) -> SolveConfig {
+        let mut cfg = bubble_cfg();
+        cfg.tournament = Some(crate::config::Tournament {
+            payouts: payouts.to_vec(),
+            stacks: T_STACKS.to_vec(),
+            seats: [0, 1],
+        });
+        cfg
+    }
+
+    /// Index of an action within its node's list, for indexing a strategy array.
+    fn action_index(g: &NlheGame, node: u32, want: ActionLabel) -> usize {
+        match &g.tree().node(node).kind {
+            NodeKind::Decision { actions, .. } => actions
+                .iter()
+                .position(|a| a.label == want)
+                .unwrap_or_else(|| panic!("no {want:?} at node {node}")),
+            other => panic!("node {node} is not a decision: {other:?}"),
+        }
+    }
+
+    /// Largest absolute difference between two solves' average strategies over every
+    /// decision node, plus the number of entries compared.
+    fn strategy_gap(a: &Solver<NlheGame>, b: &Solver<NlheGame>) -> (f32, usize) {
+        assert_eq!(a.game().num_nodes(), b.game().num_nodes(), "same tree");
+        let (mut worst, mut entries) = (0.0f32, 0usize);
+        for idx in 0..a.game().num_nodes() as u32 {
+            if !matches!(a.game().node(idx), NodeInfo::Decision { .. }) {
+                continue;
+            }
+            let (sa, sb) = (a.average_strategy(idx), b.average_strategy(idx));
+            assert_eq!(sa.len(), sb.len(), "node {idx}: strategy length");
+            entries += sa.len();
+            for (x, y) in sa.iter().zip(&sb) {
+                worst = worst.max((x - y).abs());
+            }
+        }
+        (worst, entries)
+    }
+
+    /// Winner-take-all with one prize equal to every chip at the table makes
+    /// Malmuth-Harville exactly chip-proportional and the CSTE scale exactly 1, so the
+    /// ICM payoff collapses to `award - stake`: the chip game. Not bit-identical on
+    /// purpose, and the tolerance says so. The two branches reach the same number
+    /// through different f64 arithmetic (a divide and a multiply through the DP,
+    /// versus a subtraction).
+    #[test]
+    fn winner_take_all_reproduces_the_chip_solve() {
+        let chips = bubble_cfg();
+        let wta = with_payouts(&[T_CHIPS]);
+
+        let (a, _) = solve(&chips, 4_000, 0);
+        let (b, _) = solve(&wta, 4_000, 0);
+        assert!(a.game().zero_sum(), "a chip solve is zero-sum");
+        assert!(!b.game().zero_sum(), "an ICM solve is general-sum, WTA included");
+
+        let (worst, entries) = strategy_gap(&a, &b);
+        let (ra, rb) = (a.exploitability(), b.exploitability());
+        println!(
+            "WTA vs chipEV: {} nodes, {entries} strategy entries compared, worst |diff| \
+             {worst:.3e} (tol 1e-4)",
+            a.game().num_nodes()
+        );
+        println!(
+            "WTA vs chipEV: NashConv {:.6} vs exploitability {:.6} chips, EV0 {:.6} vs {:.6}",
+            rb.chips,
+            ra.chips,
+            b.expected_value(0),
+            a.expected_value(0)
+        );
+        assert!(worst < 1e-4, "strategies moved by {worst}");
+        assert!(
+            (rb.chips - ra.chips).abs() < 1e-4,
+            "NashConv {} vs exploitability {}",
+            rb.chips,
+            ra.chips
+        );
+    }
+
+    /// The invariant that replaces zero-sum. Chips moving between two seats destroys
+    /// equity for the pair and hands it to the frozen field, so `u0 + u1 < 0` at every
+    /// terminal, and by a *different* amount at each because the terminals move
+    /// different numbers of chips. A constant-sum implementation (the mistake the
+    /// engine map made) passes a plain non-zero check and fails the variance one.
+    #[test]
+    fn icm_leaks_equity_to_the_field() {
+        let g = NlheGame::new(&with_payouts(&TOP_HEAVY)).expect("builds");
+        let scale = T_CHIPS / TOP_HEAVY.iter().sum::<f64>();
+        let terminals: Vec<u32> = (0..g.num_nodes() as u32)
+            .filter(|&i| matches!(g.node(i), NodeInfo::Terminal))
+            .collect();
+        assert_eq!(terminals.len(), 5, "two folds and three showdowns");
+
+        let mut per_terminal = Vec::new();
+        let mut pairs = 0usize;
+        let mut worst = 0.0f32;
+        for &t in &terminals {
+            let (n0, n1) = (g.combo_count(t, 0), g.combo_count(t, 1));
+            let mut sum_00 = 0.0f32;
+            for j in 0..n1 {
+                let mut reach1 = vec![0.0f32; n1];
+                reach1[j] = 1.0;
+                let mut u0 = vec![0.0f32; n0];
+                g.terminal_utility(t, 0, &reach1, &mut u0);
+                for i in 0..n0 {
+                    let mut reach0 = vec![0.0f32; n0];
+                    reach0[i] = 1.0;
+                    let mut u1 = vec![0.0f32; n1];
+                    g.terminal_utility(t, 1, &reach0, &mut u1);
+                    let leak = u0[i] + u1[j];
+                    pairs += 1;
+                    worst = worst.min(leak);
+                    assert!(
+                        leak < 0.0,
+                        "terminal {t} pair ({i},{j}): {} + {} = {leak}, not a loss to the field",
+                        u0[i],
+                        u1[j]
+                    );
+                    if i == 0 && j == 0 {
+                        sum_00 = leak;
+                    }
+                }
+            }
+            per_terminal.push((t, g.node_at(t).pot, sum_00));
+        }
+
+        println!(
+            "icm leakage: {} terminals, {pairs} combo pairs probed, CSTE scale {scale:.4}",
+            terminals.len()
+        );
+        for (t, pot, leak) in &per_terminal {
+            println!(
+                "  terminal {t:>2}  pot {pot:>7.1}  u0+u1 = {leak:+.4} CSTE ({:+.4} in payout units)",
+                *leak as f64 / scale
+            );
+        }
+        let lo = per_terminal.iter().map(|x| x.2).fold(f32::MAX, f32::min);
+        let hi = per_terminal.iter().map(|x| x.2).fold(f32::MIN, f32::max);
+        println!("  spread {lo:+.4} .. {hi:+.4} CSTE, worst pair {worst:+.4}");
+        assert!(
+            hi - lo > 1.0,
+            "leakage is nearly constant ({lo} .. {hi}); a constant-sum bug looks like this"
+        );
+    }
+
+    /// Negative control on the whole feature: a payoff map that quietly did nothing
+    /// would still pass the winner-take-all gate. Seven equal prizes out of ten seats
+    /// make survival almost everything, and the strategy has to move a long way.
+    #[test]
+    fn satellite_moves_the_strategy() {
+        let (chip, _) = solve(&bubble_cfg(), 4_000, 0);
+        let (top, _) = solve(&with_payouts(&TOP_HEAVY), 4_000, 0);
+        let (sat, _) = solve(&with_payouts(&SATELLITE), 4_000, 0);
+
+        let g = chip.game();
+        let root = g.root();
+        let shove = action_index(g, root, ActionLabel::AllIn);
+        let facing = action(g, root, ActionLabel::AllIn);
+        let call = action_index(g, facing, ActionLabel::Call);
+        let air = slots_for(g, 0, &AIR);
+        let bluffcatch: Vec<usize> = BLUFFCATCH.iter().map(|t| slot(g, facing, 1, t)).collect();
+        let (n_oop, n_ip) = (g.combo_count(root, 0), g.combo_count(facing, 1));
+
+        let read = |s: &Solver<NlheGame>| {
+            let bluff = freq(&s.average_strategy(root), n_oop, shove, &air) * 100.0;
+            let defend = freq(&s.average_strategy(facing), n_ip, call, &bluffcatch) * 100.0;
+            (bluff, defend)
+        };
+        let (b_chip, d_chip) = read(&chip);
+        let (b_top, d_top) = read(&top);
+        let (b_sat, d_sat) = read(&sat);
+
+        println!(
+            "aggression at node {root} (OOP shoves air) and node {facing} (IP calls a \
+             bluffcatcher), over {} air combos / {} bluffcatchers:",
+            air.len(),
+            bluffcatch.len()
+        );
+        println!("  chipEV      bluff {b_chip:6.2}%  defend {d_chip:6.2}%");
+        println!("  top-heavy   bluff {b_top:6.2}%  defend {d_top:6.2}%");
+        println!("  satellite   bluff {b_sat:6.2}%  defend {d_sat:6.2}%");
+
+        println!(
+            "  MAGNITUDE SANITY (printed, not asserted): the flatter the ladder the less \
+             a bluffcatcher can call, {d_chip:.2}% -> {d_top:.2}% -> {d_sat:.2}%, and the \
+             more the shover gets away with, {b_chip:.2}% -> {b_top:.2}% -> {b_sat:.2}%. \
+             The published 66%/82% flop-check figure is for a 30bb SRP, a spot this \
+             river tree cannot produce."
+        );
+
+        let moved = (b_sat - b_chip).abs().max((d_sat - d_chip).abs());
+        assert!(
+            moved > 10.0,
+            "satellite ICM moved no frequency more than {moved:.2} points; the payoff map \
+             is not reaching the strategy"
+        );
+    }
+
+    /// The chop is not the midpoint under ICM. Equity is concave in chips, so a split
+    /// pot, where no chips move at all, is worth strictly more than half of winning
+    /// plus half of losing. Deriving `chop` from `win`/`lose`, which is what the code
+    /// did before Stage 1b, silently taxes every tie.
+    #[test]
+    fn icm_chop_is_not_the_midpoint() {
+        // Both players hold exactly QQ on a board that pairs nothing they hold, so
+        // every non-conflicting pair is a dead heat.
+        let mut cfg = with_payouts(&TOP_HEAVY);
+        cfg.board = "Ah Kd 7c 5s 2d".to_string();
+        cfg.oop_range = "QQ".to_string();
+        cfg.ip_range = "QQ".to_string();
+        let g = NlheGame::new(&cfg).expect("builds");
+
+        // The all-in showdown: the biggest pot in the tree, so the biggest concavity.
+        let showdown = (0..g.num_nodes() as u32)
+            .filter(|&i| matches!(g.node(i), NodeInfo::Terminal))
+            .max_by(|&a, &b| g.node_at(a).pot.total_cmp(&g.node_at(b).pot))
+            .expect("a terminal");
+        let t = &g.terms[g.node_aux[showdown as usize] as usize];
+        let midpoint = [(t.win[0] + t.lose[0]) * 0.5, (t.win[1] + t.lose[1]) * 0.5];
+        println!(
+            "terminal {showdown} (pot {:.1}): win {:?} lose {:?} chop {:?}",
+            g.node_at(showdown).pot,
+            t.win,
+            t.lose,
+            t.chop
+        );
+        for (p, &mid) in midpoint.iter().enumerate() {
+            let margin = t.chop[p] - mid;
+            println!(
+                "  player {p}: chop {:+.6} vs midpoint {mid:+.6}, margin {margin:+.6} CSTE",
+                t.chop[p]
+            );
+            assert!(
+                t.chop[p].abs() < 1e-3,
+                "player {p}: a split pot moves no chips, so it must pay ~0, got {}",
+                t.chop[p]
+            );
+            assert!(
+                margin > 1.0,
+                "player {p}: chop {} is only {margin} above the midpoint {mid}; the \
+                 concavity is not being expressed",
+                t.chop[p]
+            );
+        }
+
+        // ...and the value really does reach the payoff path, not just the table: a
+        // tying pair nets both players exactly 0 through `terminal_utility`.
+        let (n0, n1) = (g.combo_count(showdown, 0), g.combo_count(showdown, 1));
+        let mut probed = 0usize;
+        for j in 0..n1 {
+            let mut reach1 = vec![0.0f32; n1];
+            reach1[j] = 1.0;
+            let mut u0 = vec![0.0f32; n0];
+            g.terminal_utility(showdown, 0, &reach1, &mut u0);
+            for i in 0..n0 {
+                let mut reach0 = vec![0.0f32; n0];
+                reach0[i] = 1.0;
+                let mut u1 = vec![0.0f32; n1];
+                g.terminal_utility(showdown, 1, &reach0, &mut u1);
+                probed += 1;
+                assert!(
+                    u0[i].abs() < 1e-3 && u1[j].abs() < 1e-3,
+                    "QQ vs QQ pair ({i},{j}) is not paid as a chop: {} / {}",
+                    u0[i],
+                    u1[j]
+                );
+            }
+        }
+        println!("  {probed} QQ-vs-QQ pairs probed, all paid ~0 to both players");
+    }
+
+    /// Fail-on-purpose on the metric itself. A player locked to always fold to the
+    /// shove is playing a strategy that is terrible in the *unlocked* game, and `gain`
+    /// has to say so loudly. Measuring the locked profile inside its own locked game
+    /// reports far less by construction, because the lock is not a deviation the best
+    /// response is allowed to take, so the measurement is made against the game
+    /// without the lock. Both numbers are printed.
+    #[test]
+    fn a_locked_folder_has_an_exploding_gain() {
+        let mut locked = with_payouts(&TOP_HEAVY);
+        locked.locks = vec![crate::config::NodeLock {
+            line: ActionLabel::AllIn.token(),
+            player: 1,
+            freqs: Some(vec![1.0, 0.0]),
+            strategy: None,
+        }];
+        let (s, _) = solve(&locked, 2_000, 0);
+
+        let free = NlheGame::new(&with_payouts(&TOP_HEAVY)).expect("builds");
+        let inside = s.exploitability();
+        let outside = br::exploitability(&free, &s.average());
+        let pot = free.root_pot();
+        println!(
+            "locked IP folds to every shove: inside the locked game gain {:?}, NashConv \
+             {:.4} = {:.3}% of pot",
+            inside.gain, inside.chips, inside.pct_of_pot
+        );
+        println!(
+            "  measured in the unlocked game: gain {:?}, NashConv {:.4} CSTE chips = \
+             {:.3}% of pot {pot}",
+            outside.gain, outside.chips, outside.pct_of_pot
+        );
+        let ip_pct = 100.0 * outside.gain[1] / pot;
+        println!("  IP's own gain is {ip_pct:.3}% of pot");
+        assert!(
+            ip_pct > 5.0,
+            "IP folds every shove and `gain` only calls it {ip_pct}% of pot"
+        );
+    }
+
+    /// In the chip game `gain` is the best-response value itself, bit for bit, and the
+    /// two sum to exactly the number this crate has always called exploitability. That
+    /// identity is what makes the new field free on the chip path.
+    #[test]
+    fn gain_is_the_best_response_value_in_the_chip_game() {
+        for (name, cfg) in [("milestone 3", milestone3_cfg()), ("bubble shape", bubble_cfg())] {
+            let (s, _) = solve(&cfg, 2_000, 0);
+            let r = s.exploitability();
+            assert!(s.game().zero_sum(), "{name}: a chip game is zero-sum");
+            assert_eq!(r.gain, r.br, "{name}: gain must be br exactly");
+            assert_eq!(
+                r.gain[0] + r.gain[1],
+                r.chips,
+                "{name}: gain must sum to the reported figure"
+            );
+            println!("{name}: br {:?} gain {:?} chips {:.9}", r.br, r.gain, r.chips);
+        }
+    }
+
+    /// Convergence evidence for an ICM spot, committed the way the chipEV milestones
+    /// are: the NashConv curve on the 10-man bubble, in CSTE chips and percent of pot,
+    /// with the volume it was measured over beside it.
+    #[test]
+    fn nashconv_falls_on_a_bubble_spot() {
+        let cfg = with_payouts(&TOP_HEAVY);
+        let g = NlheGame::new(&cfg).expect("builds");
+        let nodes = g.num_nodes();
+        let terms = (0..g.num_nodes() as u32)
+            .filter(|&i| matches!(g.node(i), NodeInfo::Terminal))
+            .count();
+        let (s, log) = solve(&cfg, 20_000, 1_000);
+        println!(
+            "bubble NashConv curve: {nodes} nodes ({terms} terminal), root combos {}v{}, \
+             20000 iterations, payouts {TOP_HEAVY:?} over {} seats, {} in-hand seats at \
+             {} chips each",
+            g.combo_count(0, 0),
+            g.combo_count(0, 1),
+            T_STACKS.len(),
+            2,
+            T_STACKS[0]
+        );
+        assert_eq!(log.len(), CURVE.len(), "one report per pinned checkpoint");
+        for ((i, chips, pct), &want) in log.iter().zip(&CURVE) {
+            println!(
+                "  iter {i:>6}  NashConv {chips:.6} CSTE chips  {pct:.6}% of pot  \
+                 (committed {want:.6})"
+            );
+            assert!(
+                (chips - want).abs() <= 0.02 * want,
+                "iter {i}: NashConv {chips} is more than 2% off the committed {want}"
+            );
+        }
+        let first = log.first().expect("a report").1;
+        let last = log.last().expect("a report").1;
+        assert!(last > 0.0, "NashConv is a non-negative quantity, got {last}");
+        assert!(
+            last < first / 5.0,
+            "NashConv {last} is not 5x below its first report {first}"
+        );
+        let r = s.exploitability();
+        assert!(r.pct_of_pot < 0.5, "final NashConv {}% of pot", r.pct_of_pot);
+    }
+
+    /// `ev_pot_share` keeps its meaning under ICM: the seat's absolute worth right
+    /// now, in the unit the solve is scored in. Chip solves are untouched.
+    #[test]
+    fn ev_pot_share_reports_absolute_equity_under_icm() {
+        let (chip, _) = solve(&bubble_cfg(), 500, 0);
+        let g = chip.game();
+        for hero in 0..2u8 {
+            let ev = chip.expected_value(hero);
+            assert_eq!(
+                g.ev_pot_share(hero, ev),
+                ev + (g.config().starting_pot * 0.5) as f32,
+                "chip path unchanged"
+            );
+        }
+
+        let (icm_solve, _) = solve(&with_payouts(&TOP_HEAVY), 500, 0);
+        let g = icm_solve.game();
+        let shares: Vec<f32> = (0..2u8)
+            .map(|h| g.ev_pot_share(h, icm_solve.expected_value(h)))
+            .collect();
+        // Each seat starts the hand worth roughly a tenth of the 1000-unit prize pool;
+        // in CSTE that is 100 * scale.
+        let scale = T_CHIPS / TOP_HEAVY.iter().sum::<f64>();
+        let flat = 100.0 * scale;
+        println!(
+            "ICM ev_pot_share: OOP {:.2}  IP {:.2} CSTE chips (an untouched 1/10th seat is \
+             {flat:.2}, scale {scale:.4})",
+            shares[0], shares[1]
+        );
+        for (h, &v) in shares.iter().enumerate() {
+            assert!(
+                (v as f64 - flat).abs() < 400.0,
+                "seat {h} is worth {v} CSTE, nowhere near a live seat's {flat}"
             );
         }
     }
