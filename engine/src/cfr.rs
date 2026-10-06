@@ -429,6 +429,19 @@ impl Store {
     }
 }
 
+/// `r / s` for `0 < r <= s`, computed as `r * (1 / s)` so every result whose reciprocal
+/// is representable stays bit-identical to earlier solves.
+///
+/// When `s` is a small enough f32 subnormal (e.g. `9.28e-42`), `1.0 / s` overflows to
+/// `inf`; the probability becomes `inf`, spreads into values and regrets as `NaN`, and
+/// never recovers. Only then fall back to a true division, which is finite because
+/// `r <= s`.
+#[inline(always)]
+fn share(r: f32, s: f32) -> f32 {
+    let q = r * (1.0 / s);
+    if q.is_finite() { q } else { r / s }
+}
+
 /// Fills `out` (action-major, `n_act * n_combo`) with regret matching over `regrets`:
 /// `sigma(a) ∝ max(R(a), 0)`, uniform when no action has positive regret.
 pub(crate) fn regret_matching(regrets: &[f32], n_act: usize, n_combo: usize, out: &mut [f32]) {
@@ -442,10 +455,9 @@ pub(crate) fn regret_matching(regrets: &[f32], n_act: usize, n_combo: usize, out
             }
         }
         if sum > 0.0 {
-            let inv = 1.0 / sum;
             for a in 0..n_act {
                 let r = regrets[a * n_combo + i];
-                out[a * n_combo + i] = if r > 0.0 { r * inv } else { 0.0 };
+                out[a * n_combo + i] = if r > 0.0 { share(r, sum) } else { 0.0 };
             }
         } else {
             for a in 0..n_act {
@@ -781,9 +793,8 @@ impl<G: Game> Solver<G> {
                 total += out[a * n_combo + i].max(0.0);
             }
             if total > 0.0 {
-                let inv = 1.0 / total;
                 for a in 0..num_actions {
-                    out[a * n_combo + i] = out[a * n_combo + i].max(0.0) * inv;
+                    out[a * n_combo + i] = share(out[a * n_combo + i].max(0.0), total);
                 }
             } else {
                 for a in 0..num_actions {
@@ -1545,6 +1556,47 @@ mod compressed_tests {
 mod tests {
     use super::*;
     use crate::game::ChanceEdge;
+
+    /// Probabilities must stay finite and sum to 1 when the positive-regret sum is an
+    /// f32 subnormal. The old `r * (1.0 / sum)` overflowed: `1.0 / 9.28e-42` is `inf`
+    /// (actual regrets seen on a diverging flop solve: `[9.28e-42, -4.644e-42]`).
+    #[test]
+    fn regret_matching_stays_finite_on_subnormal_regret_sums() {
+        let tiny = 9.28e-42f32;
+        assert!(tiny > 0.0 && !tiny.is_normal() && (1.0f32 / tiny).is_infinite());
+        // action-major, 2 actions x 3 combos: one subnormal, two subnormals, normal values.
+        let regrets = [tiny, 3.0e-42, 0.25, -4.644e-42, 1.0e-42, 0.75];
+        let mut out = [0.0f32; 6];
+        regret_matching(&regrets, 2, 3, &mut out);
+        for i in 0..3 {
+            let (a, b) = (out[i], out[3 + i]);
+            assert!(a.is_finite() && b.is_finite(), "combo {i}: {a} {b}");
+            assert!((0.0..=1.0).contains(&a) && (0.0..=1.0).contains(&b), "combo {i}: {a} {b}");
+            assert!((a + b - 1.0).abs() < 1e-6, "combo {i}: sum {}", a + b);
+        }
+        assert_eq!((out[0], out[3]), (1.0, 0.0));
+        assert_eq!((out[2], out[5]), (0.25, 0.75));
+    }
+
+    /// Average-strategy normalization must avoid the same overflow when the cumulative
+    /// strategy sum of a combo is subnormal.
+    #[test]
+    fn average_strategy_stays_finite_on_subnormal_strategy_sums() {
+        let mut s = Solver::new(PublicCard::new());
+        let n = s.offsets.len();
+        let node = (0..n as u32).find(|&i| s.sizes[i as usize] > 0).expect("a decision node");
+        let NodeInfo::Decision { player, num_actions } = s.game.node(node) else { unreachable!() };
+        let hn = s.game.combo_count(node, player);
+        let off = s.offsets[node as usize] as usize;
+        let tiny = vec![2.0e-42f32; num_actions * hn];
+        s.strat_sum.encode_from(node, off, &tiny);
+        let avg = s.average_strategy(node);
+        for i in 0..hn {
+            let sum: f32 = (0..num_actions).map(|a| avg[a * hn + i]).sum();
+            assert!(avg.iter().all(|x| x.is_finite()), "{avg:?}");
+            assert!((sum - 1.0).abs() < 1e-6, "combo {i}: sum {sum}");
+        }
+    }
 
     /// Smallest game that exercises the chance machinery the NLHE tree will lean on:
     /// a chance edge that **shrinks** both players' combo sets, with a different
